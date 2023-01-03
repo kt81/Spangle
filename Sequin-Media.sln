@@ -1,0 +1,45 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sequin.Core", "src\Sequin.Core\Sequin.Core.csproj", "{A8340966-1FBF-4B63-96DD-1ED284C01367}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sequin.AspNetCore", "src\Sequin.AspNetCore\Sequin.AspNetCore.csproj", "{F677476B-0B39-4B4A-BB88-384EA76F436F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{76E37C85-31FB-4126-B65D-4272EF409FFC}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{094F95A7-D650-4408-8B17-081DEBBD5D5D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "etc", "etc", "{33FC8702-CE67-4990-AF2F-F797DB1C3DAD}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitignore = .gitignore
+		Directory.Build.props = Directory.Build.props
+		.gitattributes = .gitattributes
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sequin.Tests", "tests\Sequin.Tests\Sequin.Tests.csproj", "{59842F61-E834-4069-BAA2-6E9F07C69D65}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A8340966-1FBF-4B63-96DD-1ED284C01367}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A8340966-1FBF-4B63-96DD-1ED284C01367}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A8340966-1FBF-4B63-96DD-1ED284C01367}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A8340966-1FBF-4B63-96DD-1ED284C01367}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F677476B-0B39-4B4A-BB88-384EA76F436F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F677476B-0B39-4B4A-BB88-384EA76F436F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F677476B-0B39-4B4A-BB88-384EA76F436F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F677476B-0B39-4B4A-BB88-384EA76F436F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{59842F61-E834-4069-BAA2-6E9F07C69D65}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{59842F61-E834-4069-BAA2-6E9F07C69D65}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{59842F61-E834-4069-BAA2-6E9F07C69D65}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{59842F61-E834-4069-BAA2-6E9F07C69D65}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A8340966-1FBF-4B63-96DD-1ED284C01367} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
+		{F677476B-0B39-4B4A-BB88-384EA76F436F} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
+		{59842F61-E834-4069-BAA2-6E9F07C69D65} = {094F95A7-D650-4408-8B17-081DEBBD5D5D}
+	EndGlobalSection
+EndGlobal
