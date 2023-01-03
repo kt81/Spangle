@@ -8,7 +8,7 @@
     }
   },
   "profiles": {
-    "SpangleWebHost": {
+    "Spangle.AspNetCore": {
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": true,
