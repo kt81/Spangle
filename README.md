@@ -1,4 +1,4 @@
-﻿Sequin Media Server (WIP)
+﻿Spangle Media Server (WIP)
 ===================
 
 Target
