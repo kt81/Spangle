@@ -5,12 +5,15 @@ namespace Spangle.AspNetCore;
 
 public class RtmpConnectionHandler : ConnectionHandler
 {
+    private ILoggerFactory _loggerFactory;
+    public RtmpConnectionHandler(ILoggerFactory loggerFactory)
+    {
+        _loggerFactory = loggerFactory;
+    }
+    
     public override async Task OnConnectedAsync(ConnectionContext connection)
     {
-        await using var reader = new BufferedStream(connection.Transport.Input.AsStream());
-        await using var writer = new BufferedStream(connection.Transport.Output.AsStream());
-        var rtmp = new RtmpReceiver(reader, writer);
-
+        await using var rtmp = new RtmpReceiver(connection.Transport, _loggerFactory);
         await rtmp.BeginReadAsync();
     }
 }

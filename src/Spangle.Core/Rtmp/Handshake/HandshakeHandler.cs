@@ -1,5 +1,11 @@
-﻿using System.Diagnostics;
+﻿using System.Buffers;
+using System.IO.Pipelines;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
+using Spangle.IO;
+using ValueTaskSupplement;
+using ZLogger;
 
 namespace Spangle.Rtmp.Handshake;
 
@@ -41,141 +47,121 @@ namespace Spangle.Rtmp.Handshake;
  */
 internal class HandshakeHandler
 {
-    private HandshakeState _state = HandshakeState.Uninitialized;
-    private readonly BufferedStream _reader;
-    private readonly BufferedStream _writer;
-    private readonly byte[] _readBuffer = new byte[2000];
-    private readonly byte[] _writeBuffer = new byte[2000];
+    private          HandshakeState _state = HandshakeState.Uninitialized;
+    private readonly PipeReader     _reader;
+    private readonly PipeWriter     _writer;
+    private readonly ILogger        _logger;
 
-    private readonly CancellationToken _cancellationToken;
+    private static readonly int s_sizeOfC0S0 = Marshal.SizeOf<C0S0>();
+    private static readonly int s_sizeOfC1S1 = Marshal.SizeOf<C1S1>();
+    private static readonly int s_sizeOfC2S2 = Marshal.SizeOf<C2S2>();
 
-    private static readonly C0S0 s_s0 = new(RtmpVersion.Rtmp3);
-
-    public HandshakeState State
+    private HandshakeState State
     {
-        get => _state;
+        // get => _state;
         set
         {
-            Debug.WriteLine($"State Changed: {_state} -> {value}");
+            _logger.ZLogDebug("State Changed: {0} -> {1}", _state, value);
             _state = value;
         }
     }
 
-    public HandshakeHandler(BufferedStream reader, BufferedStream writer, CancellationToken cancellationToken = default)
+    public HandshakeHandler(PipeReader reader, PipeWriter writer, ILogger logger) 
     {
-        if (!reader.CanRead)
-        {
-            throw new ArgumentException("Must be readable", nameof(reader));
-        }
-
-        if (!writer.CanWrite)
-        {
-            throw new ArgumentException("Must be writable", nameof(writer));
-        }
         _reader = reader;
         _writer = writer;
-        _cancellationToken = cancellationToken;
+        _logger = logger;
     }
 
-    public async ValueTask DoHandshakeAsync()
+    public async ValueTask DoHandshakeAsync(CancellationToken ct)
     {
-        await ReadC0();
-        await SendS0();
-        var tC1 = ReadC1();
-        var tS1 = SendS1();
-
-        var c1 = await tC1;
-        var s1 = await tS1;
-        await EnsureSent();
+        ReadOnlySequence<byte> buff;
+        ReadResult res;
+        
+        // Deal C0S0
+        (buff, res) = await _reader.ReadExactlyAsync(s_sizeOfC0S0, ct);
+        VerifyC0(buff);
+        _reader.AdvanceTo(buff.End);
+        _logger.ZLogTrace("AdvanceTo {0} => {1}", res.Buffer.Start.GetInteger(), buff.End.GetInteger());
+        var s0 = new C0S0(RtmpVersion.Rtmp3);
+        SendMessage(ref s0);
+        
+        // Deal C1S1
+        var tC1 =  _reader.ReadExactlyAsync(s_sizeOfC1S1, ct);
+        var s1 = new C1S1(NowMs());
+        SendMessage(ref s1);
+        ((buff, res), _) = await ValueTaskEx.WhenAll(tC1, _writer.FlushAsync(ct));
         State = HandshakeState.VersionSent;
-
-        var tS2 = SendS2(c1);
-        var tC2 = ReadC2(s1);
-
-        await tS2;
-        await EnsureSent();
+        
+        // Deal C2S2
+        VerifyC1AndSendS2(buff);
+        await _writer.FlushAsync(ct);
         State = HandshakeState.AckSent;
-
-        await tC2;
+        _reader.AdvanceTo(buff.End);
+        _logger.ZLogTrace("AdvanceTo {0} => {1}", res.Buffer.Start.GetInteger(), buff.End.GetInteger());
+        (buff, res) = await _reader.ReadExactlyAsync(s_sizeOfC2S2, ct);
+        VerifyC2(buff, ref s1);
+        
+        // Mark the buffer up to end of C2 has been consumed
+        _reader.AdvanceTo(buff.End);
+        _logger.ZLogTrace("AdvanceTo {0} => {1}", res.Buffer.Start.GetInteger(), buff.End.GetInteger());
+        
+        // Done!!
         State = HandshakeState.HandshakeDone;
     }
 
-    private Task EnsureSent()
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ref readonly TMessage AsRefOrCopy<TMessage>(in ReadOnlySequence<byte> buff) where TMessage : unmanaged
     {
-        _cancellationToken.ThrowIfCancellationRequested();
-        return _writer.FlushAsync(_cancellationToken);
+        if (buff.IsSingleSegment)
+        {
+            _logger.ZLogTrace("{0} is SingleSegment", typeof(TMessage));
+            return ref MemoryMarshal.AsRef<TMessage>(buff.FirstSpan);
+        }
+
+        _logger.ZLogTrace("{0} has multiple segments", typeof(TMessage));
+        Span<byte> copied = new byte[(int)buff.Length];
+        buff.CopyTo(copied);
+        return ref MemoryMarshal.AsRef<TMessage>(copied);
     }
 
-    private async ValueTask<C0S0> ReadC0()
+    private void VerifyC0(in ReadOnlySequence<byte> buff)
     {
-        var c0 = await ReadMessage<C0S0>();
+        ref readonly var c0 = ref AsRefOrCopy<C0S0>(buff);
         if (c0.RtmpVersion != RtmpVersion.Rtmp3)
         {
             throw new Exception();
         }
-
-        return c0;
     }
 
-    private async ValueTask<C1S1> ReadC1()
+    private void VerifyC1AndSendS2(in ReadOnlySequence<byte> buff)
     {
-        return await ReadMessage<C1S1>();
+        ref readonly var c1 = ref AsRefOrCopy<C1S1>(buff);
+        var s2 = new C2S2(in c1, NowMs());
+        SendMessage(ref s2);
     }
 
-    private async ValueTask<C2S2> ReadC2(C1S1 s1)
+    private void VerifyC2(in ReadOnlySequence<byte> buff, ref C1S1 s1)
     {
-        var c2 = await ReadMessage<C2S2>();
-        if (!c2.RandomEchoSpan.SequenceEqual(s1.RandomSpan))
+        ref readonly var c2 = ref AsRefOrCopy<C2S2>(buff);
+        if (c2.RandomEchoSpan.SequenceEqual(s1.RandomSpan))
         {
-            throw new Exception();
+            return;
         }
 
-        return c2;
+        _logger.ZLogError("RandomEcho is mismatched. Orig:{0}... Echo:{1}...", 
+            BitConverter.ToString(s1.RandomSpan[..10].ToArray()),
+            BitConverter.ToString(c2.RandomEchoSpan[..10].ToArray()));
+        throw new Exception("Not match");
     }
 
-    private async ValueTask SendS0()
+    private void SendMessage<T>(ref T message) where T : unmanaged
     {
-        await SendMessage(s_s0);
-    }
-
-    private async ValueTask<C1S1> SendS1()
-    {
-        var s1 = new C1S1(NowMs());
-        await SendMessage(s1);
-        return s1;
-    }
-
-    private async ValueTask<C2S2> SendS2(C1S1 c1)
-    {
-        var s2 = new C2S2(c1, NowMs());
-        await SendMessage(s2);
-        return s2;
-    }
-
-    private async ValueTask<T> ReadMessage<T>() where T : struct
-    {
-        var messageLen = Marshal.SizeOf<T>();
-        var pos = 0;
-        do
-        {
-            _cancellationToken.ThrowIfCancellationRequested();
-            pos = await _reader.ReadAsync(_readBuffer.AsMemory(pos, messageLen - pos), _cancellationToken);
-        } while (pos < messageLen);
-        return MemoryMarshal.AsRef<T>(_readBuffer.AsSpan()[..messageLen]);
-    }
-
-    private async ValueTask SendMessage<T>(T message) where T : struct
-    {
-        _cancellationToken.ThrowIfCancellationRequested();
-        
         var length = Marshal.SizeOf(message);
-        var ptr = Marshal.AllocHGlobal(length);
+        var buff = _writer.GetMemory(length);
 
-        Marshal.StructureToPtr(message, ptr, true);
-        Marshal.Copy(ptr, _writeBuffer, 0, length);
-        Marshal.FreeHGlobal(ptr);
-
-        await _writer.WriteAsync(_writeBuffer.AsMemory(0, length), _cancellationToken);
+        MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref message, 1)).CopyTo(buff.Span);
+        _writer.Advance(length);
     }
 
     private static uint NowMs()
@@ -183,7 +169,7 @@ internal class HandshakeHandler
         return (uint)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     }
 
-    public enum HandshakeState
+    private enum HandshakeState
     {
         Uninitialized = 0,
         VersionSent,

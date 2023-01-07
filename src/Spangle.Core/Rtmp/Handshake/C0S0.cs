@@ -15,7 +15,7 @@ namespace Spangle.Rtmp.Handshake;
   C0 and S0 bits 
  */
 [StructLayout(LayoutKind.Sequential, Pack = 1, Size = 1)] 
-internal struct C0S0
+internal readonly struct C0S0
 {
     public readonly RtmpVersion RtmpVersion;
 

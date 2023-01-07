@@ -1,17 +1,25 @@
-﻿using System.Buffers;
+﻿using System.IO.Pipelines;
+using Microsoft.Extensions.Logging;
+using ZLogger;
 
 namespace Spangle.Rtmp.Chunk;
 
+/// <summary>
+/// ChunkReader
+/// </summary>
+/// <remarks>
+/// </remarks>
 internal partial class ChunkReader 
 {
-    private const int ChunkMaxSize = 65536;
-    private readonly byte[] _chunkBuffer = ArrayPool<byte>.Shared.Rent(ChunkMaxSize);
+    private static readonly IReadOnlyDictionary<Type, IChunkProcessor> s_processors;
+    
     private IChunkProcessor? _currentProcess;
-    private static IReadOnlyDictionary<Type, IChunkProcessor> s_Processors;
-    private BufferedStream _reader;
-    private BufferedStream _writer;
-    private int _buffLen = 0;
-    private Chunk _chunk = new();
+    
+    private readonly PipeReader _reader;
+    private readonly PipeWriter _writer;
+    private readonly ILogger    _logger;
+    
+    private Chunk _chunk;
 
     static ChunkReader()
     {
@@ -21,20 +29,20 @@ internal partial class ChunkReader
             [typeof(MessageHeaderProcessor)] = new MessageHeaderProcessor(),
             [typeof(BodyParser)] = new BodyParser(),
         };
-        s_Processors = d.AsReadOnly();
+        s_processors = d.AsReadOnly();
     }
 
-    public ChunkReader(BufferedStream reader, BufferedStream writer)
+    public ChunkReader(PipeReader reader, PipeWriter writer, ILogger logger)
     {
         _reader = reader;
         _writer = writer;
+        _logger = logger;
     }
 
     public async ValueTask<Chunk> ReadAsync(CancellationToken ct = default)
     {
         // Initialize all states
-        _currentProcess = s_Processors[typeof(BasicHeaderProcessor)];
-        Array.Fill(_chunkBuffer, (byte)0);
+        _currentProcess = s_processors[typeof(BasicHeaderProcessor)];
         
         while (_currentProcess != null)
         {
@@ -45,11 +53,18 @@ internal partial class ChunkReader
         return _chunk;
     }
 
-    private IChunkProcessor Next<TProcessor>() where TProcessor : IChunkProcessor
+    private void Next<TProcessor>() where TProcessor : IChunkProcessor
     {
-        return _currentProcess = s_Processors[typeof(TProcessor)];
+        _currentProcess = s_processors[typeof(TProcessor)];
+        _logger.ZLogTrace("State changed => {0}", typeof(TProcessor).Name);
     }
     
+    /// <summary>
+    /// ChunkProcessor interface for each chunk parts
+    /// </summary>
+    /// <remarks>
+    /// The implemented classes MUST NOT directly map a structure to the pipe buffer. Consume used buffer every time in read.
+    /// </remarks>
     private interface IChunkProcessor
     {
         /// <summary>

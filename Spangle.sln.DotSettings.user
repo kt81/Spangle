@@ -4,5 +4,10 @@
   &lt;TestAncestor&gt;&#xD;
     &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Interop.BigEndianUInt24Test&lt;/TestId&gt;&#xD;
     &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Interop.BigEndianUInt32Test&lt;/TestId&gt;&#xD;
+    &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.MarshalLearningTest.TestAsRef&lt;/TestId&gt;&#xD;
+    &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.MarshalLearningTest&lt;/TestId&gt;&#xD;
+    &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.Marshal.MarshalLearningTest.TestAsRefSpan&lt;/TestId&gt;&#xD;
+    &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.Marshal.MarshalLearningTest.TestAsRefPointer&lt;/TestId&gt;&#xD;
+    &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.Marshal.MarshalLearningTest&lt;/TestId&gt;&#xD;
   &lt;/TestAncestor&gt;&#xD;
 &lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>

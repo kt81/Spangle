@@ -8,9 +8,12 @@ internal partial class ChunkReader
         {
             switch (context._chunk.MessageHeader.TypeId)
             {
+                case MessageType.SetChunkSize:
+                    throw new NotImplementedException();
                 case MessageType.CommandAmf0:
                     // context.Next<>();
                     throw new NotImplementedException();
+            
             }
             return ValueTask.CompletedTask;
         }

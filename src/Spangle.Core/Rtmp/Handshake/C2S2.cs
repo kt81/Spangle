@@ -1,5 +1,5 @@
 ﻿using System.Runtime.InteropServices;
-using Spangle.Interop;
+using Spangle.IO.Interop;
 
 namespace Spangle.Rtmp.Handshake;
 
@@ -42,7 +42,7 @@ internal unsafe struct C2S2
     public Span<byte> RandomEchoSpan => 
         MemoryMarshal.CreateSpan(ref RandomEcho[0], IContract.RandomSectionLength);
     
-    public C2S2(C1S1 recvPeerMessage, uint time)
+    public C2S2(in C1S1 recvPeerMessage, uint time)
     {
         Timestamp = recvPeerMessage.Timestamp;
         Timestamp2 = BigEndianUInt32.FromHost(time);

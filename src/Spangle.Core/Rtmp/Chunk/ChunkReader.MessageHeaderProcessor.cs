@@ -1,31 +1,34 @@
 ﻿using System.Runtime.CompilerServices;
+using Spangle.IO;
 
 namespace Spangle.Rtmp.Chunk;
 
 internal partial class ChunkReader
 {
+    /// <summary>
+    /// MessageHeaderProcessor
+    /// <see cref="ChunkMessageHeader"/>
+    /// </summary>
     private class MessageHeaderProcessor : IChunkProcessor
     {
         public async ValueTask ReadAndNext(ChunkReader context, CancellationToken ct)
         {
-            var stream = context._reader;
-            var buff = context._chunkBuffer;
-            var idx = 0;
+            var reader = context._reader;
             var len = context._chunk.BasicHeader.Format.GetLength();
             if (len == 0)
             {
-                // TODO どうしようもあらへん
                 context.Next<BodyParser>();
+                return;
             }
             
-            await stream.ReadExactlyAsync(buff.AsMemory(idx, len), ct);
+            var (buff, _) = await reader.ReadExactlyAsync(len, ct);
             unsafe
             {
                 var p = (byte*)Unsafe.AsPointer(ref context._chunk.MessageHeader);
-                buff.AsSpan(idx, len).CopyTo(new Span<byte>(p, len));
+                buff.FirstSpan.CopyTo(new Span<byte>(p, len));
             }
-
-             // header = ref context._chunk.MessageHeader;
+            reader.AdvanceTo(buff.End);
+            context.Next<BodyParser>();
         }
     }
 }

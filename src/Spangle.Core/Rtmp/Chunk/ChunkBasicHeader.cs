@@ -40,11 +40,25 @@ internal struct ChunkBasicHeader
     public const int MaxSize = 3;
 
     public ChunkFormat Format;
-    public uint ChunkStreamId;
+    public uint        ChunkStreamId;
 
     public void Renew(byte format, uint chunkStreamId)
     {
         Format = (ChunkFormat)format;
         ChunkStreamId = chunkStreamId;
+    }
+
+    public static (byte Fmt, int BasicHeaderLength, byte CheckBits) GetFormatAndLengthByFirstByte(byte firstByte)
+    {
+        var fmt = (byte)(firstByte >>> 6);
+        var checkBits = (byte)(firstByte & 0b0011_1111);
+        var length = checkBits switch
+        {
+            1 => 3,
+            0 => 2,
+            _ => 1,
+        };
+
+        return (fmt, length, checkBits);
     }
 }

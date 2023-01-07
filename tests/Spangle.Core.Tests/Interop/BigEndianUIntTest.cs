@@ -1,6 +1,5 @@
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Spangle.Interop;
+using Spangle.IO.Interop;
 using Xunit.Abstractions;
 
 namespace Spangle.Tests.Interop;
@@ -47,7 +46,7 @@ public abstract class BigEndianUIntTest<TTarget> where TTarget : struct, IBigEnd
     [Fact]
     public void TestSize()
     {
-        var size = Unsafe.SizeOf<TTarget>();
+        var size = Marshal.SizeOf<TTarget>();
         size.Should().Be(TypeSize);
     }
     
