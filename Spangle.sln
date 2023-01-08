@@ -2,7 +2,7 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.Core", "src\Spangle.Core\Spangle.Core.csproj", "{A8340966-1FBF-4B63-96DD-1ED284C01367}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.AspNetCore", "src\Spangle.AspNetCore\Spangle.AspNetCore.csproj", "{F677476B-0B39-4B4A-BB88-384EA76F436F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.Extensions.Kestrel", "src\Spangle.Extensions.Kestrel\Spangle.Extensions.Kestrel.csproj", "{F677476B-0B39-4B4A-BB88-384EA76F436F}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{76E37C85-31FB-4126-B65D-4272EF409FFC}"
 EndProject
@@ -17,6 +17,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "etc", "etc", "{33FC8702-CE6
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.Core.Tests", "tests\Spangle.Core.Tests\Spangle.Core.Tests.csproj", "{59842F61-E834-4069-BAA2-6E9F07C69D65}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.MediaServer", "src\Spangle.MediaServer\Spangle.MediaServer.csproj", "{AF10BE03-A641-434D-961E-F125B97B540E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -36,10 +38,15 @@ Global
 		{59842F61-E834-4069-BAA2-6E9F07C69D65}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{59842F61-E834-4069-BAA2-6E9F07C69D65}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{59842F61-E834-4069-BAA2-6E9F07C69D65}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AF10BE03-A641-434D-961E-F125B97B540E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AF10BE03-A641-434D-961E-F125B97B540E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AF10BE03-A641-434D-961E-F125B97B540E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AF10BE03-A641-434D-961E-F125B97B540E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{A8340966-1FBF-4B63-96DD-1ED284C01367} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
 		{F677476B-0B39-4B4A-BB88-384EA76F436F} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
 		{59842F61-E834-4069-BAA2-6E9F07C69D65} = {094F95A7-D650-4408-8B17-081DEBBD5D5D}
+		{AF10BE03-A641-434D-961E-F125B97B540E} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
 	EndGlobalSection
 EndGlobal

@@ -1,11 +1,12 @@
 ﻿using Microsoft.AspNetCore.Connections;
 using Spangle.Rtmp;
 
-namespace Spangle.AspNetCore;
+namespace Spangle.Extensions.Kestrel;
 
 public class RtmpConnectionHandler : ConnectionHandler
 {
-    private ILoggerFactory _loggerFactory;
+    private readonly ILoggerFactory _loggerFactory;
+    
     public RtmpConnectionHandler(ILoggerFactory loggerFactory)
     {
         _loggerFactory = loggerFactory;

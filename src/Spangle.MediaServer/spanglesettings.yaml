@@ -1,0 +1,4 @@
+﻿Spangle:
+  Rtmp:
+    Enabled: true
+    Port: 1935
