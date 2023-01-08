@@ -1,5 +1,4 @@
-﻿using System.Buffers;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using Spangle.Examples.Console;
@@ -24,7 +23,7 @@ while (true)
     try
     {
         var tcpClient = await listener.AcceptTcpClientAsync();
-        _ = Task.Run(() => ProcessConnection(tcpClient, logger, loggerFactory) );
+        _ = Task.Run(() => ProcessConnection(tcpClient, logger, loggerFactory));
     }
     catch (Exception e)
     {
@@ -36,9 +35,8 @@ static async ValueTask ProcessConnection(TcpClient tcpClient, ILogger logger, IL
 {
     try
     {
-        logger.ZLogInformation("Connection opened [{0}]", tcpClient.GetHashCode());
-        await using var stream = tcpClient.GetStream();
-        var rtmp = new RtmpReceiver(stream, loggerFactory);
+        logger.ZLogDebug("Connection opened [{0}]", tcpClient.GetHashCode());
+        var rtmp = new RtmpReceiver(tcpClient.GetStream(), loggerFactory);
         await rtmp.BeginReadAsync();
     }
     catch (Exception e)
@@ -47,6 +45,7 @@ static async ValueTask ProcessConnection(TcpClient tcpClient, ILogger logger, IL
     }
     finally
     {
-        logger.ZLogInformation("Connection closed [{0}]", tcpClient.GetHashCode());
+        tcpClient.Dispose();
+        logger.ZLogDebug("Connection closed [{0}]", tcpClient.GetHashCode());
     }
 }
