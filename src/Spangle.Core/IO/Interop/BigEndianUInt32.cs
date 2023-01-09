@@ -10,7 +10,7 @@ namespace Spangle.IO.Interop;
 public unsafe struct BigEndianUInt32 : IBigEndianUInt<BigEndianUInt32>
 {
     private const int Length = sizeof(uint);
-    
+
     private fixed byte _val[Length];
 
     public static BigEndianUInt32 FromHost(uint value)
@@ -21,8 +21,8 @@ public unsafe struct BigEndianUInt32 : IBigEndianUInt<BigEndianUInt32>
         };
         return self;
     }
-    
-    public uint HostValue
+
+    public readonly uint HostValue
     {
         get
         {
@@ -31,7 +31,7 @@ public unsafe struct BigEndianUInt32 : IBigEndianUInt<BigEndianUInt32>
                 return BinaryPrimitives.ReadUInt32BigEndian(new Span<byte>(p, Length));
             }
         }
-        set
+        init
         {
             fixed (byte* p = _val)
             {
@@ -40,7 +40,7 @@ public unsafe struct BigEndianUInt32 : IBigEndianUInt<BigEndianUInt32>
         }
     }
 
-    public override string ToString()
+    public override readonly string ToString()
     {
         return HostValue.ToString();
     }

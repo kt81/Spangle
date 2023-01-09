@@ -10,7 +10,7 @@ public unsafe struct BigEndianUInt24 : IBigEndianUInt<BigEndianUInt24>
 {
     private const int Length = 3;
     private const int MaxValue = 0xFF_FF_FF;
-    
+
     private fixed byte _val[Length];
 
     public static BigEndianUInt24 FromHost(uint value)
@@ -22,17 +22,17 @@ public unsafe struct BigEndianUInt24 : IBigEndianUInt<BigEndianUInt24>
         return self;
     }
 
-    public uint HostValue
+    public readonly uint HostValue
     {
         get
         {
             return (uint)(
-                (_val[0] << 16) 
-                + (_val[1] << 8) 
+                (_val[0] << 16)
+                + (_val[1] << 8)
                 + (_val[2] << 0)
-                );
+            );
         }
-        set
+        init
         {
             if (value > MaxValue)
             {
@@ -44,7 +44,7 @@ public unsafe struct BigEndianUInt24 : IBigEndianUInt<BigEndianUInt24>
         }
     }
 
-    public override string ToString()
+    public override readonly string ToString()
     {
         return HostValue.ToString();
     }

@@ -1,8 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
-// The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
-
-namespace Spangle.Rtmp.Chunk;
+﻿namespace Spangle.Rtmp.Chunk;
 
 /// <summary>
 /// Chunk Basic Header
@@ -25,7 +21,7 @@ namespace Spangle.Rtmp.Chunk;
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
  Chunk basic header 2
- 
+
 ----
 
   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
@@ -52,7 +48,7 @@ internal struct ChunkBasicHeader
     {
         var fmt = (byte)(firstByte >>> 6);
         var checkBits = (byte)(firstByte & 0b0011_1111);
-        var length = checkBits switch
+        int length = checkBits switch
         {
             1 => 3,
             0 => 2,

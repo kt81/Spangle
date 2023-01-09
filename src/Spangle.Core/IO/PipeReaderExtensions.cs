@@ -1,13 +1,9 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
-// The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
-
-using System.Buffers;
+﻿using System.Buffers;
 using System.IO.Pipelines;
 
 namespace Spangle.IO;
 
-public static class PipeReaderExtension
+public static class PipeReaderExtensions
 {
     public static ValueTask<(ReadOnlySequence<byte>, ReadResult)> ReadExactlyAsync(this PipeReader reader,
         int length, CancellationToken ct = default) =>
@@ -22,7 +18,7 @@ public static class PipeReaderExtension
         }
         return (result.SliceExactly(result.Buffer.GetPosition(offset), length), result);
     }
-    
+
     public static ReadOnlySequence<byte> SliceExactly(this ReadResult result, SequencePosition start, long expectedLength)
     {
         var buff = result.Buffer;
@@ -32,5 +28,5 @@ public static class PipeReaderExtension
         }
         return buff.Slice(start, expectedLength);
     }
-    
+
 }

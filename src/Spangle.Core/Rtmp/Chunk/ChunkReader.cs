@@ -9,17 +9,30 @@ namespace Spangle.Rtmp.Chunk;
 /// </summary>
 /// <remarks>
 /// </remarks>
-internal partial class ChunkReader 
+internal partial class ChunkReader
 {
+    /// <summary>
+    /// The stream ID which indicates Control Stream
+    /// </summary>
+    private const uint ControlStreamId = 0;
+
+    /// <summary>
+    /// The chunk stream ID which indicates Control Chunk Stream
+    /// </summary>
+    private const uint ControlChunkStreamId = 2;
+
     private static readonly IReadOnlyDictionary<Type, IChunkProcessor> s_processors;
-    
+    private Dictionary<uint, Chunk> _chunks = new();
+
     private IChunkProcessor? _currentProcess;
-    
+
     private readonly PipeReader _reader;
     private readonly PipeWriter _writer;
-    private readonly ILogger    _logger;
-    
+    private readonly ILogger _logger;
+
     private Chunk _chunk;
+
+    private uint _maxChunkSize = 128;
 
     static ChunkReader()
     {
@@ -27,7 +40,7 @@ internal partial class ChunkReader
         {
             [typeof(BasicHeaderProcessor)] = new BasicHeaderProcessor(),
             [typeof(MessageHeaderProcessor)] = new MessageHeaderProcessor(),
-            [typeof(BodyParser)] = new BodyParser(),
+            [typeof(SetChunkSize)] = new SetChunkSize(),
         };
         s_processors = d.AsReadOnly();
     }
@@ -43,7 +56,7 @@ internal partial class ChunkReader
     {
         // Initialize all states
         _currentProcess = s_processors[typeof(BasicHeaderProcessor)];
-        
+
         while (_currentProcess != null)
         {
             ct.ThrowIfCancellationRequested();
@@ -58,19 +71,17 @@ internal partial class ChunkReader
         _currentProcess = s_processors[typeof(TProcessor)];
         _logger.ZLogTrace("State changed => {0}", typeof(TProcessor).Name);
     }
-    
-    /// <summary>
-    /// ChunkProcessor interface for each chunk parts
-    /// </summary>
-    /// <remarks>
-    /// The implemented classes MUST NOT directly map a structure to the pipe buffer. Consume used buffer every time in read.
-    /// </remarks>
-    private interface IChunkProcessor
+
+    private static void EnsureValidProtocolControlMessage(ChunkReader context)
     {
-        /// <summary>
-        /// Read buffer using current state processor and set next state
-        /// </summary>
-        /// <returns>Next index of the buffer</returns>
-        public ValueTask ReadAndNext(ChunkReader context, CancellationToken ct);
+        if (context._chunk.MessageHeader.StreamId == ControlStreamId &&
+            context._chunk.BasicHeader.ChunkStreamId == ControlChunkStreamId)
+        {
+            return;
+        }
+
+        context._logger.ZLogError("Invalid streamId({0}) or chunkStreamId({1}) for Protocol Control Message",
+            context._chunk.MessageHeader.StreamId, context._chunk.BasicHeader.ChunkStreamId);
+        throw new Exception();
     }
 }

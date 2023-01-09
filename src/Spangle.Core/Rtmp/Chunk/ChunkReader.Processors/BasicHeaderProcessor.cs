@@ -11,20 +11,20 @@ internal partial class ChunkReader
     /// </summary>
     private class BasicHeaderProcessor : IChunkProcessor
     {
-        public async ValueTask ReadAndNext(ChunkReader context, CancellationToken ct)
+        public async ValueTask ReadAndNext(Rtmp.Chunk.ChunkReader context, CancellationToken ct)
         {
             var reader = context._reader;
-            
-            // Check first byte 
-            var (firstBuff, _) = await reader.ReadExactlyAsync(1, ct);
-            var (fmt, headerLength, checkBits) = ChunkBasicHeader.GetFormatAndLengthByFirstByte(firstBuff.FirstSpan[0]);
+
+            // Check first byte
+            (ReadOnlySequence<byte> firstBuff, _) = await reader.ReadExactlyAsync(1, ct);
+            (byte fmt, int headerLength, byte checkBits) = ChunkBasicHeader.GetFormatAndLengthByFirstByte(firstBuff.FirstSpan[0]);
             reader.AdvanceTo(firstBuff.End);
 
             uint csId;
             // Read the remaining buffer if needed
             if (headerLength > 1)
             {
-                var (exBuff, _) = await reader.ReadExactlyAsync(headerLength - 1, ct);
+                (ReadOnlySequence<byte> exBuff, _) = await reader.ReadExactlyAsync(headerLength - 1, ct);
                 csId = GetCsId(exBuff, headerLength);
                 reader.AdvanceTo(exBuff.End);
             }

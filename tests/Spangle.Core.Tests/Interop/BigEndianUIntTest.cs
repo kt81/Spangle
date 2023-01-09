@@ -1,10 +1,10 @@
 using System.Runtime.InteropServices;
 using Spangle.IO.Interop;
 using Xunit.Abstractions;
+// ReSharper disable UnusedType.Global
 
 namespace Spangle.Tests.Interop;
 
-// ReSharper disable once UnusedType.Global
 public class BigEndianUInt24Test : BigEndianUIntTest<BigEndianUInt24>
 {
     public BigEndianUInt24Test(ITestOutputHelper outputHelper) : base(outputHelper)
@@ -17,7 +17,6 @@ public class BigEndianUInt24Test : BigEndianUIntTest<BigEndianUInt24>
     protected override byte[] TestBytes { get; } = {0x10, 0x00, 0x01};
 }
 
-// ReSharper disable once UnusedType.Global
 public class BigEndianUInt32Test : BigEndianUIntTest<BigEndianUInt32>
 {
     public BigEndianUInt32Test(ITestOutputHelper outputHelper) : base(outputHelper)
@@ -35,7 +34,7 @@ public abstract class BigEndianUIntTest<TTarget> where TTarget : struct, IBigEnd
     protected abstract int TypeSize { get; }
     protected abstract uint TestHostValue { get; }
     protected abstract byte[] TestBytes { get; }
-    
+
     private readonly ITestOutputHelper _output;
 
     protected BigEndianUIntTest(ITestOutputHelper outputHelper)
@@ -49,7 +48,7 @@ public abstract class BigEndianUIntTest<TTarget> where TTarget : struct, IBigEnd
         var size = Marshal.SizeOf<TTarget>();
         size.Should().Be(TypeSize);
     }
-    
+
     [Fact]
     public void TestFromBigEndian()
     {
