@@ -4,38 +4,38 @@ using System.Runtime.InteropServices;
 namespace Spangle.IO.Interop;
 
 /// <summary>
-/// Struct mapping for 4 bytes number of Big Endian
+/// Struct mapping for 2 bytes number of Big Endian
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = Length, Size = Length)]
-public unsafe struct BigEndianUInt32 : IInteropType<uint, BigEndianUInt32>
+public unsafe struct BigEndianUInt16 : IInteropType<ushort, BigEndianUInt16>
 {
-    private const int Length = sizeof(uint);
+    private const int Length = sizeof(ushort);
 
     private fixed byte _val[Length];
 
-    public static BigEndianUInt32 FromHost(uint value)
+    public static BigEndianUInt16 FromHost(ushort value)
     {
-        var self = new BigEndianUInt32
+        var self = new BigEndianUInt16
         {
             HostValue = value
         };
         return self;
     }
 
-    public readonly uint HostValue
+    public readonly ushort HostValue
     {
         get
         {
             fixed (byte* p = _val)
             {
-                return BinaryPrimitives.ReadUInt32BigEndian(new Span<byte>(p, Length));
+                return BinaryPrimitives.ReadUInt16BigEndian(new Span<byte>(p, Length));
             }
         }
         init
         {
             fixed (byte* p = _val)
             {
-                BinaryPrimitives.WriteUInt32BigEndian(new Span<byte>(p, Length), value);
+                BinaryPrimitives.WriteUInt16BigEndian(new Span<byte>(p, Length), value);
             }
         }
     }

@@ -19,7 +19,7 @@ internal partial class ChunkReader
             if (len == 0)
             {
                 // Continue with recent header.
-                DispatchNext(context);
+                DispatchNextByMessageHeader(context);
                 return;
             }
 
@@ -31,22 +31,7 @@ internal partial class ChunkReader
             }
             reader.AdvanceTo(buff.End);
 
-            DispatchNext(context);
-        }
-
-        private static void DispatchNext(ChunkReader context)
-        {
-            switch (context._chunk.MessageHeader.TypeId)
-            {
-                case MessageType.SetChunkSize:
-                    context.Next<SetChunkSize>();
-                    break;
-                case MessageType.CommandAmf0:
-                    // context.Next<>();
-                    throw new NotImplementedException();
-                default:
-                    throw new NotImplementedException($"The processor of [{context._chunk.MessageHeader.TypeId}] is not implemented.");
-            }
+            DispatchNextByMessageHeader(context);
         }
     }
 }

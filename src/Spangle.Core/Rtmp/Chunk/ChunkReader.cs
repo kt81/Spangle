@@ -40,7 +40,8 @@ internal partial class ChunkReader
         {
             [typeof(BasicHeaderProcessor)] = new BasicHeaderProcessor(),
             [typeof(MessageHeaderProcessor)] = new MessageHeaderProcessor(),
-            [typeof(SetChunkSize)] = new SetChunkSize(),
+            [typeof(SetChunkSize)] = new SetChunkSize(), // MessageType 1
+            [typeof(CommandAmf0)] = new CommandAmf0(), // MessageType 20
         };
         s_processors = d.AsReadOnly();
     }
@@ -74,8 +75,8 @@ internal partial class ChunkReader
 
     private static void EnsureValidProtocolControlMessage(ChunkReader context)
     {
-        if (context._chunk.MessageHeader.StreamId == ControlStreamId &&
-            context._chunk.BasicHeader.ChunkStreamId == ControlChunkStreamId)
+        if (context._chunk.MessageHeader.StreamId == ControlStreamId /* &&
+            context._chunk.BasicHeader.ChunkStreamId == ControlChunkStreamId */)
         {
             return;
         }
@@ -83,5 +84,20 @@ internal partial class ChunkReader
         context._logger.ZLogError("Invalid streamId({0}) or chunkStreamId({1}) for Protocol Control Message",
             context._chunk.MessageHeader.StreamId, context._chunk.BasicHeader.ChunkStreamId);
         throw new Exception();
+    }
+
+    private static void DispatchNextByMessageHeader(ChunkReader context)
+    {
+        switch (context._chunk.MessageHeader.TypeId)
+        {
+            case MessageType.SetChunkSize:
+                context.Next<SetChunkSize>();
+                break;
+            case MessageType.CommandAmf0:
+                context.Next<CommandAmf0>();
+                break;
+            default:
+                throw new NotImplementedException($"The processor of [{context._chunk.MessageHeader.TypeId}] is not implemented.");
+        }
     }
 }

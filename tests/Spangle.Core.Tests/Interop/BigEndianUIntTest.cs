@@ -29,7 +29,7 @@ public class BigEndianUInt32Test : BigEndianUIntTest<BigEndianUInt32>
     protected override byte[] TestBytes { get; } = {0x10, 0x00, 0x00, 0x01};
 }
 
-public abstract class BigEndianUIntTest<TTarget> where TTarget : struct, IBigEndianUInt
+public abstract class BigEndianUIntTest<TTarget> where TTarget : struct, IInteropType<uint>
 {
     protected abstract int TypeSize { get; }
     protected abstract uint TestHostValue { get; }
@@ -45,7 +45,7 @@ public abstract class BigEndianUIntTest<TTarget> where TTarget : struct, IBigEnd
     [Fact]
     public void TestSize()
     {
-        var size = Marshal.SizeOf<TTarget>();
+        int size = Marshal.SizeOf<TTarget>();
         size.Should().Be(TypeSize);
     }
 

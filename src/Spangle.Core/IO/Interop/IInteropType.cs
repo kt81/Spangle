@@ -1,19 +1,19 @@
 ﻿namespace Spangle.IO.Interop;
 
-public interface IBigEndianUInt
+public interface IInteropType<THostType>
 {
     /// <summary>
     /// Get or Set the value as host primitive
     /// </summary>
-    uint HostValue { get; init; }
+    THostType HostValue { get; init; }
 }
 
-public interface IBigEndianUInt<out TSelf> : IBigEndianUInt where TSelf : struct, IBigEndianUInt
+public interface IInteropType<THostType, out TSelf> : IInteropType<THostType> where TSelf : struct, IInteropType<THostType>
 {
     /// <summary>
     /// Create instance from the value of host primitive
     /// </summary>
     /// <param name="hostValue"></param>
     /// <returns></returns>
-    static abstract TSelf FromHost(uint hostValue);
+    static abstract TSelf FromHost(THostType hostValue);
 }

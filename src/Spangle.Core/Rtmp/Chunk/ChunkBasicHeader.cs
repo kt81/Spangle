@@ -33,8 +33,6 @@
  */
 internal struct ChunkBasicHeader
 {
-    public const int MaxSize = 3;
-
     public ChunkFormat Format;
     public uint        ChunkStreamId;
 

@@ -6,7 +6,7 @@ namespace Spangle.IO.Interop;
 /// Struct mapping for 3 bytes number of Big Endian
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1, Size = Length)]
-public unsafe struct BigEndianUInt24 : IBigEndianUInt<BigEndianUInt24>
+public unsafe struct BigEndianUInt24 : IInteropType<uint, BigEndianUInt24>
 {
     private const int Length = 3;
     private const int MaxValue = 0xFF_FF_FF;
@@ -47,5 +47,10 @@ public unsafe struct BigEndianUInt24 : IBigEndianUInt<BigEndianUInt24>
     public override readonly string ToString()
     {
         return HostValue.ToString();
+    }
+
+    public override int GetHashCode()
+    {
+        return HostValue.GetHashCode();
     }
 };
