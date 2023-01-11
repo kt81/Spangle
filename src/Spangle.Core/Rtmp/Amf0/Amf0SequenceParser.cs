@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Runtime.CompilerServices;
 using Spangle.IO.Interop;
 
 namespace Spangle.Rtmp.Amf0;
@@ -19,12 +20,13 @@ internal static class Amf0SequenceParser
             case Amf0TypeMarker.Object:
                 return ParseObject(ref buff);
             case Amf0TypeMarker.ObjectEnd:
-                return Amf0TypeMarker.ObjectEnd;
+                return ParseObjectEnd(ref buff);
             default:
                 throw new NotImplementedException($"The parser for {type} is not implemented.");
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static double ParseNumber(ref ReadOnlySequence<byte> buff)
     {
         var s = buff.Slice(1, 8);
@@ -32,6 +34,7 @@ internal static class Amf0SequenceParser
         return BufferMarshal.AsRefOrCopy<BigEndianDouble>(s).HostValue;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool ParseBoolean(ref ReadOnlySequence<byte> buff)
     {
         var s = buff.Slice(1, 1);
@@ -45,6 +48,7 @@ internal static class Amf0SequenceParser
     /// <param name="buff"></param>
     /// <param name="isTypeMarkerIncluded">Set false for the string has no type-marker like anonymous object's key.</param>
     /// <returns></returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static string ParseString(ref ReadOnlySequence<byte> buff, bool isTypeMarkerIncluded = true)
     {
         //  0                   1                   2                   3
@@ -59,6 +63,7 @@ internal static class Amf0SequenceParser
         ushort length = BufferMarshal.AsRefOrCopy<BigEndianUInt16>(lenBuf).HostValue;
         if (length == 0)
         {
+            buff = buff.Slice(lenBuf.End);
             return string.Empty;
         }
 
@@ -85,4 +90,12 @@ internal static class Amf0SequenceParser
 
         return dic;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Amf0TypeMarker ParseObjectEnd(ref ReadOnlySequence<byte> buff)
+    {
+        buff = buff.Slice(1);
+        return Amf0TypeMarker.ObjectEnd;
+    }
+
 }
