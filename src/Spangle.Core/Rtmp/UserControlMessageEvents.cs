@@ -1,4 +1,4 @@
-﻿namespace Spangle.Rtmp.Chunk;
+﻿namespace Spangle.Rtmp;
 
 internal enum UserControlMessageEvents : byte
 {

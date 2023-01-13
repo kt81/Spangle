@@ -24,8 +24,11 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="System.IO.Pipelines" Version="7.0.0" />
       <PackageReference Include="ValueTaskSupplement" Version="1.1.0" />
       <PackageReference Include="ZLogger" Version="1.7.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Spangle.Core.Abstractions\Spangle.Core.Abstractions.csproj" />
     </ItemGroup>
 </Project>

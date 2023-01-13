@@ -22,13 +22,13 @@ internal partial class ChunkReader
     private const uint ControlChunkStreamId = 2;
 
     private static readonly IReadOnlyDictionary<Type, IChunkProcessor> s_processors;
-    private Dictionary<uint, Chunk> _chunks = new();
 
     private IChunkProcessor? _currentProcess;
 
     private readonly PipeReader _reader;
     private readonly PipeWriter _writer;
     private readonly ILogger _logger;
+    private readonly NetConnection _netConnection;
 
     private Chunk _chunk;
 
@@ -46,11 +46,12 @@ internal partial class ChunkReader
         s_processors = d.AsReadOnly();
     }
 
-    public ChunkReader(PipeReader reader, PipeWriter writer, ILogger logger)
+    public ChunkReader(PipeReader reader, PipeWriter writer, ILoggerFactory loggerFactory)
     {
         _reader = reader;
         _writer = writer;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger<ChunkReader>();
+        _netConnection = new NetConnection(writer, loggerFactory.CreateLogger<NetConnection>());
     }
 
     public async ValueTask<Chunk> ReadAsync(CancellationToken ct = default)
@@ -70,7 +71,7 @@ internal partial class ChunkReader
     private void Next<TProcessor>() where TProcessor : IChunkProcessor
     {
         _currentProcess = s_processors[typeof(TProcessor)];
-        _logger.ZLogTrace("State changed => {0}", typeof(TProcessor).Name);
+        _logger.ZLogTrace("HandshakeState changed => {0}", typeof(TProcessor).Name);
     }
 
     private static void EnsureValidProtocolControlMessage(ChunkReader context)

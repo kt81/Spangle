@@ -4,10 +4,7 @@ public static class SpangleServiceCollectionExtensions
 {
     public static void AddSpangle(this IServiceCollection services)
     {
-        if (services == null)
-        {
-            throw new ArgumentNullException(nameof(services));
-        }
+        ArgumentNullException.ThrowIfNull(services);
 
         services.AddOptions<SpangleMediaServerOptions>()
             .BindConfiguration(SpangleMediaServerOptions.SectionPath)
@@ -15,5 +12,4 @@ public static class SpangleServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<RtmpConnectionHandler>();
     }
-
 }

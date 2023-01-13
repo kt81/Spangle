@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
+using Spangle.Rtmp.Logging;
 
 namespace Spangle.Extensions.Kestrel;
 
@@ -25,8 +26,12 @@ public static class WebHostBuilderSpangleExtensions
     public static void ConfigureSpangle(this KestrelServerOptions options)
     {
         var opt = options.ApplicationServices.GetRequiredService<IOptions<SpangleMediaServerOptions>>();
-
         options.ListenAnyIP(opt.Value.Rtmp.Port,
             listenOptions => { listenOptions.UseConnectionHandler<RtmpConnectionHandler>(); });
+        var loggerFactory = options.ApplicationServices.GetService<ILoggerFactory>();
+        if (loggerFactory != null)
+        {
+            SpangleLogManager.SetLoggerFactory(loggerFactory);
+        }
     }
 }

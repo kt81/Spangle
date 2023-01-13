@@ -31,7 +31,7 @@
 
  Chunk basic header 3
  */
-internal struct ChunkBasicHeader
+internal struct BasicHeader
 {
     public ChunkFormat Format;
     public uint        ChunkStreamId;

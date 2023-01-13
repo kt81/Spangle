@@ -8,6 +8,7 @@ Target
 
 - Ingest
   - RTMP
+  - RTSP
   - SRT
 - Web Origin
   - HLS

@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Sockets;
+using Cysharp.Text;
 using Microsoft.Extensions.Logging;
 using Spangle.Examples.Console;
 using Spangle.Rtmp;
@@ -12,6 +13,7 @@ var loggerFactory = LoggerFactory.Create(conf =>
     conf.AddFilter("Spangle", LogLevel.Trace)
         .AddColorizedZLoggerConsole("Spangle");
 });
+RtmpReceiver receiver = new RtmpReceiver();
 var logger = loggerFactory.CreateLogger("Spangle.Examples.Console");
 
 listener.Start();
@@ -23,7 +25,7 @@ while (true)
     try
     {
         var tcpClient = await listener.AcceptTcpClientAsync();
-        _ = Task.Run(() => ProcessConnection(tcpClient, logger, loggerFactory));
+        _ = Task.Run(() => ProcessConnection(receiver, tcpClient, logger));
     }
     catch (Exception e)
     {
@@ -31,13 +33,13 @@ while (true)
     }
 }
 
-static async ValueTask ProcessConnection(TcpClient tcpClient, ILogger logger, ILoggerFactory loggerFactory)
+static async ValueTask ProcessConnection(RtmpReceiver receiver, TcpClient tcpClient, ILogger logger)
 {
+    string id = ZString.Concat(tcpClient.GetHashCode(), "[", tcpClient.Client.RemoteEndPoint?.ToString() ?? "none", "]");
     try
     {
         logger.ZLogDebug("Connection opened [{0}]", tcpClient.GetHashCode());
-        var rtmp = new RtmpReceiver(tcpClient.GetStream(), loggerFactory);
-        await rtmp.BeginReadAsync();
+        await receiver.BeginReadAsync(id, tcpClient.GetStream());
     }
     catch (Exception e)
     {

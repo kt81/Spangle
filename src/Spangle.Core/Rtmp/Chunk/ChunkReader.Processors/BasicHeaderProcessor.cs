@@ -7,7 +7,7 @@ internal partial class ChunkReader
 {
     /// <summary>
     /// BasicHeaderProcessor
-    /// <see cref="ChunkBasicHeader"/>
+    /// <see cref="BasicHeader"/>
     /// </summary>
     private class BasicHeaderProcessor : IChunkProcessor
     {
@@ -17,7 +17,7 @@ internal partial class ChunkReader
 
             // Check first byte
             (ReadOnlySequence<byte> firstBuff, _) = await reader.ReadExactlyAsync(1, ct);
-            (byte fmt, int headerLength, byte checkBits) = ChunkBasicHeader.GetFormatAndLengthByFirstByte(firstBuff.FirstSpan[0]);
+            (byte fmt, int headerLength, byte checkBits) = BasicHeader.GetFormatAndLengthByFirstByte(firstBuff.FirstSpan[0]);
             reader.AdvanceTo(firstBuff.End);
 
             uint csId;
