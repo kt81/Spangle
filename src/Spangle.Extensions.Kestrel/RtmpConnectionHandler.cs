@@ -1,5 +1,4 @@
-﻿using Cysharp.Text;
-using Microsoft.AspNetCore.Connections;
+﻿using Microsoft.AspNetCore.Connections;
 using Spangle.Rtmp;
 
 namespace Spangle.Extensions.Kestrel;

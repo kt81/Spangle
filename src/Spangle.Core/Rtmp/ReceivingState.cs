@@ -6,6 +6,6 @@ public enum ReceivingState
     WaitingConnect,
     WaitingFCPublish,
     WaitingPublish,
-    Established,
+    Publishing,
     Terminated,
 }

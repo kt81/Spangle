@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Spangle.IO;
 using Spangle.IO.Interop;
-using Spangle.Rtmp.Logging;
+using Spangle.Logging;
 using ValueTaskSupplement;
 using ZLogger;
 
@@ -70,7 +70,6 @@ internal class HandshakeHandler
         (buff, res) = await reader.ReadExactlyAsync(s_sizeOfC0S0, ct);
         VerifyC0(buff);
         reader.AdvanceTo(buff.End);
-        s_logger.ZLogTrace("AdvanceTo {0} => {1}", res.Buffer.Start.GetInteger(), buff.End.GetInteger());
         var s0 = new C0S0(RtmpVersion.Rtmp3);
         SendMessage(writer, ref s0);
 
@@ -86,13 +85,11 @@ internal class HandshakeHandler
         await writer.FlushAsync(ct);
         ChangeState(receiverContext, HandshakeState.AckSent);
         reader.AdvanceTo(buff.End);
-        s_logger.ZLogTrace("AdvanceTo {0} => {1}", res.Buffer.Start.GetInteger(), buff.End.GetInteger());
         (buff, res) = await reader.ReadExactlyAsync(s_sizeOfC2S2, ct);
         VerifyC2(buff, ref s1);
 
         // Mark the buffer up to end of C2 has been consumed
         reader.AdvanceTo(buff.End);
-        s_logger.ZLogTrace("AdvanceTo {0} => {1}", res.Buffer.Start.GetInteger(), buff.End.GetInteger());
 
         // Done!!
         ChangeState(receiverContext, HandshakeState.HandshakeDone);

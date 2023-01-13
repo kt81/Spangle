@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
-using Spangle.Rtmp.Logging;
+using Spangle.Logging;
 
 namespace Spangle.Extensions.Kestrel;
 

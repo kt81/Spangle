@@ -1,59 +1,71 @@
-﻿using System.IO.Pipelines;
-using System.Net;
+﻿using Microsoft.Extensions.Logging;
 using Spangle.Rtmp.Chunk;
 using Spangle.Rtmp.Handshake;
+using Spangle.Logging;
+using Spangle.Rtmp.Chunk.Processor;
+using ZLogger;
 
 namespace Spangle.Rtmp;
 
-
-public class RtmpReceiverContext : IReceiverContext
+public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContext>
 {
-    /// <summary>
-    /// The identifier of the connection that will be used for logging.
-    /// </summary>
-    public string Id { get; init; }
-
-    public string App;
-    public string StreamKey;
-
-    #region IO
-
-    public EndPoint RemoteEndPoint { get; init; }
-    public PipeReader Reader { get; init; }
-    public PipeWriter Writer { get; init; }
-
-    #endregion
+    public string App { get; init; }
+    public string StreamKey { get; init; }
 
     #region Headers
 
     // These headers are readonly but mutable
-    internal readonly BasicHeader BasicHeader = new();
-    internal readonly ChunkMessageHeader MessageHeader = new();
+    internal BasicHeader BasicHeader = default;
+    internal ChunkMessageHeader MessageHeader = default;
 
     #endregion
 
     #region State
 
-    public CancellationToken CancellationToken { get; init; }
-    public ReceivingState ReceivingState = ReceivingState.Established;
+    public ReceivingState ConnectionState = ReceivingState.HandShaking;
     internal HandshakeState HandshakeState = HandshakeState.Uninitialized;
 
-    public bool IsCancellationRequested => CancellationToken.IsCancellationRequested;
+    #endregion
+
+    #region RPC Handlers
+
+    internal readonly Lazy<NetConnection> NetConnection;
 
     #endregion
 
     #region Other Properties
 
-    public int MaxChunkSize = 128;
+    public uint MaxChunkSize = 128;
+
+    public RtmpReceiverContext()
+    {
+        NetConnection = new Lazy<NetConnection>(() => new NetConnection(Writer));
+        SetNext<BasicHeaderProcessor>();
+    }
+
     public bool IsGoAwayEnabled { get; init; }
 
     #endregion
 
-    public delegate ValueTask ChunkReader(RtmpReceiverContext receiverContext, CancellationToken ct);
+    #region For state loop
+
+    internal delegate ValueTask Processor(RtmpReceiverContext receiverContext);
+
+    internal Processor MoveNext { get; private set; }
+
+    internal void SetNext<TProcessor>() where TProcessor : IChunkProcessor
+    {
+        MoveNext = ChunkProcessorStore<TProcessor>.Process;
+        Logger.ZLogTrace("State changed: {0}", typeof(TProcessor).Name);
+    }
+
+    #endregion
 
     #region Utility Methods
 
-    public void ThrowIfCancellationRequested() => CancellationToken.ThrowIfCancellationRequested();
+    public override bool IsCompleted => ConnectionState == ReceivingState.Terminated;
 
     #endregion
+
+
 }

@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.IO.Pipelines;
 using Microsoft.Extensions.Logging;
+using Spangle.Logging;
 using ZLogger;
 
 namespace Spangle.Rtmp;
@@ -12,7 +13,7 @@ namespace Spangle.Rtmp;
 internal class NetConnection
 {
     private PipeWriter _writer;
-    private ILogger<NetConnection> _logger;
+    private static ILogger<NetConnection> s_logger = SpangleLogManager.GetLogger<NetConnection>();
 
     public static class Commands
     {
@@ -22,10 +23,9 @@ internal class NetConnection
         public const string CreateStream = "createStream";
     }
 
-    public NetConnection(PipeWriter writer, ILogger<NetConnection> logger)
+    public NetConnection(PipeWriter writer)
     {
         _writer = writer;
-        _logger = logger;
     }
 
     public void Connect(double transactionId,
@@ -45,8 +45,8 @@ internal class NetConnection
     }
 
     [Conditional("DEBUG")]
-    private void DumpObject(string name, IReadOnlyDictionary<string, object>? anonymousObject)
+    private static void DumpObject(string name, IReadOnlyDictionary<string, object>? anonymousObject)
     {
-        _logger.ZLogDebug("[{0}]:{1}", name, System.Text.Json.JsonSerializer.Serialize(anonymousObject));
+        s_logger.ZLogDebug("[{0}]:{1}", name, System.Text.Json.JsonSerializer.Serialize(anonymousObject));
     }
 }
