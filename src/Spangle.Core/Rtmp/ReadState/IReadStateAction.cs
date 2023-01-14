@@ -1,10 +1,12 @@
 ﻿using Cysharp.Text;
 
-namespace Spangle.Rtmp.Chunk.Processor;
+namespace Spangle.Rtmp.ReadState;
 
-public interface IChunkProcessor
+internal interface IReadStateAction
 {
-    public static abstract ValueTask PerformProcess(RtmpReceiverContext context);
+    internal delegate ValueTask Action(RtmpReceiverContext receiverContext);
+
+    public static abstract ValueTask Perform(RtmpReceiverContext context);
 
     protected static void EnsureValidProtocolControlMessage(RtmpReceiverContext context)
     {

@@ -1,8 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
-using Spangle.Rtmp.Chunk;
+﻿using Spangle.Rtmp.Chunk;
 using Spangle.Rtmp.Handshake;
-using Spangle.Logging;
-using Spangle.Rtmp.Chunk.Processor;
+using Spangle.Rtmp.ReadState;
 using ZLogger;
 
 namespace Spangle.Rtmp;
@@ -11,6 +9,9 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 {
     public string App { get; init; }
     public string StreamKey { get; init; }
+
+    // TODO 設定とかからもらう
+    public uint Bandwidth = 1500000;
 
     #region Headers
 
@@ -27,20 +28,13 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     #endregion
 
-    #region RPC Handlers
-
-    internal readonly Lazy<NetConnection> NetConnection;
-
-    #endregion
-
     #region Other Properties
 
     public uint MaxChunkSize = 128;
 
     public RtmpReceiverContext()
     {
-        NetConnection = new Lazy<NetConnection>(() => new NetConnection(Writer));
-        SetNext<BasicHeaderProcessor>();
+        SetNext<ReadBasicHeader>();
     }
 
     public bool IsGoAwayEnabled { get; init; }
@@ -49,13 +43,12 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     #region For state loop
 
-    internal delegate ValueTask Processor(RtmpReceiverContext receiverContext);
 
-    internal Processor MoveNext { get; private set; }
+    internal IReadStateAction.Action MoveNext { get; private set; }
 
-    internal void SetNext<TProcessor>() where TProcessor : IChunkProcessor
+    internal void SetNext<TProcessor>() where TProcessor : IReadStateAction
     {
-        MoveNext = ChunkProcessorStore<TProcessor>.Process;
+        MoveNext = StateStore<TProcessor>.Action;
         Logger.ZLogTrace("State changed: {0}", typeof(TProcessor).Name);
     }
 

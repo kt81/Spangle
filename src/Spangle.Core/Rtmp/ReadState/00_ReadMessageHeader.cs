@@ -2,16 +2,17 @@
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 using Spangle.IO;
+using Spangle.Rtmp.Chunk;
 
-namespace Spangle.Rtmp.Chunk.Processor;
+namespace Spangle.Rtmp.ReadState;
 
 /// <summary>
-///     MessageHeaderProcessor
+///     ReadMessageHeader
 ///     <see cref="ChunkMessageHeader" />
 /// </summary>
-internal abstract class MessageHeaderProcessor : IChunkProcessor
+internal abstract class ReadMessageHeader : IReadStateAction
 {
-    public static async ValueTask PerformProcess(RtmpReceiverContext context)
+    public static async ValueTask Perform(RtmpReceiverContext context)
     {
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;

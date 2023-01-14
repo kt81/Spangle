@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
-using System.IO.Pipelines;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
+using Spangle.IO.Interop;
 using Spangle.Logging;
 using ZLogger;
 
@@ -12,8 +13,7 @@ namespace Spangle.Rtmp;
 /// </summary>
 internal class NetConnection
 {
-    private PipeWriter _writer;
-    private static ILogger<NetConnection> s_logger = SpangleLogManager.GetLogger<NetConnection>();
+    private static readonly ILogger<NetConnection> s_logger = SpangleLogManager.GetLogger<NetConnection>();
 
     public static class Commands
     {
@@ -23,17 +23,16 @@ internal class NetConnection
         public const string CreateStream = "createStream";
     }
 
-    public NetConnection(PipeWriter writer)
-    {
-        _writer = writer;
-    }
-
-    public void Connect(double transactionId,
+    public static void Connect(
+        RtmpReceiverContext context,
+        double transactionId,
         IReadOnlyDictionary<string, object> commandObject,
         IReadOnlyDictionary<string, object>? optionalUserArgs = null)
     {
-        DumpObject(nameof(commandObject), commandObject);
-        DumpObject(nameof(optionalUserArgs), optionalUserArgs);
+        DumpObject(commandObject);
+        DumpObject(optionalUserArgs);
+
+        var band = new BigEndianUInt32 { HostValue = context.Bandwidth };
     }
 
     public struct ConnectResult
@@ -45,8 +44,10 @@ internal class NetConnection
     }
 
     [Conditional("DEBUG")]
-    private static void DumpObject(string name, IReadOnlyDictionary<string, object>? anonymousObject)
+    private static void DumpObject(IReadOnlyDictionary<string, object>? anonObject,
+        [CallerArgumentExpression("anonObject")]
+        string? name = null)
     {
-        s_logger.ZLogDebug("[{0}]:{1}", name, System.Text.Json.JsonSerializer.Serialize(anonymousObject));
+        s_logger.ZLogDebug("[{0}]:{1}", name, System.Text.Json.JsonSerializer.Serialize(anonObject));
     }
 }

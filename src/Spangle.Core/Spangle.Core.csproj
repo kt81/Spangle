@@ -31,4 +31,8 @@
     <ItemGroup>
       <ProjectReference Include="..\Spangle.Core.Abstractions\Spangle.Core.Abstractions.csproj" />
     </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Rtmp\Communicate" />
+    </ItemGroup>
 </Project>

@@ -1,16 +1,17 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
 using Spangle.IO;
+using Spangle.Rtmp.Chunk;
 
-namespace Spangle.Rtmp.Chunk.Processor;
+namespace Spangle.Rtmp.ReadState;
 
 /// <summary>
-///     BasicHeaderProcessor
+///     ReadBasicHeader
 ///     <see cref="BasicHeader" />
 /// </summary>
-internal abstract class BasicHeaderProcessor : IChunkProcessor
+internal abstract class ReadBasicHeader : IReadStateAction
 {
-    public static async ValueTask PerformProcess(RtmpReceiverContext context)
+    public static async ValueTask Perform(RtmpReceiverContext context)
     {
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
@@ -36,7 +37,7 @@ internal abstract class BasicHeaderProcessor : IChunkProcessor
         }
 
         context.BasicHeader.Renew(fmt, csId);
-        context.SetNext<MessageHeaderProcessor>();
+        context.SetNext<ReadMessageHeader>();
     }
 
     private static uint GetCsId(ReadOnlySequence<byte> buff, int headerLength)
