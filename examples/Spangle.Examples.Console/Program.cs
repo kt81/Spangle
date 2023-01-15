@@ -17,10 +17,10 @@ var logger = loggerFactory.CreateLogger("Spangle.Examples.Console");
 
 var listenEndPoint = new IPEndPoint(IPAddress.Parse("0.0.0.0"), 1935);
 var listener = new TcpListener(listenEndPoint);
-RtmpReceiver receiver = new RtmpReceiver();
+using RtmpReceiver receiver = new RtmpReceiver();
 
 listener.Start();
-logger.ZLogInformation("Starting to accept connection.");
+logger.ZLogInformation("Starting to accept connections.");
 
 // Do NOT use this code in production!
 while (true)

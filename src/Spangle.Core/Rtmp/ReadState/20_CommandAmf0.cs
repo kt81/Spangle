@@ -12,7 +12,7 @@ internal abstract class CommandAmf0 : IReadStateAction
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
         (ReadOnlySequence<byte> buff, _) =
-            await reader.ReadExactlyAsync((int)context.MessageHeader.Length, ct);
+            await reader.ReadExactlyAsync((int)context.MessageHeader.Length.HostValue, ct);
         IReadStateAction.EnsureValidProtocolControlMessage(context);
 
         // Parse command

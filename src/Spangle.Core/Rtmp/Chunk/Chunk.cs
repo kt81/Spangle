@@ -14,6 +14,6 @@ internal struct Chunk
     public const int MaxSize = 16777215; // SPEC
     
     public BasicHeader BasicHeader;
-    public ChunkMessageHeader MessageHeader;
+    public MessageHeader MessageHeader;
     public byte[] Body;
 }

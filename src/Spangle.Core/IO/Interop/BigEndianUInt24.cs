@@ -8,8 +8,8 @@ namespace Spangle.IO.Interop;
 [StructLayout(LayoutKind.Sequential, Pack = 1, Size = Length)]
 public unsafe struct BigEndianUInt24 : IInteropType<uint, BigEndianUInt24>
 {
+    public const uint MaxValue = 0xFF_FF_FF;
     private const int Length = 3;
-    private const int MaxValue = 0xFF_FF_FF;
 
     private fixed byte _val[Length];
 

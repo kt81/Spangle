@@ -7,7 +7,7 @@ public class RtmpConnectionHandler : ConnectionHandler
 {
     public override async Task OnConnectedAsync(ConnectionContext connection)
     {
-        var rtmp = new RtmpReceiver();
+        using var rtmp = new RtmpReceiver();
         await rtmp.BeginReadAsync(connection.GetIdentifier(), connection.Transport);
     }
 }

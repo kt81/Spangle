@@ -5,15 +5,10 @@ using ZLogger;
 
 namespace Spangle.Rtmp;
 
-public class RtmpReceiver : IReceiver<RtmpReceiverContext>
+public sealed class RtmpReceiver : IReceiver<RtmpReceiverContext>, IDisposable
 {
-    private static readonly ILogger<RtmpReceiver> s_logger;
-
-    // TODO 仮置き
-    /// <summary>
-    /// The stream ID which indicates Control Stream
-    /// </summary>
-    internal const int ControlStreamId = 0;
+    private static readonly ILogger<RtmpReceiver>   s_logger;
+    private readonly        CancellationTokenSource _lifetimeCancellationTokenSource = new();
 
     static RtmpReceiver()
     {
@@ -22,8 +17,47 @@ public class RtmpReceiver : IReceiver<RtmpReceiverContext>
 
     public async ValueTask BeginReadAsync(RtmpReceiverContext context)
     {
-        var ct = context.CancellationToken;
+        var contextCancellation = context.CancellationToken;
+        CancellationTokenSource readTimeoutSource = new CancellationTokenSource();
+        CancellationTokenRegistration contextCancellationRegistration = default;
+        CancellationTokenRegistration lifetimeCancellationRegistration = default;
 
+        if (contextCancellation.CanBeCanceled)
+        {
+            contextCancellationRegistration = contextCancellation.UnsafeRegister(static state =>
+            {
+                ((CancellationTokenSource)state!).Cancel();
+            }, readTimeoutSource);
+        }
+        if (contextCancellation.CanBeCanceled)
+        {
+            lifetimeCancellationRegistration = _lifetimeCancellationTokenSource.Token.UnsafeRegister(static state =>
+            {
+                ((CancellationTokenSource)state!).Cancel();
+            }, readTimeoutSource);
+        }
+
+        context.CancellationToken = readTimeoutSource.Token;
+
+        try
+        {
+            await BeginReadAsyncImpl(context, readTimeoutSource);
+        }
+        finally
+        {
+            // ReSharper disable MethodHasAsyncOverload
+            contextCancellationRegistration.Dispose();
+            lifetimeCancellationRegistration.Dispose();
+            // ReSharper restore MethodHasAsyncOverload
+            readTimeoutSource.Cancel();
+            readTimeoutSource.Dispose();
+        }
+
+        s_logger.ZLogDebug("Begin to read chunk");
+    }
+
+    private static async ValueTask BeginReadAsyncImpl(RtmpReceiverContext context, CancellationTokenSource readTimeoutSource)
+    {
         s_logger.ZLogDebug("Begin to handshake");
         await HandshakeHandler.DoHandshakeAsync(context);
         s_logger.ZLogDebug("Handshake done");
@@ -31,10 +65,22 @@ public class RtmpReceiver : IReceiver<RtmpReceiverContext>
 
         while (!context.IsCompleted)
         {
-            ct.ThrowIfCancellationRequested();
-            await context.MoveNext(context);
+            if (context.Timeout > 0)
+            {
+                readTimeoutSource.CancelAfter(context.Timeout);
+                await context.MoveNext(context);
+                readTimeoutSource.TryReset();
+            }
+            else
+            {
+                await context.MoveNext(context);
+            }
         }
+    }
 
-        s_logger.ZLogDebug("Begin to read chunk");
+    public void Dispose()
+    {
+        _lifetimeCancellationTokenSource.Cancel();
+        _lifetimeCancellationTokenSource.Dispose();
     }
 }

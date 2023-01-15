@@ -6,7 +6,7 @@ namespace Spangle;
 /// Common interface of instances receiving streaming
 /// </summary>
 /// <typeparam name="TContext"></typeparam>
-public interface IReceiver<in TContext> where TContext : IReceiverContext
+public interface IReceiver<in TContext> where TContext : IReceiverContext<TContext>
 {
     ValueTask BeginReadAsync(TContext context);
 }

@@ -1,37 +1,37 @@
 ﻿namespace Spangle.Rtmp.Chunk;
 
-internal enum MessageType: byte
+public enum MessageType : byte
 {
     #region Protocol Control Messages
 
-    SetChunkSize              = 1,
-    Abort                     = 2,
-    Acknowledgement           = 3,
-    UserControl               = 4,
-    WindowAcknowledgementSize = 5,
-    SetPeerBandwidth          = 6,
+    SetChunkSize              = 0x01,
+    Abort                     = 0x02,
+    Acknowledgement           = 0x03,
+    UserControl               = 0x04,
+    WindowAcknowledgementSize = 0x05,
+    SetPeerBandwidth          = 0x06,
 
     #endregion
 
     #region RTMP Command Messages
 
-    Audio = 8,
-    Video = 9,
+    Audio = 0x08,
+    Video = 0x09,
 
     // AMF3
-    DataAmf3         = 15,
-    SharedObjectAmf3 = 16,
-    CommandAmf3      = 17,
+    DataAmf3         = 0x0A,
+    SharedObjectAmf3 = 0x10,
+    CommandAmf3      = 0x11,
 
     // AMF0
-    DataAmf0         = 18,
-    SharedObjectAmf0 = 19,
-    CommandAmf0      = 20,
+    DataAmf0         = 0x12,
+    SharedObjectAmf0 = 0x13,
+    CommandAmf0      = 0x14,
 
-    Aggregate = 22,
+    Aggregate = 0x18,
 
     // Additional Feature(s)
-    GoAway = 32,
+    GoAway = 0x20,
 
     #endregion
 }

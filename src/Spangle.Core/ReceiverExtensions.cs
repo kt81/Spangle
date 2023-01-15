@@ -8,7 +8,7 @@ public static class ReceiverExtensions
         this IReceiver<TContext> receiver,
         string id, Stream duplexStream,
         CancellationToken ct = default)
-        where TContext : IReceiverContext, new() =>
+        where TContext : IReceiverContext<TContext> =>
         BeginReadAsync(receiver, id, duplexStream, duplexStream, ct);
 
     public static ValueTask BeginReadAsync<TContext>(
@@ -17,7 +17,7 @@ public static class ReceiverExtensions
         Stream reader,
         Stream writer,
         CancellationToken ct = default)
-        where TContext : IReceiverContext, new()
+        where TContext : IReceiverContext<TContext>
     {
         if (!reader.CanRead)
         {
@@ -40,7 +40,7 @@ public static class ReceiverExtensions
         string id,
         IDuplexPipe duplexPipe,
         CancellationToken ct = default)
-        where TContext : IReceiverContext, new() =>
+        where TContext : IReceiverContext<TContext> =>
         BeginReadAsync(receiver, id, duplexPipe.Input, duplexPipe.Output, ct);
 
     public static ValueTask BeginReadAsync<TContext>(
@@ -49,6 +49,6 @@ public static class ReceiverExtensions
         PipeReader reader,
         PipeWriter writer,
         CancellationToken ct = default)
-        where TContext : IReceiverContext, new() =>
-        receiver.BeginReadAsync(new TContext { Id = id, Reader = reader, Writer = writer, CancellationToken = ct });
+        where TContext : IReceiverContext<TContext> =>
+        receiver.BeginReadAsync(TContext.CreateInstance(id, reader, writer, ct));
 }

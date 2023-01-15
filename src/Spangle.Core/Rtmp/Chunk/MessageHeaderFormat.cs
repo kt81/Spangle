@@ -2,7 +2,7 @@
 
 namespace Spangle.Rtmp.Chunk;
 
-internal enum ChunkFormat : byte
+internal enum MessageHeaderFormat : byte
 {
     /// <summary>
     /// 11 bytes
@@ -18,23 +18,23 @@ internal enum ChunkFormat : byte
     /// 3 bytes
     /// </summary>
     Fmt2 = 2,
-    
+
     /// <summary>
     /// 0 byte
     /// </summary>
     Fmt3 = 3,
 }
 
-internal static class ChunkFormatExtension
+internal static class MessageHeaderFormatExtensions
 {
-    public static int GetLength(this ChunkFormat fmt)
+    public static int GetMessageHeaderLength(this MessageHeaderFormat fmt)
     {
         return fmt switch
         {
-            ChunkFormat.Fmt0 => 11,
-            ChunkFormat.Fmt1 => 7,
-            ChunkFormat.Fmt2 => 3,
-            ChunkFormat.Fmt3 => 0,
+            MessageHeaderFormat.Fmt0 => 11,
+            MessageHeaderFormat.Fmt1 => 7,
+            MessageHeaderFormat.Fmt2 => 3,
+            MessageHeaderFormat.Fmt3 => 0,
             _ => throw new InvalidEnumArgumentException()
         };
     }

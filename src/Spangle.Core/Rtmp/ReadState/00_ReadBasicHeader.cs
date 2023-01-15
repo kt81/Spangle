@@ -1,6 +1,8 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
+using System.Runtime.InteropServices;
 using Spangle.IO;
+using Spangle.IO.Interop;
 using Spangle.Rtmp.Chunk;
 
 namespace Spangle.Rtmp.ReadState;
@@ -16,41 +18,22 @@ internal abstract class ReadBasicHeader : IReadStateAction
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
 
-        // Check first byte
+        // Check the first byte
         (ReadOnlySequence<byte> firstBuff, _) = await reader.ReadExactlyAsync(1, ct);
-        (byte fmt, int headerLength, byte checkBits) =
-            BasicHeader.GetFormatAndLengthByFirstByte(firstBuff.FirstSpan[0]);
-        reader.AdvanceTo(firstBuff.End);
+        firstBuff.CopyTo(context.BasicHeader.ToSpan());
+        var endPos = firstBuff.End;
 
-        uint csId;
         // Read the remaining buffer if needed
-        if (headerLength > 1)
+        int fullLen = context.BasicHeader.RequiredLength;
+        if (fullLen > 1)
         {
-            (ReadOnlySequence<byte> exBuff, _) = await reader.ReadExactlyAsync(headerLength - 1, ct);
-            csId = GetCsId(exBuff, headerLength);
-            reader.AdvanceTo(exBuff.End);
-        }
-        else
-        {
-            // 1 byte version
-            csId = checkBits;
+            (ReadOnlySequence<byte> fullBuff, _) = await reader.ReadExactlyAsync(fullLen, ct);
+            fullBuff.CopyTo(context.BasicHeader.ToSpan());
+            endPos = fullBuff.End;
         }
 
-        context.BasicHeader.Renew(fmt, csId);
+        reader.AdvanceTo(endPos);
+
         context.SetNext<ReadMessageHeader>();
-    }
-
-    private static uint GetCsId(ReadOnlySequence<byte> buff, int headerLength)
-    {
-        ReadOnlySpan<byte> csIdBytes = buff.FirstSpan;
-        return headerLength switch
-        {
-            // 3-bytes version
-            3 => (uint)(csIdBytes[0] << 8) + csIdBytes[1] + 64,
-            // 2-bytes version
-            2 => (uint)(csIdBytes[0] + 64),
-            // not reachable
-            _ => throw new Exception()
-        };
     }
 }

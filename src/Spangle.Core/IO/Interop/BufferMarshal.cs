@@ -2,6 +2,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using Spangle.Util;
 
 namespace Spangle.IO.Interop;
 
@@ -22,7 +23,7 @@ public static class BufferMarshal
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ref TMessage As<TMessage>(in ReadOnlySequence<byte> buff) where TMessage : unmanaged
     {
-        Span<byte> copied = new byte[Marshal.SizeOf<TMessage>()];
+        Span<byte> copied = new byte[MarshalHelper<TMessage>.Size];
         buff.CopyTo(copied);
         return ref MemoryMarshal.AsRef<TMessage>(copied);
     }

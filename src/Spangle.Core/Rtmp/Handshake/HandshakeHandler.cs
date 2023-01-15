@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Spangle.IO;
 using Spangle.IO.Interop;
 using Spangle.Logging;
+using Spangle.Util;
 using ValueTaskSupplement;
 using ZLogger;
 
@@ -52,22 +53,21 @@ internal class HandshakeHandler
 {
     private static readonly ILogger<HandshakeHandler> s_logger = SpangleLogManager.GetLogger<HandshakeHandler>();
 
-    private static readonly int s_sizeOfC0S0 = Marshal.SizeOf<C0S0>();
-    private static readonly int s_sizeOfC1S1 = Marshal.SizeOf<C1S1>();
-    private static readonly int s_sizeOfC2S2 = Marshal.SizeOf<C2S2>();
+    private static readonly int s_sizeOfC0S0 = MarshalHelper<C0S0>.Size;
+    private static readonly int s_sizeOfC1S1 = MarshalHelper<C1S1>.Size;
+    private static readonly int s_sizeOfC2S2 = MarshalHelper<C2S2>.Size;
 
     [SuppressMessage("ReSharper", "JoinDeclarationAndInitializer")]
     public static async ValueTask DoHandshakeAsync(RtmpReceiverContext receiverContext)
     {
         ReadOnlySequence<byte> buff;
-        ReadResult res;
 
         var reader = receiverContext.Reader;
         var writer = receiverContext.Writer;
         var ct = receiverContext.CancellationToken;
 
         // Deal C0S0
-        (buff, res) = await reader.ReadExactlyAsync(s_sizeOfC0S0, ct);
+        (buff, _) = await reader.ReadExactlyAsync(s_sizeOfC0S0, ct);
         VerifyC0(buff);
         reader.AdvanceTo(buff.End);
         var s0 = new C0S0(RtmpVersion.Rtmp3);
@@ -77,7 +77,7 @@ internal class HandshakeHandler
         var tC1 = reader.ReadExactlyAsync(s_sizeOfC1S1, ct);
         var s1 = new C1S1(NowMs());
         SendMessage(writer, ref s1);
-        ((buff, res), _) = await ValueTaskEx.WhenAll(tC1, writer.FlushAsync(ct));
+        ((buff, _), _) = await ValueTaskEx.WhenAll(tC1, writer.FlushAsync(ct));
         ChangeState(receiverContext, HandshakeState.VersionSent);
 
         // Deal C2S2
@@ -85,7 +85,7 @@ internal class HandshakeHandler
         await writer.FlushAsync(ct);
         ChangeState(receiverContext, HandshakeState.AckSent);
         reader.AdvanceTo(buff.End);
-        (buff, res) = await reader.ReadExactlyAsync(s_sizeOfC2S2, ct);
+        (buff, _) = await reader.ReadExactlyAsync(s_sizeOfC2S2, ct);
         VerifyC2(buff, ref s1);
 
         // Mark the buffer up to end of C2 has been consumed
@@ -130,7 +130,7 @@ internal class HandshakeHandler
 
     private static void SendMessage<T>(PipeWriter writer, ref T message) where T : unmanaged
     {
-        int length = Marshal.SizeOf(message);
+        int length = MarshalHelper<T>.Size;
         var buff = writer.GetMemory(length);
 
         MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref message, 1)).CopyTo(buff.Span);

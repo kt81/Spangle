@@ -8,7 +8,7 @@ namespace Spangle.Rtmp.ReadState;
 
 /// <summary>
 ///     ReadMessageHeader
-///     <see cref="ChunkMessageHeader" />
+///     <see cref="MessageHeader" />
 /// </summary>
 internal abstract class ReadMessageHeader : IReadStateAction
 {
@@ -16,7 +16,7 @@ internal abstract class ReadMessageHeader : IReadStateAction
     {
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
-        int len = context.BasicHeader.Format.GetLength();
+        int len = context.BasicHeader.Format.GetMessageHeaderLength();
         if (len == 0)
         {
             // Continue with recent header.
@@ -25,10 +25,11 @@ internal abstract class ReadMessageHeader : IReadStateAction
         }
 
         (ReadOnlySequence<byte> buff, _) = await reader.ReadExactlyAsync(len, ct);
-        unsafe
-        {
-            var p = (byte*)Unsafe.AsPointer(ref context.MessageHeader);
-            buff.FirstSpan.CopyTo(new Span<byte>(p, len));
+        unsafe {
+            fixed (void* p = &context.MessageHeader)
+            {
+                buff.CopyTo(context.MessageHeader.ToSpan());
+            }
         }
 
         reader.AdvanceTo(buff.End);

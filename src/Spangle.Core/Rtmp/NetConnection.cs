@@ -3,6 +3,8 @@ using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Spangle.IO.Interop;
 using Spangle.Logging;
+using Spangle.Rtmp.Chunk;
+using Spangle.Rtmp.ProtocolControlMessage;
 using ZLogger;
 
 namespace Spangle.Rtmp;
@@ -17,10 +19,20 @@ internal class NetConnection
 
     public static class Commands
     {
-        public const string Connect = "connect";
-        public const string Call = "call";
-        public const string Close = "close";
+        public const string Connect      = "connect";
+        public const string Call         = "call";
+        public const string Close        = "close";
         public const string CreateStream = "createStream";
+    }
+
+    private static class Keys
+    {
+        public const string App            = "app";
+        public const string Type           = "type";
+        public const string SupportsGoAway = "supportsGoAway";
+        public const string FlashVer       = "flashVer";
+        public const string SwfUrl         = "swfUrl";
+        public const string TcUrl          = "tcUrl";
     }
 
     public static void Connect(
@@ -29,16 +41,40 @@ internal class NetConnection
         IReadOnlyDictionary<string, object> commandObject,
         IReadOnlyDictionary<string, object>? optionalUserArgs = null)
     {
+        s_logger.ZLogTrace("NetCommand.Connect");
         DumpObject(commandObject);
         DumpObject(optionalUserArgs);
 
+        TryCopy(commandObject, Keys.App, ref context.App);
+        TryCopy(commandObject, Keys.SupportsGoAway, ref context.IsGoAwayEnabled);
+
         var band = new BigEndianUInt32 { HostValue = context.Bandwidth };
+
+        s_logger.ZLogTrace("Send WindowAcknowledgementSize (5)");
+        RtmpWriter.Write(context, 0, MessageType.WindowAcknowledgementSize,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref band);
+
+        s_logger.ZLogTrace("Send SetPeerBandwidth (6)");
+        var peerBw = new SetPeerBandwidth
+        {
+            AcknowledgementWindowSize = band,
+            LimitType = BandwidthLimitType.Dynamic,
+        };
+        RtmpWriter.Write(context, 0, MessageType.SetPeerBandwidth,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref peerBw);
+
+        s_logger.ZLogTrace("Send UseControlMessage.StreamBegin (0)");
+
+        s_logger.ZLogTrace("Send SetChunkSize (1)");
+
+        s_logger.ZLogTrace("Send RPC Response _result()");
+
     }
 
     public struct ConnectResult
     {
-        public string CommandName;
-        public double TransactionId;
+        public string                              CommandName;
+        public double                              TransactionId;
         public IReadOnlyDictionary<string, object> Properties;
         public IReadOnlyDictionary<string, object> Information;
     }
@@ -49,5 +85,14 @@ internal class NetConnection
         string? name = null)
     {
         s_logger.ZLogDebug("[{0}]:{1}", name, System.Text.Json.JsonSerializer.Serialize(anonObject));
+    }
+
+    private static void TryCopy<T>(IReadOnlyDictionary<string, object> anonObject, string key, ref T target)
+    {
+        if (!anonObject.TryGetValue(key, out object? value)) return;
+        if (value is T s)
+        {
+            target = s;
+        }
     }
 }

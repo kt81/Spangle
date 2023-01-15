@@ -10,7 +10,7 @@ internal interface IReadStateAction
 
     protected static void EnsureValidProtocolControlMessage(RtmpReceiverContext context)
     {
-        if (context.MessageHeader.StreamId == RtmpReceiver.ControlStreamId /* &&
+        if (context.MessageHeader.StreamId == Protocol.ControlStreamId /* &&
             context.BasicHeader.ChunkStreamId == ControlChunkStreamId */)
         {
             return;

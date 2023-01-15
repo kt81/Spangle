@@ -1,4 +1,7 @@
-﻿namespace Spangle.Rtmp.Chunk;
+﻿using System.Runtime.InteropServices;
+using Spangle.Util;
+
+namespace Spangle.Rtmp.Chunk;
 
 /// <summary>
 /// Chunk Basic Header
@@ -31,28 +34,77 @@
 
  Chunk basic header 3
  */
-internal struct BasicHeader
+[StructLayout(LayoutKind.Explicit, Pack = 1, Size = MaxSize)]
+internal unsafe struct BasicHeader
 {
-    public ChunkFormat Format;
-    public uint        ChunkStreamId;
+    public const  int  MaxSize = 3;
+    private const byte MaxIdH1 = 0b0011_1111; // 63
+    private const uint MaxIdH2 = 0xFF + MaxIdH1;
 
-    public void Renew(byte format, uint chunkStreamId)
+    private const byte FmtMask  = 0b1100_0000;
+    private const byte FbIdMask = 0b0011_1111;
+
+    private const byte H2Code = 0;
+    private const byte H3Code = 1;
+
+    private const byte MultiByteIdBias = 64;
+
+    [FieldOffset(0)] private fixed byte _value[MaxSize];
+
+    public MessageHeaderFormat Format
     {
-        Format = (ChunkFormat)format;
-        ChunkStreamId = chunkStreamId;
+        get => (MessageHeaderFormat)(_value[0] >>> 6);
+        // xx11_1111
+        set => _value[0] = (byte)(((byte)value << 6) | (_value[0] & FbIdMask));
     }
 
-    public static (byte Fmt, int BasicHeaderLength, byte CheckBits) GetFormatAndLengthByFirstByte(byte firstByte)
+    public uint ChunkStreamId
     {
-        var fmt = (byte)(firstByte >>> 6);
-        var checkBits = (byte)(firstByte & 0b0011_1111);
-        int length = checkBits switch
+        get
         {
-            1 => 3,
-            0 => 2,
-            _ => 1,
-        };
+            var checkBits = (byte)(_value[0] & MaxIdH1);
+            return checkBits switch
+            {
+                H2Code => (uint)(_value[1] + 64),
+                H3Code => ((uint)_value[1] << 8) + _value[2] + 64,
+                _      => checkBits,
+            };
+        }
+        set
+        {
+            switch (value)
+            {
+                case <= MaxIdH1:
+                    _value[0] = (byte)((byte)value | (_value[0] & FmtMask));
+                    _value[1] = _value[2] = 0;
+                    break;
+                case <= MaxIdH2:
+                    _value[0] = (byte)(_value[0] & FmtMask);
+                    _value[1] = (byte)(value - MultiByteIdBias);
+                    _value[2] = 0;
+                    break;
+                default:
+                    _value[0] = (byte)((_value[0] & FmtMask) + 1);
+                    value -= MultiByteIdBias;
+                    _value[1] = (byte)(value >>> 8);
+                    _value[2] = (byte)value;
+                    break;
+            }
+        }
+    }
 
-        return (fmt, length, checkBits);
+    public int RequiredLength => (_value[0] & FbIdMask) switch
+    {
+        H2Code => 2,
+        H3Code => 3,
+        _      => 1,
+    };
+
+    public Span<byte> ToSpan()
+    {
+        fixed (void* p = &this)
+        {
+            return new Span<byte>(p, MaxSize);
+        }
     }
 }
