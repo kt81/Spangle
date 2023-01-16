@@ -1,4 +1,5 @@
 ﻿using Spangle.Rtmp.Chunk;
+using Spangle.Rtmp.ProtocolControlMessage;
 using Spangle.Util;
 
 namespace Spangle.Rtmp;
@@ -32,10 +33,10 @@ public static class RtmpWriter
         // Write headers only for the required parts
         // BasicHeader
         int toAdvance = context.BasicHeaderToSend.RequiredLength;
-        context.BasicHeaderToSend.ToSpan()[..toAdvance].CopyTo(buff);
+        context.BasicHeaderToSend.ToBytes()[..toAdvance].CopyTo(buff);
         // MessageHeader
         int mhLen = fmt.GetMessageHeaderLength();
-        context.MessageHeaderToSend.ToSpan()[..mhLen].CopyTo(buff.Slice(toAdvance, mhLen));
+        context.MessageHeaderToSend.ToBytes()[..mhLen].CopyTo(buff.Slice(toAdvance, mhLen));
         toAdvance += mhLen;
 
         // Write the payload

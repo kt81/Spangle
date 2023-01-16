@@ -3,6 +3,7 @@ using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 using Spangle.IO;
 using Spangle.Rtmp.Chunk;
+using Spangle.Rtmp.ProtocolControlMessage;
 
 namespace Spangle.Rtmp.ReadState;
 
@@ -28,7 +29,7 @@ internal abstract class ReadMessageHeader : IReadStateAction
         unsafe {
             fixed (void* p = &context.MessageHeader)
             {
-                buff.CopyTo(context.MessageHeader.ToSpan());
+                buff.CopyTo(context.MessageHeader.ToBytes());
             }
         }
 

@@ -1,4 +1,4 @@
-﻿namespace Spangle.Rtmp.Chunk;
+﻿namespace Spangle.Rtmp.ProtocolControlMessage;
 
 public enum MessageType : byte
 {

@@ -1,6 +1,26 @@
-﻿namespace Spangle.Rtmp;
+﻿using System.Runtime.InteropServices;
+using Spangle.IO.Interop;
 
-internal enum UserControlMessageEvents : byte
+namespace Spangle.Rtmp;
+
+[StructLayout(LayoutKind.Sequential, Pack = 2, Size = Size)]
+internal unsafe struct UserControlMessage
+{
+    public const  int Size               = 6;
+    private const int EventDataMaxLength = 4;
+
+    public       BigEndianUInt16 EventType;
+    public fixed byte            EventData[EventDataMaxLength];
+
+    public static UserControlMessage Create(UserControlMessageEvents type, ReadOnlySpan<byte> data)
+    {
+        var self = new UserControlMessage { EventType = BigEndianUInt16.FromHost((ushort)type) };
+        data.CopyTo(new Span<byte>(self.EventData, EventDataMaxLength));
+        return self;
+    }
+}
+
+internal enum UserControlMessageEvents : ushort
 {
     /// <summary>
     /// The server sends this event to notify the client

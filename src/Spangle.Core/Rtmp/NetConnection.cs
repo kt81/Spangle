@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Spangle.IO.Interop;
 using Spangle.Logging;
@@ -55,20 +56,26 @@ internal class NetConnection
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref band);
 
         s_logger.ZLogTrace("Send SetPeerBandwidth (6)");
-        var peerBw = new SetPeerBandwidth
-        {
-            AcknowledgementWindowSize = band,
-            LimitType = BandwidthLimitType.Dynamic,
-        };
+        var peerBw = new SetPeerBandwidth { AcknowledgementWindowSize = band, LimitType = BandwidthLimitType.Dynamic, };
         RtmpWriter.Write(context, 0, MessageType.SetPeerBandwidth,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref peerBw);
 
-        s_logger.ZLogTrace("Send UseControlMessage.StreamBegin (0)");
+        s_logger.ZLogTrace("Send UseControlMessage (4) StreamBegin (0)");
+        var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin,
+            BigEndianUInt32.FromHost(Protocol.ControlStreamId).ToBytes());
+        RtmpWriter.Write(context, 0, MessageType.UserControl,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref streamBegin);
 
         s_logger.ZLogTrace("Send SetChunkSize (1)");
+        // MaxChunkSize's first bit must be 0
+        Debug.Assert(context.MaxChunkSize <= 0x7FFF_FFFF);
+        var setChunkSize = BigEndianUInt32.FromHost(context.MaxChunkSize);
+        RtmpWriter.Write(context, 0, MessageType.SetChunkSize,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref setChunkSize);
 
         s_logger.ZLogTrace("Send RPC Response _result()");
-
+        RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref setChunkSize);
     }
 
     public struct ConnectResult

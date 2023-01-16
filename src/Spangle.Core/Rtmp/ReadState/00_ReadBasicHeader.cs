@@ -20,7 +20,7 @@ internal abstract class ReadBasicHeader : IReadStateAction
 
         // Check the first byte
         (ReadOnlySequence<byte> firstBuff, _) = await reader.ReadExactlyAsync(1, ct);
-        firstBuff.CopyTo(context.BasicHeader.ToSpan());
+        firstBuff.CopyTo(context.BasicHeader.ToBytes());
         var endPos = firstBuff.End;
 
         // Read the remaining buffer if needed
@@ -28,7 +28,7 @@ internal abstract class ReadBasicHeader : IReadStateAction
         if (fullLen > 1)
         {
             (ReadOnlySequence<byte> fullBuff, _) = await reader.ReadExactlyAsync(fullLen, ct);
-            fullBuff.CopyTo(context.BasicHeader.ToSpan());
+            fullBuff.CopyTo(context.BasicHeader.ToBytes());
             endPos = fullBuff.End;
         }
 

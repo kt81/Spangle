@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using Spangle.IO.Interop;
+using Spangle.Rtmp.ProtocolControlMessage;
 
 namespace Spangle.Rtmp.Chunk;
 
@@ -104,7 +105,7 @@ internal struct MessageHeader
     /// </summary>
     public bool IsDefault => Length.HostValue == 0;
 
-    public unsafe Span<byte> ToSpan()
+    public unsafe Span<byte> ToBytes()
     {
         fixed (void* p = &this)
         {

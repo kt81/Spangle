@@ -29,7 +29,7 @@ public sealed class RtmpReceiver : IReceiver<RtmpReceiverContext>, IDisposable
                 ((CancellationTokenSource)state!).Cancel();
             }, readTimeoutSource);
         }
-        if (contextCancellation.CanBeCanceled)
+        if (_lifetimeCancellationTokenSource.Token.CanBeCanceled)
         {
             lifetimeCancellationRegistration = _lifetimeCancellationTokenSource.Token.UnsafeRegister(static state =>
             {

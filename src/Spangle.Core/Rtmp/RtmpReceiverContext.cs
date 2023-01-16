@@ -27,7 +27,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public uint MaxChunkSize = 128;
 
     /// <summary>
-    /// Timeout millisecond.
+    /// Timeout milliseconds.
     /// It is checked for every State actions.
     /// </summary>
     public int Timeout  = 5000;

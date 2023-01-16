@@ -1,6 +1,6 @@
 ﻿namespace Spangle.Rtmp;
 
-public static class Protocol
+internal static class Protocol
 {
     /*
      * (5.4. Protocol Control Messages)
@@ -12,10 +12,10 @@ public static class Protocol
     /// <summary>
     /// The stream ID which indicates Control Stream
     /// </summary>
-    internal const int ControlStreamId = 0;
+    public const int ControlStreamId = 0;
 
     /// <summary>
     /// The stream ID which indicates Control Chunk Stream
     /// </summary>
-    internal const int ControlChunkStreamId = 2;
+    public const int ControlChunkStreamId = 2;
 }
