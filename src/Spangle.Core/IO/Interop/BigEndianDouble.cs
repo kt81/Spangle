@@ -16,7 +16,7 @@ public unsafe struct BigEndianDouble : IInteropType<double, BigEndianDouble>
 
     public static BigEndianDouble FromHost(double value)
     {
-        var self = new BigEndianDouble()
+        var self = new BigEndianDouble
         {
             HostValue = value
         };
@@ -38,6 +38,14 @@ public unsafe struct BigEndianDouble : IInteropType<double, BigEndianDouble>
             {
                 BinaryPrimitives.WriteDoubleBigEndian(new Span<byte>(p, Length), value);
             }
+        }
+    }
+
+    public readonly Span<byte> ToBytes()
+    {
+        fixed (byte* p = _val)
+        {
+            return new Span<byte>(p, Length);
         }
     }
 

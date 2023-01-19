@@ -15,7 +15,7 @@ public sealed class RtmpReceiver : IReceiver<RtmpReceiverContext>, IDisposable
         s_logger = SpangleLogManager.GetLogger<RtmpReceiver>();
     }
 
-    public async ValueTask BeginReadAsync(RtmpReceiverContext context)
+    public async ValueTask StartAsync(RtmpReceiverContext context)
     {
         var contextCancellation = context.CancellationToken;
         CancellationTokenSource readTimeoutSource = new CancellationTokenSource();

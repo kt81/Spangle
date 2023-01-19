@@ -18,8 +18,8 @@ internal abstract class CommandAmf0 : IReadStateAction
         // Parse command
         string command = ParseString(ref buff);
         double transactionId = ParseNumber(ref buff);
-        IReadOnlyDictionary<string, object> commandObject = ParseObject(ref buff);
-        IReadOnlyDictionary<string, object>? optionalArguments = null;
+        IReadOnlyDictionary<string, object?> commandObject = ParseObject(ref buff);
+        IReadOnlyDictionary<string, object?>? optionalArguments = null;
         if (0 < buff.Length)
         {
             optionalArguments = ParseObject(ref buff);
@@ -30,8 +30,8 @@ internal abstract class CommandAmf0 : IReadStateAction
         // Dispatch RPC
         switch (command)
         {
-            case NetConnection.Commands.Connect:
-                NetConnection.Connect(context, transactionId, commandObject, optionalArguments);
+            case NetConnection.NetConnection.Commands.Connect:
+                NetConnection.NetConnection.Connect(context, transactionId, commandObject, optionalArguments);
                 break;
             default:
                 throw new NotImplementedException($"NetConnection.{command} is not implemented.");

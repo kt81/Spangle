@@ -6,7 +6,7 @@ namespace Spangle.Rtmp.Amf0;
 
 internal static class Amf0SequenceParser
 {
-    public static object Parse(ref ReadOnlySequence<byte> buff)
+    public static object? Parse(ref ReadOnlySequence<byte> buff)
     {
         var type = (Amf0TypeMarker)buff.FirstSpan[0];
         switch (type)
@@ -19,6 +19,8 @@ internal static class Amf0SequenceParser
                 return ParseString(ref buff);
             case Amf0TypeMarker.Object:
                 return ParseObject(ref buff);
+            case Amf0TypeMarker.Null:
+                return ParseNull(ref buff);
             case Amf0TypeMarker.ObjectEnd:
                 return ParseObjectEnd(ref buff);
             default:
@@ -72,14 +74,14 @@ internal static class Amf0SequenceParser
         return BufferMarshal.Utf8ToManagedString(strBuf);
     }
 
-    public static IReadOnlyDictionary<string, object> ParseObject(ref ReadOnlySequence<byte> buff)
+    public static IReadOnlyDictionary<string, object?> ParseObject(ref ReadOnlySequence<byte> buff)
     {
         buff = buff.Slice(1);
-        var dic = new Dictionary<string, object>();
+        var dic = new Dictionary<string, object?>();
         while (!buff.IsEmpty)
         {
             string key = ParseString(ref buff, false);
-            object val = Parse(ref buff);
+            object? val = Parse(ref buff);
             if (key == string.Empty && val is Amf0TypeMarker.ObjectEnd)
             {
                 break;
@@ -96,6 +98,13 @@ internal static class Amf0SequenceParser
     {
         buff = buff.Slice(1);
         return Amf0TypeMarker.ObjectEnd;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static object? ParseNull(ref ReadOnlySequence<byte> buff)
+    {
+        buff = buff.Slice(1);
+        return null;
     }
 
 }

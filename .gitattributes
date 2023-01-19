@@ -1,6 +1,12 @@
 ﻿# Global Settings
 * text=auto
 
+# Project
+*.sln    text eol=crlf
+*.csproj text eol=lf
+*.fsproj text eol=lf
+*.vbproj text eol=lf
+
 # Language
 *.cs      diff=csharp text eol=lf
 *.tt      text eol=lf
@@ -15,15 +21,24 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.conf text eol=lf
+*.xml text eol=lf
 
 # Web
 *.css     diff=css text eol=lf
 *.html    diff=html text eol=lf
 *.cshtml  diff=html text eol=lf
 
+# Scripts
+*.ps1   text eol=lf
+*.sh    text eol=lf
+*.zsh   text eol=lf
+
 # Windows
 *.bat   text eol=crlf
 *.cmd   text eol=crlf
+
+# IDE
+*.DotSettings text eol=lf
 
 # Unity
 *.cginc   text

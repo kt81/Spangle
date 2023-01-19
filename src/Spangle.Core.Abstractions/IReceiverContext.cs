@@ -8,11 +8,11 @@ public interface IReceiverContext<out TSelf> where TSelf : IReceiverContext<TSel
     /// <summary>
     /// The identifier of the connection that will be used for logging.
     /// </summary>
-    public string Id { get; init; }
-    public EndPoint? RemoteEndPoint { get; init; }
+    public string Id { get; }
+    public EndPoint? RemoteEndPoint { get; }
 
-    public PipeReader Reader { get; init; }
-    public PipeWriter Writer { get; init; }
+    public PipeReader Reader { get; }
+    public PipeWriter Writer { get; }
 
     public CancellationToken CancellationToken { get; set; }
 

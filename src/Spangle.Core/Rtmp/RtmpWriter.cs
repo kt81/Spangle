@@ -1,4 +1,7 @@
-﻿using Spangle.Rtmp.Chunk;
+﻿using System.Buffers;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using Spangle.Rtmp.Chunk;
 using Spangle.Rtmp.ProtocolControlMessage;
 using Spangle.Util;
 
@@ -12,7 +15,34 @@ public static class RtmpWriter
         uint chunkStreamId, uint streamId, ref TPayload payload) where TPayload : unmanaged
     {
         int plLen = MarshalHelper<TPayload>.Size;
-        var buff = context.Writer.GetSpan(HeaderMaxSize + plLen);
+        int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, plLen);
+        var buff = context.Writer.GetSpan(plLen);
+
+        // Write the payload
+        unsafe
+        {
+            fixed (void* p = &payload)
+            {
+                new ReadOnlySpan<byte>(p, plLen).CopyTo(buff.Slice(plLen, plLen));
+            }
+        }
+        context.Writer.Advance(plLen);
+
+        return hLen + plLen;
+    }
+
+    // public static int Write(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
+    //     uint chunkStreamId, uint streamId, int size, Action<IBufferWriter<byte>> writerCallback)
+    // {
+    //     int plLen = MarshalHelper<TPayload>.Size;
+    //     int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, plLen);
+    //     var buff = context.Writer.GetSpan(plLen);
+    // }
+
+    private static int WriteHeader(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
+        uint chunkStreamId, uint streamId, int payloadLength)
+    {
+        var buff = context.Writer.GetSpan(HeaderMaxSize + payloadLength);
         MessageHeaderFormat fmt;
 
         context.BasicHeaderToSend.ChunkStreamId = chunkStreamId;
@@ -21,35 +51,26 @@ public static class RtmpWriter
         {
             // Force Fmt0
             context.BasicHeaderToSend.Format = fmt = MessageHeaderFormat.Fmt0;
-            context.MessageHeaderToSend.SetFmt0(timestampOrDelta, (uint)plLen, messageTypeId, streamId);
+            context.MessageHeaderToSend.SetFmt0(timestampOrDelta, (uint)payloadLength, messageTypeId, streamId);
         }
         else
         {
             // Fmt1. This writer does not support Fmt2-3
             context.BasicHeaderToSend.Format = fmt = MessageHeaderFormat.Fmt1;
-            context.MessageHeaderToSend.SetFmt1(timestampOrDelta, (uint)plLen, messageTypeId);
+            context.MessageHeaderToSend.SetFmt1(timestampOrDelta, (uint)payloadLength, messageTypeId);
         }
 
         // Write headers only for the required parts
         // BasicHeader
-        int toAdvance = context.BasicHeaderToSend.RequiredLength;
-        context.BasicHeaderToSend.ToBytes()[..toAdvance].CopyTo(buff);
+        int bhLen = context.BasicHeaderToSend.RequiredLength;
+        context.BasicHeaderToSend.ToBytes()[..bhLen].CopyTo(buff);
         // MessageHeader
         int mhLen = fmt.GetMessageHeaderLength();
-        context.MessageHeaderToSend.ToBytes()[..mhLen].CopyTo(buff.Slice(toAdvance, mhLen));
-        toAdvance += mhLen;
+        context.MessageHeaderToSend.ToBytes()[..mhLen].CopyTo(buff.Slice(bhLen, mhLen));
 
-        // Write the payload
-        unsafe
-        {
-            fixed (void* p = &payload)
-            {
-                new ReadOnlySpan<byte>(p, plLen).CopyTo(buff.Slice(toAdvance, plLen));
-            }
-        }
+        int totalHeaderLength = bhLen + mhLen;
+        context.Writer.Advance(totalHeaderLength);
 
-        toAdvance += plLen;
-        context.Writer.Advance(toAdvance);
-        return toAdvance;
+        return totalHeaderLength;
     }
 }

@@ -1,14 +1,12 @@
 ﻿using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Spangle.IO.Interop;
 using Spangle.Logging;
-using Spangle.Rtmp.Chunk;
 using Spangle.Rtmp.ProtocolControlMessage;
 using ZLogger;
 
-namespace Spangle.Rtmp;
+namespace Spangle.Rtmp.NetConnection;
 
 /// <summary>
 /// The NetConnection manages a two-way connection between a client application and the server.
@@ -39,8 +37,8 @@ internal class NetConnection
     public static void Connect(
         RtmpReceiverContext context,
         double transactionId,
-        IReadOnlyDictionary<string, object> commandObject,
-        IReadOnlyDictionary<string, object>? optionalUserArgs = null)
+        IReadOnlyDictionary<string, object?> commandObject,
+        IReadOnlyDictionary<string, object?>? optionalUserArgs = null)
     {
         s_logger.ZLogTrace("NetCommand.Connect");
         DumpObject(commandObject);
@@ -74,27 +72,20 @@ internal class NetConnection
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref setChunkSize);
 
         s_logger.ZLogTrace("Send RPC Response _result()");
-        RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
-            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref setChunkSize);
-    }
-
-    public struct ConnectResult
-    {
-        public string                              CommandName;
-        public double                              TransactionId;
-        public IReadOnlyDictionary<string, object> Properties;
-        public IReadOnlyDictionary<string, object> Information;
+        var result = new ConnectResult();
+        // RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
+        //     Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref result);
     }
 
     [Conditional("DEBUG")]
-    private static void DumpObject(IReadOnlyDictionary<string, object>? anonObject,
+    private static void DumpObject(IReadOnlyDictionary<string, object?>? anonObject,
         [CallerArgumentExpression("anonObject")]
         string? name = null)
     {
         s_logger.ZLogDebug("[{0}]:{1}", name, System.Text.Json.JsonSerializer.Serialize(anonObject));
     }
 
-    private static void TryCopy<T>(IReadOnlyDictionary<string, object> anonObject, string key, ref T target)
+    private static void TryCopy<T>(IReadOnlyDictionary<string, object?> anonObject, string key, ref T target)
     {
         if (!anonObject.TryGetValue(key, out object? value)) return;
         if (value is T s)

@@ -27,6 +27,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.Examples.Console", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.Core.Abstractions", "src\Spangle.Core.Abstractions\Spangle.Core.Abstractions.csproj", "{853F9F59-7AA3-491C-9151-7AAC654B21C5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.SourceGenerator", "src\Spangle.SourceGenerator\Spangle.SourceGenerator.csproj", "{6B9D28EC-F84F-4ADE-BB02-029C57E35289}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.SourceGenerator.Tests", "tests\Spangle.SourceGenerator.Tests\Spangle.SourceGenerator.Tests.csproj", "{3A5964BE-5537-4057-AFC7-E8B8C845F9B8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -57,6 +61,14 @@ Global
 		{853F9F59-7AA3-491C-9151-7AAC654B21C5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{853F9F59-7AA3-491C-9151-7AAC654B21C5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{853F9F59-7AA3-491C-9151-7AAC654B21C5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6B9D28EC-F84F-4ADE-BB02-029C57E35289}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6B9D28EC-F84F-4ADE-BB02-029C57E35289}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6B9D28EC-F84F-4ADE-BB02-029C57E35289}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6B9D28EC-F84F-4ADE-BB02-029C57E35289}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{A8340966-1FBF-4B63-96DD-1ED284C01367} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
@@ -65,5 +77,7 @@ Global
 		{AF10BE03-A641-434D-961E-F125B97B540E} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
 		{9E253D82-BF3D-4265-A7D0-6D56355AA583} = {209EE6FD-CB9E-4463-9BD2-F29986294AE7}
 		{853F9F59-7AA3-491C-9151-7AAC654B21C5} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
+		{6B9D28EC-F84F-4ADE-BB02-029C57E35289} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
+		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8} = {094F95A7-D650-4408-8B17-081DEBBD5D5D}
 	EndGlobalSection
 EndGlobal

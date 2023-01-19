@@ -50,5 +50,5 @@ public static class ReceiverExtensions
         PipeWriter writer,
         CancellationToken ct = default)
         where TContext : IReceiverContext<TContext> =>
-        receiver.BeginReadAsync(TContext.CreateInstance(id, reader, writer, ct));
+        receiver.StartAsync(TContext.CreateInstance(id, reader, writer, ct));
 }

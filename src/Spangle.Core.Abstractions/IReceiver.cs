@@ -8,5 +8,5 @@ namespace Spangle;
 /// <typeparam name="TContext"></typeparam>
 public interface IReceiver<in TContext> where TContext : IReceiverContext<TContext>
 {
-    ValueTask BeginReadAsync(TContext context);
+    ValueTask StartAsync(TContext context);
 }
