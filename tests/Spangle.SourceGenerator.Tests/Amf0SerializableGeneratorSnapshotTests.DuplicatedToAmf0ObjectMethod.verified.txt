@@ -1,0 +1,16 @@
+﻿{
+  Diagnostics: [
+    {
+      Id: SPGEN001,
+      Title: Duplicated ToAmf0Object method,
+      Severity: Error,
+      WarningLevel: 0,
+      Location: : (6,24)-(6,62),
+      Description: ,
+      HelpLink: ,
+      MessageFormat: The Amf0Serializable struct {0} must not contain its own implementation of ToAmf0Object in it,
+      Message: The Amf0Serializable struct DuplicatedToAmf0ObjectMethodTestStruct must not contain its own implementation of ToAmf0Object in it,
+      Category: SpangleSourceGen
+    }
+  ]
+}

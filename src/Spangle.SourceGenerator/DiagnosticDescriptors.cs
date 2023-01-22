@@ -4,13 +4,20 @@ namespace Spangle.SourceGenerator;
 
 public static class DiagnosticDescriptors
 {
-    private static readonly string s_category = typeof(DiagnosticDescriptors).Namespace;
+    private const string Category = "SpangleSourceGen";
 
     public static readonly DiagnosticDescriptor ToAmf0ObjectMethodExists = new(
         id: "SPGEN001",
-        title: "Amf0Serializable struct cannot has ToAmf0Object in itself.",
-        messageFormat: "The GenerateToString class '{0}' has ToString override but it is not allowed.",
-        category: s_category,
+        title: "Duplicated ToAmf0Object method",
+        messageFormat: "The Amf0Serializable struct {0} must not contain its own implementation of ToAmf0Object in it",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+    public static readonly DiagnosticDescriptor NotSupportedTypeField = new(
+        id: "SPGEN002",
+        title: "Unsupported field type",
+        messageFormat: "The field type of '{0}' is not supported",
+        category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 }

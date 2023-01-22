@@ -1,17 +1,7 @@
 ﻿<wpf:ResourceDictionary xml:space="preserve" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:s="clr-namespace:System;assembly=mscorlib" xmlns:ss="urn:shemas-jetbrains-com:settings-storage-xaml" xmlns:wpf="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
 	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003AIPAddress_002Ecs_002Fl_003A_002E_002E_003F_002E_002E_003FAppData_003FRoaming_003FJetBrains_003FRider2022_002E1_003Fresharper_002Dhost_003FSourcesCache_003Fc19d31b0acabe8781ab121f733adff648fefcbfe3e318af5a8dfdab8654c96_003FIPAddress_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
-	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=54718d88_002D3fcb_002D4d2e_002D8a54_002D0b75bbef2775/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="BigEndianUInt32Test" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;&#xD;
-  &lt;Or&gt;&#xD;
-    &lt;TestAncestor&gt;&#xD;
-      &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Interop.BigEndianUInt24Test&lt;/TestId&gt;&#xD;
-      &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Interop.BigEndianUInt32Test&lt;/TestId&gt;&#xD;
-      &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.MarshalLearningTest.TestAsRef&lt;/TestId&gt;&#xD;
-      &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.MarshalLearningTest&lt;/TestId&gt;&#xD;
-      &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.Marshal.MarshalLearningTest.TestAsRefSpan&lt;/TestId&gt;&#xD;
-      &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.Marshal.MarshalLearningTest.TestAsRefPointer&lt;/TestId&gt;&#xD;
-      &lt;TestId&gt;xUnit::59842F61-E834-4069-BAA2-6E9F07C69D65::net7.0::Spangle.Tests.Learning.Marshal.MarshalLearningTest&lt;/TestId&gt;&#xD;
-    &lt;/TestAncestor&gt;&#xD;
-    &lt;Project Location="C:\Users\kt81\RiderProjects\Spangle\tests\Spangle.SourceGenerator.Tests" Presentation="&amp;lt;tests&amp;gt;\&amp;lt;Spangle.SourceGenerator.Tests&amp;gt;" /&gt;&#xD;
-  &lt;/Or&gt;&#xD;
+	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=f234edb7_002Deda1_002D410e_002D974d_002D0142bbdaa965/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="All tests from &amp;lt;tests&amp;gt;\&amp;lt;Spangle.SourceGenerator.Tests&amp;gt;" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;&#xD;
+  &lt;Project Location="C:\Users\kt81\RiderProjects\Spangle\tests\Spangle.SourceGenerator.Tests" Presentation="&amp;lt;tests&amp;gt;\&amp;lt;Spangle.SourceGenerator.Tests&amp;gt;" /&gt;&#xD;
 &lt;/SessionState&gt;</s:String>
+	
 	<s:String x:Key="/Default/Housekeeping/UnitTestingMru/UnitTestRunner/SpawnedProcessesKnownList/=rider64_002Eexe/@EntryIndexedValue">KillOrphaned</s:String></wpf:ResourceDictionary>
