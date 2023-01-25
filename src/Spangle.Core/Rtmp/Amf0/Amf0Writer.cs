@@ -95,13 +95,30 @@ internal static class Amf0Writer
         return totalLen;
     }
 
-    public static int WriteObject(PipeWriter writer, IReadOnlyDictionary<string, object?> dic)
+    public static int WriteObjectHeader(PipeWriter writer)
     {
-        // object-marker
-        int totalLen = MarkerLength;
         var buff = writer.GetSpan(MarkerLength);
         buff[0] = (byte)Amf0TypeMarker.Object;
         writer.Advance(MarkerLength);
+        return 1;
+    }
+
+    public static int WriteObjectEnd(PipeWriter writer)
+    {
+        const int endSize = 3;
+        var buff = writer.GetSpan(endSize);
+        buff[0] = buff[1] = 0; // UTF-8-empty
+        buff[2] = (byte)Amf0TypeMarker.ObjectEnd;
+        writer.Advance(endSize);
+        return endSize;
+    }
+
+    public static int WriteObject(PipeWriter writer, IReadOnlyDictionary<string, object?> dic)
+    {
+        int totalLen = MarkerLength;
+
+        // object-marker
+        totalLen += WriteObjectHeader(writer);
 
         // object-property
         totalLen += dic.Sum(pair =>
@@ -109,12 +126,7 @@ internal static class Amf0Writer
             + Write(writer, pair.Value));
 
         // object-end
-        const int endSize = 3;
-        buff = writer.GetSpan(endSize);
-        buff[0] = buff[1] = 0; // UTF-8-empty
-        buff[2] = (byte)Amf0TypeMarker.ObjectEnd;
-        writer.Advance(endSize);
-        totalLen += endSize;
+        totalLen += WriteObjectEnd(writer);
 
         return totalLen;
     }

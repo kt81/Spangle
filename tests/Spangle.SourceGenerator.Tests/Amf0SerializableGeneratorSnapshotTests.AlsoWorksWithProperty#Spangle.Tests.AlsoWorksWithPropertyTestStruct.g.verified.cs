@@ -20,9 +20,17 @@ internal partial struct AlsoWorksWithPropertyTestStruct
     public int ToAmf0Object(PipeWriter writer)
     {
         int total = 0;
+
+        total += Amf0Writer.WriteObjectHeader(writer);
+        total += Amf0Writer.WriteString(writer, "IntField", false);
         total += Amf0Writer.WriteNumber(writer, Convert.ToDouble(IntField));
+        total += Amf0Writer.WriteString(writer, "FloatField", false);
         total += Amf0Writer.WriteNumber(writer, Convert.ToDouble(FloatField));
+        total += Amf0Writer.WriteString(writer, "StringField", false);
         total += Amf0Writer.WriteString(writer, StringField);
+        total += Amf0Writer.WriteObjectEnd(writer);
+
+        writer.Advance(total);
         return total;
     }
 }

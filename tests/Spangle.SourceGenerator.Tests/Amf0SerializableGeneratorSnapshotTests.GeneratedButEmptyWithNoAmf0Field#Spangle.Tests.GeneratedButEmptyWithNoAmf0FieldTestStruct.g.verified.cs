@@ -20,6 +20,11 @@ internal partial struct GeneratedButEmptyWithNoAmf0FieldTestStruct
     public int ToAmf0Object(PipeWriter writer)
     {
         int total = 0;
+
+        total += Amf0Writer.WriteObjectHeader(writer);
+        total += Amf0Writer.WriteObjectEnd(writer);
+
+        writer.Advance(total);
         return total;
     }
 }
