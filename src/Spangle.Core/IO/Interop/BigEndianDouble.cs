@@ -41,7 +41,7 @@ public unsafe struct BigEndianDouble : IInteropType<double, BigEndianDouble>
         }
     }
 
-    public readonly Span<byte> ToBytes()
+    public readonly Span<byte> AsSpan()
     {
         fixed (byte* p = _val)
         {

@@ -5,7 +5,7 @@
       Title: Duplicated WriteAsAmf0Command method,
       Severity: Error,
       WarningLevel: 0,
-      Location: : (6,24)-(6,62),
+      Location: : (6,24)-(6,68),
       Description: ,
       HelpLink: ,
       MessageFormat: The Amf0Serializable struct {0} must not contain its own implementation of WriteAsAmf0Command in it,

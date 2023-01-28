@@ -100,7 +100,7 @@ internal unsafe struct BasicHeader
         _      => 1,
     };
 
-    public Span<byte> ToBytes()
+    public Span<byte> AsSpan()
     {
         fixed (void* p = &this)
         {

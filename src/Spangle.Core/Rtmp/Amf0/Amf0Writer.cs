@@ -1,4 +1,4 @@
-﻿using System.IO.Pipelines;
+﻿using System.Buffers;
 using System.Text;
 using Spangle.IO.Interop;
 using Spangle.Util;
@@ -6,7 +6,7 @@ using Spangle.Util;
 namespace Spangle.Rtmp.Amf0;
 
 /// <summary>
-/// Amf0Writer writes the host typed value to PipeWriter in AMF0.
+/// Amf0Writer writes the host typed value to IBufferWriter`byte in AMF0.
 /// </summary>
 /// <remarks>
 /// The methods described in this class are not very concerned with speed because they are called very infrequently.
@@ -15,7 +15,7 @@ internal static class Amf0Writer
 {
     private const int MarkerLength = 1;
 
-    public static int Write(PipeWriter writer, object? value, bool requiresTypeMarker = true)
+    public static int Write(IBufferWriter<byte> writer, object? value, bool requiresTypeMarker = true)
     {
         switch (value)
         {
@@ -39,18 +39,18 @@ internal static class Amf0Writer
         }
     }
 
-    public static int WriteNumber(PipeWriter writer, double value)
+    public static int WriteNumber(IBufferWriter<byte> writer, double value)
     {
         const int totalLen = sizeof(double) + MarkerLength;
         var result = writer.GetSpan(totalLen);
         result[0] = (byte)Amf0TypeMarker.Number;
-        BigEndianDouble.FromHost(value).ToBytes().CopyTo(result[1..]);
+        BigEndianDouble.FromHost(value).AsSpan().CopyTo(result[1..]);
 
         writer.Advance(totalLen);
         return totalLen;
     }
 
-    public static int WriteBoolean(PipeWriter writer, bool value)
+    public static int WriteBoolean(IBufferWriter<byte> writer, bool value)
     {
         const int totalLen = sizeof(bool) + MarkerLength;
         var result = writer.GetSpan(totalLen);
@@ -61,7 +61,7 @@ internal static class Amf0Writer
         return totalLen;
     }
 
-    public static int WriteString(PipeWriter writer, string value, bool requiresTypeMarker = true)
+    public static int WriteString(IBufferWriter<byte> writer, string value, bool requiresTypeMarker = true)
     {
         int stringLen = Encoding.UTF8.GetByteCount(value);
         if (stringLen > ushort.MaxValue)
@@ -95,7 +95,7 @@ internal static class Amf0Writer
         return totalLen;
     }
 
-    public static int WriteObjectHeader(PipeWriter writer)
+    public static int WriteObjectHeader(IBufferWriter<byte> writer)
     {
         var buff = writer.GetSpan(MarkerLength);
         buff[0] = (byte)Amf0TypeMarker.Object;
@@ -103,7 +103,7 @@ internal static class Amf0Writer
         return 1;
     }
 
-    public static int WriteObjectEnd(PipeWriter writer)
+    public static int WriteObjectEnd(IBufferWriter<byte> writer)
     {
         const int endSize = 3;
         var buff = writer.GetSpan(endSize);
@@ -113,7 +113,7 @@ internal static class Amf0Writer
         return endSize;
     }
 
-    public static int WriteObject(PipeWriter writer, IReadOnlyDictionary<string, object?> dic)
+    public static int WriteObject(IBufferWriter<byte> writer, IReadOnlyDictionary<string, object?> dic)
     {
         int totalLen = MarkerLength;
 
@@ -131,7 +131,7 @@ internal static class Amf0Writer
         return totalLen;
     }
 
-    public static int WriteNull(PipeWriter writer)
+    public static int WriteNull(IBufferWriter<byte> writer)
     {
         var result = writer.GetSpan(MarkerLength);
         result[0] = (byte)Amf0TypeMarker.Null;

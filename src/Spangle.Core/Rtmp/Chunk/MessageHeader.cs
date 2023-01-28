@@ -105,7 +105,7 @@ internal struct MessageHeader
     /// </summary>
     public bool IsDefault => Length.HostValue == 0;
 
-    public unsafe Span<byte> ToBytes()
+    public unsafe Span<byte> AsSpan()
     {
         fixed (void* p = &this)
         {
@@ -115,7 +115,7 @@ internal struct MessageHeader
 
     public void SetFmt0(uint timestamp, uint length, MessageType typeId, uint streamId)
     {
-        if (timestamp > BigEndianUInt24.MaxValue)
+        if (timestamp < BigEndianUInt24.MaxValue)
         {
             Timestamp = BigEndianUInt24.FromHost(timestamp);
         }

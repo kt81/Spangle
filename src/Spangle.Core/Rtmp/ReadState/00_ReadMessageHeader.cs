@@ -1,6 +1,5 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
-using System.Runtime.CompilerServices;
 using Spangle.IO;
 using Spangle.Rtmp.Chunk;
 using Spangle.Rtmp.ProtocolControlMessage;
@@ -21,24 +20,26 @@ internal abstract class ReadMessageHeader : IReadStateAction
         if (len == 0)
         {
             // Continue with recent header.
-            DispatchNextByMessageHeader(context);
+            DispatchNextByMessageType(context);
             return;
         }
 
         (ReadOnlySequence<byte> buff, _) = await reader.ReadExactlyAsync(len, ct);
-        unsafe {
-            fixed (void* p = &context.MessageHeader)
-            {
-                buff.CopyTo(context.MessageHeader.ToBytes());
-            }
-        }
-
+        buff.CopyTo(context.MessageHeader.AsSpan());
         reader.AdvanceTo(buff.End);
 
-        DispatchNextByMessageHeader(context);
+        if (context.MessageHeader.HasExtendedTimestamp)
+        {
+            // Requires reading of extended timestamp
+            (buff, _) = await reader.ReadExactlyAsync(sizeof(uint), ct);
+            buff.CopyTo(context.MessageHeader.ExtendedTimeStamp.AsSpan());
+            reader.AdvanceTo(buff.End);
+        }
+
+        DispatchNextByMessageType(context);
     }
 
-    private static void DispatchNextByMessageHeader(RtmpReceiverContext context)
+    private static void DispatchNextByMessageType(RtmpReceiverContext context)
     {
         switch (context.MessageHeader.TypeId)
         {

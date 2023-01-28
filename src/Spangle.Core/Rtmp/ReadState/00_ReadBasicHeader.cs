@@ -1,8 +1,6 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
-using System.Runtime.InteropServices;
 using Spangle.IO;
-using Spangle.IO.Interop;
 using Spangle.Rtmp.Chunk;
 
 namespace Spangle.Rtmp.ReadState;
@@ -20,7 +18,7 @@ internal abstract class ReadBasicHeader : IReadStateAction
 
         // Check the first byte
         (ReadOnlySequence<byte> firstBuff, _) = await reader.ReadExactlyAsync(1, ct);
-        firstBuff.CopyTo(context.BasicHeader.ToBytes());
+        firstBuff.CopyTo(context.BasicHeader.AsSpan());
         var endPos = firstBuff.End;
 
         // Read the remaining buffer if needed
@@ -28,7 +26,7 @@ internal abstract class ReadBasicHeader : IReadStateAction
         if (fullLen > 1)
         {
             (ReadOnlySequence<byte> fullBuff, _) = await reader.ReadExactlyAsync(fullLen, ct);
-            fullBuff.CopyTo(context.BasicHeader.ToBytes());
+            fullBuff.CopyTo(context.BasicHeader.AsSpan());
             endPos = fullBuff.End;
         }
 

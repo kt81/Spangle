@@ -52,8 +52,6 @@ public sealed class RtmpReceiver : IReceiver<RtmpReceiverContext>, IDisposable
             readTimeoutSource.Cancel();
             readTimeoutSource.Dispose();
         }
-
-        s_logger.ZLogDebug("Begin to read chunk");
     }
 
     private static async ValueTask BeginReadAsyncImpl(RtmpReceiverContext context, CancellationTokenSource readTimeoutSource)

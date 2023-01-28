@@ -88,7 +88,7 @@ internal partial struct {{GetName()}}
     }
 
     [Fact]
-    public Task DuplicatedToAmf0ObjectMethod()
+    public Task DuplicatedWriteAsAmf0CommandMethod()
     {
         var source = $$"""
 using System.Buffers;
@@ -106,7 +106,7 @@ internal partial struct {{GetName()}}
     [Amf0Field(2)]
     public string StringField;
 
-    public int ToAmf0Object(IBufferWriter<byte> writer) => 0;
+    public int WriteAsAmf0Command(IBufferWriter<byte> writer) => 0;
 }
 """;
         return TestHelper.Verify(source);

@@ -13,4 +13,16 @@ internal partial struct ConnectResult
     public IReadOnlyDictionary<string, object?> Properties;
     [Amf0Field(3)]
     public IReadOnlyDictionary<string, object?> Information;
+
+    public static ConnectResult CreateDefault()
+    {
+        var self = new ConnectResult
+        {
+            CommandName = "_result",
+            TransactionId = 1,
+            Properties = new Dictionary<string, object?>(),
+            Information = new Dictionary<string, object?>(),
+        };
+        return self;
+    }
 }

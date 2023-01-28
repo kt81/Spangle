@@ -7,7 +7,7 @@
 #pragma warning disable CS8603
 #pragma warning disable CS8604
 
-using System.IO.Pipelines;
+using System.Buffers;
 using Spangle.Rtmp.Amf0;
 
 namespace Spangle.Tests;
@@ -17,14 +17,21 @@ internal partial struct GeneratedButEmptyWithNoAmf0FieldTestStruct
     /// <summary>
     /// Write this structure itself to the buffer.
     /// </summary>
-    public int ToAmf0Object(PipeWriter writer)
+    public int WriteAsAmf0Command(IBufferWriter<byte> writer)
     {
         int total = 0;
 
-        total += Amf0Writer.WriteObjectHeader(writer);
-        total += Amf0Writer.WriteObjectEnd(writer);
 
-        writer.Advance(total);
         return total;
+    }
+
+    /// <summary>
+    /// Serialize this struct as an AMF0 byte sequence.
+    /// </summary>
+    public ReadOnlySpan<byte> ToBytes()
+    {
+        var writer = new ArrayBufferWriter<byte>(1024);
+        WriteAsAmf0Command(writer);
+        return writer.WrittenSpan;
     }
 }

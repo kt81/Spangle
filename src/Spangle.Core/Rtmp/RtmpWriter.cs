@@ -1,6 +1,4 @@
 ﻿using System.Buffers;
-using System.Reflection;
-using System.Runtime.CompilerServices;
 using Spangle.Rtmp.Chunk;
 using Spangle.Rtmp.ProtocolControlMessage;
 using Spangle.Util;
@@ -23,7 +21,7 @@ public static class RtmpWriter
         {
             fixed (void* p = &payload)
             {
-                new ReadOnlySpan<byte>(p, plLen).CopyTo(buff.Slice(plLen, plLen));
+                new ReadOnlySpan<byte>(p, plLen).CopyTo(buff[..plLen]);
             }
         }
         context.Writer.Advance(plLen);
@@ -31,13 +29,13 @@ public static class RtmpWriter
         return hLen + plLen;
     }
 
-    // public static int Write(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
-    //     uint chunkStreamId, uint streamId, int size, Action<IBufferWriter<byte>> writerCallback)
-    // {
-    //     int plLen = MarshalHelper<TPayload>.Size;
-    //     int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, plLen);
-    //     var buff = context.Writer.GetSpan(plLen);
-    // }
+    public static int Write(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
+        uint chunkStreamId, uint streamId, ReadOnlySpan<byte> amf0ByteSequence)
+    {
+        int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, amf0ByteSequence.Length);
+        context.Writer.Write(amf0ByteSequence);
+        return hLen + amf0ByteSequence.Length;
+    }
 
     private static int WriteHeader(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
         uint chunkStreamId, uint streamId, int payloadLength)
@@ -63,13 +61,19 @@ public static class RtmpWriter
         // Write headers only for the required parts
         // BasicHeader
         int bhLen = context.BasicHeaderToSend.RequiredLength;
-        context.BasicHeaderToSend.ToBytes()[..bhLen].CopyTo(buff);
+        context.BasicHeaderToSend.AsSpan()[..bhLen].CopyTo(buff);
         // MessageHeader
         int mhLen = fmt.GetMessageHeaderLength();
-        context.MessageHeaderToSend.ToBytes()[..mhLen].CopyTo(buff.Slice(bhLen, mhLen));
-
+        context.MessageHeaderToSend.AsSpan()[..mhLen].CopyTo(buff.Slice(bhLen, mhLen));
         int totalHeaderLength = bhLen + mhLen;
         context.Writer.Advance(totalHeaderLength);
+
+        if (context.MessageHeaderToSend.HasExtendedTimestamp)
+        {
+            var exTimeBuff = context.Writer.GetSpan(sizeof(uint));
+            context.MessageHeaderToSend.ExtendedTimeStamp.AsSpan().CopyTo(exTimeBuff);
+            context.Writer.Advance(exTimeBuff.Length);
+        }
 
         return totalHeaderLength;
     }

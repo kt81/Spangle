@@ -47,7 +47,7 @@ internal class NetConnection
         TryCopy(commandObject, Keys.App, ref context.App);
         TryCopy(commandObject, Keys.SupportsGoAway, ref context.IsGoAwayEnabled);
 
-        var band = new BigEndianUInt32 { HostValue = context.Bandwidth };
+        var band = BigEndianUInt32.FromHost(context.Bandwidth);
 
         s_logger.ZLogTrace("Send WindowAcknowledgementSize (5)");
         RtmpWriter.Write(context, 0, MessageType.WindowAcknowledgementSize,
@@ -60,7 +60,7 @@ internal class NetConnection
 
         s_logger.ZLogTrace("Send UseControlMessage (4) StreamBegin (0)");
         var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin,
-            BigEndianUInt32.FromHost(Protocol.ControlStreamId).ToBytes());
+            BigEndianUInt32.FromHost(Protocol.ControlStreamId).AsSpan());
         RtmpWriter.Write(context, 0, MessageType.UserControl,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref streamBegin);
 
@@ -72,9 +72,10 @@ internal class NetConnection
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref setChunkSize);
 
         s_logger.ZLogTrace("Send RPC Response _result()");
-        var result = new ConnectResult();
-        // RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
-        //     Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref result);
+        var result = ConnectResult.CreateDefault();
+        result.TransactionId = transactionId; // 1
+        RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result.ToBytes());
     }
 
     [Conditional("DEBUG")]

@@ -1,5 +1,4 @@
-﻿using System.Buffers;
-using System.IO.Pipelines;
+﻿using System.IO.Pipelines;
 using System.Runtime.InteropServices;
 using FluentAssertions;
 using Spangle.Rtmp.Amf0;
@@ -10,41 +9,38 @@ namespace Spangle.SourceGenerator.Tests.Rtmp;
 public class Amf0SerializableGeneratorTests
 {
     [Fact]
-    public async Task TestToAmf0Object()
+    public async Task TestWriteAsAmf0Command()
     {
         var pipe = new Pipe();
         var writer = pipe.Writer;
         var reader = pipe.Reader;
 
         var data = new TestStruct();
-        int size = data.ToAmf0Object(writer);
+        int size = data.WriteAsAmf0Command(writer);
         size.Should().BeGreaterThan(Marshal.SizeOf<TestStruct>());
         await writer.FlushAsync();
 
-        // Unmarshal back
+        // Unmarshal back to host value but cannot return to an original struct, to dictionary.
         var result = await reader.ReadAtLeastAsync(size);
         var buff = result.Buffer;
         buff.Length.Should().BeGreaterOrEqualTo(size);
-        buff = buff.Slice(0, size);
 
-        object? objectResult = Amf0SequenceParser.Parse(ref buff);
-        reader.AdvanceTo(buff.End);
-        objectResult.Should().NotBeNull();
-        // Object type information is lost during marshaling (by design)
-        objectResult.Should().BeAssignableTo<IReadOnlyDictionary<string, object?>>();
-        var dic = (IReadOnlyDictionary<string, object?>)objectResult!;
+        object? expectsIntField = Amf0SequenceParser.Parse(ref buff);
+        // Type information is lost during marshaling (by design)
+        // For numeric types, the original type is lost.
+        expectsIntField.Should().NotBeNull();
+        expectsIntField.Should().BeOfType<double>("IntField comes as AMF number (double) type");
+        expectsIntField.Should().Be((double)data.IntField);
 
-        // The original type is lost with numeric types.
-        dic.TryGetValue("IntField", out object? intField).Should().BeTrue();
-        intField.Should().BeOfType<double>();
-        intField.Should().Be((double)data.IntField);
-        dic.TryGetValue("FloatField", out object? floatField).Should().BeTrue();
-        floatField.Should().BeOfType<double>();
-        floatField.Should().Be((double)data.FloatField);
+        // NOTE: Parse(ref buff) advances the buff.End position so we don't have to do anything.
+        object? expectsFloatField = Amf0SequenceParser.Parse(ref buff);
+        expectsIntField.Should().NotBeNull();
+        expectsFloatField.Should().BeOfType<double>();
+        expectsFloatField.Should().Be((double)data.FloatField);
 
-        dic.TryGetValue("StringField", out object? stringField).Should().BeTrue();
-        stringField.Should().BeOfType<string>();
-        stringField.Should().Be(data.StringField);
+        object? expectsStringField = Amf0SequenceParser.Parse(ref buff);
+        expectsStringField.Should().BeOfType<string>();
+        expectsStringField.Should().Be(data.StringField);
     }
 
 }
