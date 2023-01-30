@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Spangle.Util;
 
-namespace Spangle.IO.Interop;
+namespace Spangle.Interop;
 
 /// <summary>
 /// Marshaling from ReadOnlySequence buffer

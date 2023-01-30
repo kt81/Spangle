@@ -1,5 +1,5 @@
 using System.Runtime.InteropServices;
-using Spangle.IO.Interop;
+using Spangle.Interop;
 using Xunit.Abstractions;
 // ReSharper disable UnusedType.Global
 

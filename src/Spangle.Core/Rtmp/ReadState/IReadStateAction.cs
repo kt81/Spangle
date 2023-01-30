@@ -1,4 +1,5 @@
-﻿using Cysharp.Text;
+﻿using System.Runtime.CompilerServices;
+using Cysharp.Text;
 
 namespace Spangle.Rtmp.ReadState;
 
@@ -8,6 +9,7 @@ internal interface IReadStateAction
 
     public static abstract ValueTask Perform(RtmpReceiverContext context);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     protected static void EnsureValidProtocolControlMessage(RtmpReceiverContext context)
     {
         if (context.MessageHeader.StreamId == Protocol.ControlStreamId /* &&

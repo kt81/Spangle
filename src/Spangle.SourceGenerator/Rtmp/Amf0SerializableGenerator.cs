@@ -13,7 +13,7 @@ public class Amf0SerializableGenerator : IIncrementalGenerator
     private const string FieldAttributeName        = "Amf0FieldAttribute";
     private const string FieldAttrPositionPropName = "Position";
     private const string WriteMethodName           = "WriteAsAmf0Command";
-    private const string ToBytesMethodName         = "ToBytes";
+    private const string WriteBytesMethodName      = "WriteBytes";
 
     private static readonly string s_namespace = typeof(Amf0SerializableGenerator).Namespace;
 
@@ -115,15 +115,14 @@ using Spangle.Rtmp.Amf0;
 
 {{ns}}
 
-{{accessibility}} partial struct {{typeSymbol.Name}}
+{{accessibility}} partial struct {{typeSymbol.Name}} : IAmf0Serializable
 {
     /// <summary>
-    /// Write this structure itself to the buffer.
+    /// Serialize this struct as an AMF0 byte sequence.
     /// </summary>
-    public int {{WriteMethodName}}(IBufferWriter<byte> writer)
+    public int {{WriteBytesMethodName}}(IBufferWriter<byte> writer)
     {
-        int total = 0;
-
+        var total = 0;
 """);
         foreach ((_, string method) in serializerMethods)
         {
@@ -132,19 +131,8 @@ using Spangle.Rtmp.Amf0;
 """);
         }
 
-        codeBuilder.AppendLine($$"""
-
+        codeBuilder.AppendLine("""
         return total;
-    }
-
-    /// <summary>
-    /// Serialize this struct as an AMF0 byte sequence.
-    /// </summary>
-    public ReadOnlySpan<byte> {{ToBytesMethodName}}()
-    {
-        var writer = new ArrayBufferWriter<byte>(1024);
-        WriteAsAmf0Command(writer);
-        return writer.WrittenSpan;
     }
 }
 """);

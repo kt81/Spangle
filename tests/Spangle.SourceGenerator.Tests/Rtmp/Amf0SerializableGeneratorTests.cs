@@ -16,9 +16,9 @@ public class Amf0SerializableGeneratorTests
         var reader = pipe.Reader;
 
         var data = new TestStruct();
-        int size = data.WriteAsAmf0Command(writer);
-        size.Should().BeGreaterThan(Marshal.SizeOf<TestStruct>());
+        int size = data.WriteBytes(writer);
         await writer.FlushAsync();
+        size.Should().BeGreaterThan(Marshal.SizeOf<TestStruct>());
 
         // Unmarshal back to host value but cannot return to an original struct, to dictionary.
         var result = await reader.ReadAtLeastAsync(size);

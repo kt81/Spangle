@@ -1,6 +1,6 @@
 ﻿using System.Buffers;
 using System.Text;
-using Spangle.IO.Interop;
+using Spangle.Interop;
 using Spangle.Util;
 
 namespace Spangle.Rtmp.Amf0;
@@ -63,7 +63,12 @@ internal static class Amf0Writer
 
     public static int WriteString(IBufferWriter<byte> writer, string value, bool requiresTypeMarker = true)
     {
-        int stringLen = Encoding.UTF8.GetByteCount(value);
+        return WriteUTF8String(writer, Encoding.UTF8.GetBytes(value), requiresTypeMarker);
+    }
+
+    public static int WriteUTF8String(IBufferWriter<byte> writer, ReadOnlySpan<byte> value, bool requiresTypeMarker = true)
+    {
+        int stringLen = value.Length;
         if (stringLen > ushort.MaxValue)
         {
             // Amf0TypeMarker.LongString
@@ -88,7 +93,7 @@ internal static class Amf0Writer
         result[pos++] = (byte)(stringLen >>> 8);
         result[pos++] = (byte)stringLen;
         // Write string body
-        Encoding.UTF8.GetBytes(value, result.Slice(pos, stringLen));
+        value.CopyTo(result.Slice(pos, stringLen));
 
         writer.Advance(totalLen);
 
@@ -113,12 +118,15 @@ internal static class Amf0Writer
         return endSize;
     }
 
-    public static int WriteObject(IBufferWriter<byte> writer, IReadOnlyDictionary<string, object?> dic)
+    public static int WriteObject(IBufferWriter<byte> writer, IReadOnlyDictionary<string, object?>? dic)
     {
-        int totalLen = MarkerLength;
+        if (dic is null)
+        {
+            return WriteNull(writer);
+        }
 
         // object-marker
-        totalLen += WriteObjectHeader(writer);
+        int totalLen = WriteObjectHeader(writer);
 
         // object-property
         totalLen += dic.Sum(pair =>
@@ -137,5 +145,12 @@ internal static class Amf0Writer
         result[0] = (byte)Amf0TypeMarker.Null;
         writer.Advance(MarkerLength);
         return MarkerLength;
+    }
+
+    public static ReadOnlyMemory<byte> PrepareUTF8String(ReadOnlySpan<byte> utf8String)
+    {
+        var writer = new ArrayBufferWriter<byte>(utf8String.Length + MarkerLength + sizeof(ushort));
+        WriteUTF8String(writer, utf8String);
+        return writer.WrittenMemory;
     }
 }

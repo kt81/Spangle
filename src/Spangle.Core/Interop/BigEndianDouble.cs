@@ -2,7 +2,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
-namespace Spangle.IO.Interop;
+namespace Spangle.Interop;
 
 /// <summary>
 /// Struct mapping for 8 bytes double precision floating point value of Big Endian

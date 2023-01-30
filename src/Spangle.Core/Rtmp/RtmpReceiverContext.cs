@@ -33,7 +33,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public int Timeout  = 5000;
 
     public string? App;
-    public string? StreamKey;
+    public string? StreamId;
 
     public bool IsGoAwayEnabled;
 

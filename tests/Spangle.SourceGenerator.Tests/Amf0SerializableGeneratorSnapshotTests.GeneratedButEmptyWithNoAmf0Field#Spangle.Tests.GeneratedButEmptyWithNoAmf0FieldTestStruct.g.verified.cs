@@ -12,26 +12,14 @@ using Spangle.Rtmp.Amf0;
 
 namespace Spangle.Tests;
 
-internal partial struct GeneratedButEmptyWithNoAmf0FieldTestStruct
+internal partial struct GeneratedButEmptyWithNoAmf0FieldTestStruct : IAmf0Serializable
 {
-    /// <summary>
-    /// Write this structure itself to the buffer.
-    /// </summary>
-    public int WriteAsAmf0Command(IBufferWriter<byte> writer)
-    {
-        int total = 0;
-
-
-        return total;
-    }
-
     /// <summary>
     /// Serialize this struct as an AMF0 byte sequence.
     /// </summary>
-    public ReadOnlySpan<byte> ToBytes()
+    public int WriteBytes(IBufferWriter<byte> writer)
     {
-        var writer = new ArrayBufferWriter<byte>(1024);
-        WriteAsAmf0Command(writer);
-        return writer.WrittenSpan;
+        var total = 0;
+        return total;
     }
 }

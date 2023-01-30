@@ -1,4 +1,4 @@
-﻿namespace Spangle.IO.Interop;
+﻿namespace Spangle.Interop;
 
 public interface IInteropType<THostType>
 {

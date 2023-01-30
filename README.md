@@ -8,13 +8,13 @@ Target
 
 - Ingest
   - RTMP
-  - RTSP
+  - RTSP (low priority)
   - SRT
 - Web Origin
   - HLS
   - LL-HLS
-  - DASH
-  - LL-DASH (CMAF Chunked-Transfer)
+  - DASH (low priority)
+  - LL-DASH (CMAF Chunked-Transfer) (low priority)
 - Codecs
   - H.264
   - H.265
@@ -28,10 +28,10 @@ Target
 - Easy monitoring
 - Setting editor
 
-### Commercial support (Optional)
+### Advanced Features (I don't know if I'll do it)
 
 - DRM
-- Transcode
+- Transcoder integration (Hardware, x26X)
 
 ### Others
 

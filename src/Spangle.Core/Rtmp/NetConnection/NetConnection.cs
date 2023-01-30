@@ -1,7 +1,8 @@
 ﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
-using Spangle.IO.Interop;
+using Spangle.Interop;
 using Spangle.Logging;
 using Spangle.Rtmp.ProtocolControlMessage;
 using ZLogger;
@@ -16,12 +17,18 @@ internal class NetConnection
 {
     private static readonly ILogger<NetConnection> s_logger = SpangleLogManager.GetLogger<NetConnection>();
 
+
+    [SuppressMessage("ReSharper", "MemberHidesStaticFromOuterClass")]
     public static class Commands
     {
         public const string Connect      = "connect";
         public const string Call         = "call";
         public const string Close        = "close";
         public const string CreateStream = "createStream";
+
+        // No document
+        public const string ReleaseStream = "releaseStream";
+        public const string FCPublish     = "FCPublish";
     }
 
     private static class Keys
@@ -44,8 +51,8 @@ internal class NetConnection
         DumpObject(commandObject);
         DumpObject(optionalUserArgs);
 
-        TryCopy(commandObject, Keys.App, ref context.App);
-        TryCopy(commandObject, Keys.SupportsGoAway, ref context.IsGoAwayEnabled);
+        TryCopyFromAnonObj(commandObject, Keys.App, ref context.App);
+        TryCopyFromAnonObj(commandObject, Keys.SupportsGoAway, ref context.IsGoAwayEnabled);
 
         var band = BigEndianUInt32.FromHost(context.Bandwidth);
 
@@ -71,11 +78,53 @@ internal class NetConnection
         RtmpWriter.Write(context, 0, MessageType.SetChunkSize,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref setChunkSize);
 
-        s_logger.ZLogTrace("Send RPC Response _result()");
+        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(Connect));
         var result = ConnectResult.CreateDefault();
-        result.TransactionId = transactionId; // 1
+        result.TransactionId = transactionId; // expected always 1
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
-            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result.ToBytes());
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
+    }
+
+    public static void ReleaseStream(
+        RtmpReceiverContext context,
+        double transactionId,
+        IReadOnlyDictionary<string, object?>? commandObject,
+        string streamId)
+    {
+        s_logger.ZLogTrace("Send _result ({0}, {1}, {2})", transactionId, streamId, nameof(ReleaseStream));
+        context.StreamId = streamId;
+        var result = new CommonResult { CommandName = "_result", TransactionId = transactionId, Properties = null, };
+        RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
+    }
+
+    public static void FCPublish(
+        RtmpReceiverContext context,
+        double transactionId,
+        IReadOnlyDictionary<string, object?>? commandObject,
+        string streamId)
+    {
+        s_logger.ZLogTrace("Send onFCPublish ({0}, {1})", transactionId, streamId);
+        context.StreamId = streamId;
+        var result = new CommonResult
+        {
+            CommandName = "onFCPublish", TransactionId = transactionId, Properties = null,
+        };
+        RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
+    }
+
+    public static void CreateStream(
+        RtmpReceiverContext context,
+        double transactionId,
+        IReadOnlyDictionary<string, object?>? commandObject)
+    {
+        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(CreateStream));
+        var result = ConnectResult.CreateDefault();
+        result.TransactionId = transactionId;
+
+        RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
     }
 
     [Conditional("DEBUG")]
@@ -86,7 +135,8 @@ internal class NetConnection
         s_logger.ZLogDebug("[{0}]:{1}", name, System.Text.Json.JsonSerializer.Serialize(anonObject));
     }
 
-    private static void TryCopy<T>(IReadOnlyDictionary<string, object?> anonObject, string key, ref T target)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void TryCopyFromAnonObj<T>(IReadOnlyDictionary<string, object?> anonObject, string key, ref T target)
     {
         if (!anonObject.TryGetValue(key, out object? value)) return;
         if (value is T s)

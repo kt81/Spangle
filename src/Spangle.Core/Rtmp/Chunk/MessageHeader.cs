@@ -1,5 +1,5 @@
 ﻿using System.Runtime.InteropServices;
-using Spangle.IO.Interop;
+using Spangle.Interop;
 using Spangle.Rtmp.ProtocolControlMessage;
 
 namespace Spangle.Rtmp.Chunk;

@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using Spangle.Rtmp.Amf0;
 using Spangle.Rtmp.Chunk;
 using Spangle.Rtmp.ProtocolControlMessage;
 using Spangle.Util;
@@ -8,6 +9,11 @@ namespace Spangle.Rtmp;
 public static class RtmpWriter
 {
     private const int HeaderMaxSize = BasicHeader.MaxSize + MessageHeader.MaxSize;
+
+    [ThreadStatic] private static ArrayBufferWriter<byte>? s_tempWriter;
+
+    private static ArrayBufferWriter<byte> TempWriter =>
+        s_tempWriter ??= new ArrayBufferWriter<byte>(1024);
 
     public static int Write<TPayload>(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
         uint chunkStreamId, uint streamId, ref TPayload payload) where TPayload : unmanaged
@@ -24,17 +30,20 @@ public static class RtmpWriter
                 new ReadOnlySpan<byte>(p, plLen).CopyTo(buff[..plLen]);
             }
         }
+
         context.Writer.Advance(plLen);
 
         return hLen + plLen;
     }
 
     public static int Write(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
-        uint chunkStreamId, uint streamId, ReadOnlySpan<byte> amf0ByteSequence)
+        uint chunkStreamId, uint streamId, IAmf0Serializable payload)
     {
-        int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, amf0ByteSequence.Length);
-        context.Writer.Write(amf0ByteSequence);
-        return hLen + amf0ByteSequence.Length;
+        TempWriter.Clear(); // ArrayBufferWriter only clears the area that is actually used. 😊
+        int plLen = payload.WriteBytes(TempWriter);
+        int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, plLen);
+        context.Writer.Write(TempWriter.WrittenSpan);
+        return hLen + plLen;
     }
 
     private static int WriteHeader(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,

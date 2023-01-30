@@ -1,6 +1,6 @@
 ﻿using System.Buffers;
 using System.Runtime.CompilerServices;
-using Spangle.IO.Interop;
+using Spangle.Interop;
 
 namespace Spangle.Rtmp.Amf0;
 

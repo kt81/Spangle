@@ -1,7 +1,7 @@
 ﻿using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 
-namespace Spangle.IO.Interop;
+namespace Spangle.Interop;
 
 /// <summary>
 /// Struct mapping for 2 bytes number of Big Endian
