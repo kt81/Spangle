@@ -74,7 +74,7 @@ internal static class Amf0SequenceParser
         return BufferMarshal.Utf8ToManagedString(strBuf);
     }
 
-    public static IReadOnlyDictionary<string, object?> ParseObject(ref ReadOnlySequence<byte> buff)
+    public static AmfObject ParseObject(ref ReadOnlySequence<byte> buff)
     {
         buff = buff.Slice(1);
         var dic = new Dictionary<string, object?>();

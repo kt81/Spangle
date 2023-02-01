@@ -15,7 +15,7 @@ internal static class Protocol
     public const int ControlStreamId = 0;
 
     /// <summary>
-    /// The stream ID which indicates Control Chunk Stream
+    /// The chunk stream ID which indicates Control Chunk Stream
     /// </summary>
     public const int ControlChunkStreamId = 2;
 }

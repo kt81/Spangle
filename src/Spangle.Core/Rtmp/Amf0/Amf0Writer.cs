@@ -30,7 +30,7 @@ internal static class Amf0Writer
                 return WriteBoolean(writer, b);
             case string s:
                 return WriteString(writer, s, requiresTypeMarker);
-            case IReadOnlyDictionary<string, object?> dic:
+            case AmfObject dic:
                 return WriteObject(writer, dic);
             case null:
                 return WriteNull(writer);
@@ -118,7 +118,7 @@ internal static class Amf0Writer
         return endSize;
     }
 
-    public static int WriteObject(IBufferWriter<byte> writer, IReadOnlyDictionary<string, object?>? dic)
+    public static int WriteObject(IBufferWriter<byte> writer, AmfObject? dic)
     {
         if (dic is null)
         {

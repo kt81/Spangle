@@ -3,7 +3,7 @@ using System.Net;
 
 namespace Spangle;
 
-public interface IReceiverContext<out TSelf> where TSelf : IReceiverContext<TSelf>
+public interface IReceiverContext
 {
     /// <summary>
     /// The identifier of the connection that will be used for logging.
@@ -16,7 +16,9 @@ public interface IReceiverContext<out TSelf> where TSelf : IReceiverContext<TSel
 
     public CancellationToken CancellationToken { get; set; }
 
-    public static abstract TSelf CreateInstance(string id, PipeReader reader, PipeWriter writer, CancellationToken ct = default);
-
     public bool IsCompleted { get; }
+}
+public interface IReceiverContext<out TSelf> : IReceiverContext where TSelf : IReceiverContext<TSelf>
+{
+    public static abstract TSelf CreateInstance(string id, PipeReader reader, PipeWriter writer, CancellationToken ct = default);
 }

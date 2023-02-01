@@ -13,10 +13,9 @@ namespace Spangle.Rtmp.NetConnection;
 /// The NetConnection manages a two-way connection between a client application and the server.
 /// In addition, it provides support for asynchronous remote method calls.
 /// </summary>
-internal class NetConnection
+internal abstract class NetConnectionHandler
 {
-    private static readonly ILogger<NetConnection> s_logger = SpangleLogManager.GetLogger<NetConnection>();
-
+    private static readonly ILogger<NetConnectionHandler> s_logger = SpangleLogManager.GetLogger<NetConnectionHandler>();
 
     [SuppressMessage("ReSharper", "MemberHidesStaticFromOuterClass")]
     public static class Commands
@@ -41,11 +40,11 @@ internal class NetConnection
         public const string TcUrl          = "tcUrl";
     }
 
-    public static void Connect(
+    public static void OnConnect(
         RtmpReceiverContext context,
         double transactionId,
-        IReadOnlyDictionary<string, object?> commandObject,
-        IReadOnlyDictionary<string, object?>? optionalUserArgs = null)
+        AmfObject commandObject,
+        AmfObject? optionalUserArgs = null)
     {
         s_logger.ZLogTrace("NetCommand.Connect");
         DumpObject(commandObject);
@@ -65,7 +64,7 @@ internal class NetConnection
         RtmpWriter.Write(context, 0, MessageType.SetPeerBandwidth,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref peerBw);
 
-        s_logger.ZLogTrace("Send UseControlMessage (4) StreamBegin (0)");
+        s_logger.ZLogTrace("Send UseControlMessage (4) StreamBegin (0) : 0");
         var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin,
             BigEndianUInt32.FromHost(Protocol.ControlStreamId).AsSpan());
         RtmpWriter.Write(context, 0, MessageType.UserControl,
@@ -78,30 +77,30 @@ internal class NetConnection
         RtmpWriter.Write(context, 0, MessageType.SetChunkSize,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref setChunkSize);
 
-        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(Connect));
+        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(OnConnect));
         var result = ConnectResult.CreateDefault();
         result.TransactionId = transactionId; // expected always 1
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
-            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
+            context.BasicHeader.ChunkStreamId, Protocol.ControlStreamId, result);
     }
 
-    public static void ReleaseStream(
+    public static void OnReleaseStream(
         RtmpReceiverContext context,
         double transactionId,
-        IReadOnlyDictionary<string, object?>? commandObject,
+        AmfObject? commandObject,
         string streamId)
     {
-        s_logger.ZLogTrace("Send _result ({0}, {1}, {2})", transactionId, streamId, nameof(ReleaseStream));
+        s_logger.ZLogTrace("Send _result ({0}, {1}, {2})", transactionId, streamId, nameof(OnReleaseStream));
         context.StreamId = streamId;
         var result = new CommonResult { CommandName = "_result", TransactionId = transactionId, Properties = null, };
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
     }
 
-    public static void FCPublish(
+    public static void OnFCPublish(
         RtmpReceiverContext context,
         double transactionId,
-        IReadOnlyDictionary<string, object?>? commandObject,
+        AmfObject? commandObject,
         string streamId)
     {
         s_logger.ZLogTrace("Send onFCPublish ({0}, {1})", transactionId, streamId);
@@ -114,12 +113,12 @@ internal class NetConnection
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
     }
 
-    public static void CreateStream(
+    public static void OnCreateStream(
         RtmpReceiverContext context,
         double transactionId,
-        IReadOnlyDictionary<string, object?>? commandObject)
+        AmfObject? commandObject)
     {
-        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(CreateStream));
+        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(OnCreateStream));
         var result = ConnectResult.CreateDefault();
         result.TransactionId = transactionId;
 
@@ -128,7 +127,7 @@ internal class NetConnection
     }
 
     [Conditional("DEBUG")]
-    private static void DumpObject(IReadOnlyDictionary<string, object?>? anonObject,
+    private static void DumpObject(AmfObject? anonObject,
         [CallerArgumentExpression("anonObject")]
         string? name = null)
     {
@@ -136,7 +135,7 @@ internal class NetConnection
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void TryCopyFromAnonObj<T>(IReadOnlyDictionary<string, object?> anonObject, string key, ref T target)
+    private static void TryCopyFromAnonObj<T>(AmfObject anonObject, string key, ref T target)
     {
         if (!anonObject.TryGetValue(key, out object? value)) return;
         if (value is T s)

@@ -1,6 +1,8 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
 using Spangle.IO;
+using Spangle.Rtmp.NetConnection;
+using Spangle.Rtmp.NetStream;
 using static Spangle.Rtmp.Amf0.Amf0SequenceParser;
 
 namespace Spangle.Rtmp.ReadState;
@@ -18,37 +20,47 @@ internal abstract class CommandAmf0 : IReadStateAction
         string command = ParseString(ref buff);
         double transactionId = ParseNumber(ref buff);
         // dictionary or null
-        IReadOnlyDictionary<string, object?>? commandObject = Parse(ref buff) as IReadOnlyDictionary<string, object?>;
+        AmfObject? commandObject = Parse(ref buff) as AmfObject;
 
         // Dispatch RPC
         switch (command)
         {
-            case NetConnection.NetConnection.Commands.Connect:
+            // NetConnection Commands
+            // -------------------------------------------------------------------
+            case NetConnectionHandler.Commands.Connect:
                 // null is not allowed for connect
                 ArgumentNullException.ThrowIfNull(commandObject);
                 IReadStateAction.EnsureValidProtocolControlMessage(context);
-                IReadOnlyDictionary<string, object?>? optionalArguments = null;
+                AmfObject? optionalArguments = null;
                 if (0 < buff.Length)
                 {
                     optionalArguments = ParseObject(ref buff);
                 }
-                NetConnection.NetConnection.Connect(context, transactionId, commandObject, optionalArguments);
+
+                NetConnectionHandler.OnConnect(context, transactionId, commandObject, optionalArguments);
                 context.ConnectionState = ReceivingState.WaitingFCPublish;
                 break;
-            case NetConnection.NetConnection.Commands.ReleaseStream:
+            case NetConnectionHandler.Commands.ReleaseStream:
                 IReadStateAction.EnsureValidProtocolControlMessage(context);
-                NetConnection.NetConnection.ReleaseStream(context, transactionId, commandObject, ParseString(ref buff));
+                NetConnectionHandler.OnReleaseStream(context, transactionId, commandObject, ParseString(ref buff));
                 break;
-            case NetConnection.NetConnection.Commands.FCPublish:
+            case NetConnectionHandler.Commands.FCPublish:
                 IReadStateAction.EnsureValidProtocolControlMessage(context);
-                NetConnection.NetConnection.FCPublish(context, transactionId, commandObject, ParseString(ref buff));
+                NetConnectionHandler.OnFCPublish(context, transactionId, commandObject, ParseString(ref buff));
                 context.ConnectionState = ReceivingState.WaitingPublish;
                 break;
-            case NetConnection.NetConnection.Commands.CreateStream:
-                NetConnection.NetConnection.CreateStream(context, transactionId, commandObject);
+            case NetConnectionHandler.Commands.CreateStream:
+                NetConnectionHandler.OnCreateStream(context, transactionId, commandObject);
+                break;
+
+            // NetStream Commands
+            // -------------------------------------------------------------------
+            case NetStreamHandler.Commands.Publish:
+                NetStreamHandler.OnPublish(context, transactionId, commandObject,
+                    ParseString(ref buff), ParseString(ref buff));
                 break;
             default:
-                throw new NotImplementedException($"NetConnection.{command} is not implemented.");
+                throw new NotImplementedException($"The command `{command}` is not implemented.");
         }
 
         reader.AdvanceTo(buff.End);
