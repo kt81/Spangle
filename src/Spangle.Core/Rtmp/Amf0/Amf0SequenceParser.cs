@@ -111,7 +111,7 @@ internal static class Amf0SequenceParser
 
     public static AmfObject ParseEcmaArray(ref ReadOnlySequence<byte> buff)
     {
-        var s = buff.Slice(1, 8);
+        var s = buff.Slice(1, sizeof(uint));
         buff = buff.Slice(s.End);
         uint count = BufferMarshal.AsRefOrCopy<BigEndianUInt32>(s).HostValue;
 
