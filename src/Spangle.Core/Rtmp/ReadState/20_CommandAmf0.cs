@@ -55,9 +55,11 @@ internal abstract class CommandAmf0 : IReadStateAction
 
             // NetStream Commands
             // -------------------------------------------------------------------
-            case NetStreamHandler.Commands.Publish:
-                NetStreamHandler.OnPublish(context, transactionId, commandObject,
-                    ParseString(ref buff), ParseString(ref buff));
+            case RtmpNetStream.Commands.Publish:
+                string streamName = ParseString(ref buff);
+                var stream = context.NetStream;
+                stream.OnPublish(transactionId, commandObject,
+                    streamName, ParseString(ref buff));
                 break;
             default:
                 throw new NotImplementedException($"The command `{command}` is not implemented.");

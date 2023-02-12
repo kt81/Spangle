@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Spangle.Interop;
 using Spangle.Logging;
+using Spangle.Rtmp.Extensions;
 using Spangle.Rtmp.ProtocolControlMessage;
 using ZLogger;
 
@@ -47,11 +48,11 @@ internal abstract class NetConnectionHandler
         AmfObject? optionalUserArgs = null)
     {
         s_logger.ZLogTrace("NetCommand.Connect");
-        DumpObject(commandObject);
-        DumpObject(optionalUserArgs);
+        s_logger.DumpObject(commandObject);
+        s_logger.DumpObject(optionalUserArgs);
 
-        TryCopyFromAnonObj(commandObject, Keys.App, ref context.App);
-        TryCopyFromAnonObj(commandObject, Keys.SupportsGoAway, ref context.IsGoAwayEnabled);
+        commandObject.TryCopyTo(Keys.App, ref context.App);
+        commandObject.TryCopyTo(Keys.SupportsGoAway, ref context.IsGoAwayEnabled);
 
         var band = BigEndianUInt32.FromHost(context.Bandwidth);
 
@@ -88,11 +89,12 @@ internal abstract class NetConnectionHandler
         RtmpReceiverContext context,
         double transactionId,
         AmfObject? commandObject,
-        string streamId)
+        string streamName)
     {
-        s_logger.ZLogTrace("Send _result ({0}, {1}, {2})", transactionId, streamId, nameof(OnReleaseStream));
-        context.StreamId = streamId;
+        s_logger.ZLogTrace("Send _result ({0}, {1}, {2})", transactionId, streamName, nameof(OnReleaseStream));
+        context.PreparingStreamName = streamName;
         var result = new CommonResult { CommandName = "_result", TransactionId = transactionId, Properties = null, };
+        context.ReleaseStream(streamName);
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
     }
@@ -101,10 +103,10 @@ internal abstract class NetConnectionHandler
         RtmpReceiverContext context,
         double transactionId,
         AmfObject? commandObject,
-        string streamId)
+        string streamName)
     {
-        s_logger.ZLogTrace("Send onFCPublish ({0}, {1})", transactionId, streamId);
-        context.StreamId = streamId;
+        s_logger.ZLogTrace("Send onFCPublish ({0}, {1})", transactionId, streamName);
+        context.PreparingStreamName = streamName;
         var result = new CommonResult
         {
             CommandName = "onFCPublish", TransactionId = transactionId, Properties = null,
@@ -118,29 +120,17 @@ internal abstract class NetConnectionHandler
         double transactionId,
         AmfObject? commandObject)
     {
-        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(OnCreateStream));
-        var result = ConnectResult.CreateDefault();
-        result.TransactionId = transactionId;
+        if (context.PreparingStreamName is null)
+        {
+            context.PreparingStreamName = "none-fcPublish-ph";
+        }
 
+        var stream = context.CreateStream(context.PreparingStreamName);
+        s_logger.ZLogTrace("Created stream: {0}({1})", stream.Id, stream.Name);
+
+        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(OnCreateStream));
+        var result = CreateStreamResult.Create(transactionId, stream.Id);
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
-    }
-
-    [Conditional("DEBUG")]
-    private static void DumpObject(AmfObject? anonObject,
-        [CallerArgumentExpression("anonObject")]
-        string? name = null)
-    {
-        s_logger.ZLogDebug("[{0}]:{1}", name, System.Text.Json.JsonSerializer.Serialize(anonObject));
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void TryCopyFromAnonObj<T>(AmfObject anonObject, string key, ref T target)
-    {
-        if (!anonObject.TryGetValue(key, out object? value)) return;
-        if (value is T s)
-        {
-            target = s;
-        }
     }
 }

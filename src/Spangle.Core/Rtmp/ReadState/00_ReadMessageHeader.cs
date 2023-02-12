@@ -46,6 +46,9 @@ internal abstract class ReadMessageHeader : IReadStateAction
             case MessageType.SetChunkSize:
                 context.SetNext<SetChunkSize>();
                 break;
+            case MessageType.DataAmf0:
+                context.SetNext<DataAmf0>();
+                break;
             case MessageType.CommandAmf0:
                 context.SetNext<CommandAmf0>();
                 break;

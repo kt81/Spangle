@@ -26,30 +26,3 @@ internal enum Amf0TypeMarker : byte
 
     AvmplusObject = 0x11,
 }
-
-internal static class Amf0TypeMarkerExtension
-{
-    public static int GetNextTokenLength(this Amf0TypeMarker marker)
-    {
-        return marker switch
-        {
-            // Next to VALUE itself
-            Amf0TypeMarker.Number    => 4,
-            Amf0TypeMarker.Boolean   => 1,
-            Amf0TypeMarker.Reference => 2,
-
-            // Next to additional LENGTH field
-            Amf0TypeMarker.String      => 2,
-            Amf0TypeMarker.LongString  => 4,
-            Amf0TypeMarker.XmlDocument => 4,
-
-            // No value
-            Amf0TypeMarker.Null      => 0,
-            Amf0TypeMarker.Undefined => 0,
-
-            // Cannot identify length at this time, or is used as a part of another data type
-            _ => -1,
-        };
-
-    }
-}

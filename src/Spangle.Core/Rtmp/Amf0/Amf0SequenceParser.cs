@@ -21,6 +21,8 @@ internal static class Amf0SequenceParser
                 return ParseObject(ref buff);
             case Amf0TypeMarker.Null:
                 return ParseNull(ref buff);
+            case Amf0TypeMarker.EcmaArray:
+                return ParseEcmaArray(ref buff);
             case Amf0TypeMarker.ObjectEnd:
                 return ParseObjectEnd(ref buff);
             default:
@@ -105,6 +107,36 @@ internal static class Amf0SequenceParser
     {
         buff = buff.Slice(1);
         return null;
+    }
+
+    public static AmfObject ParseEcmaArray(ref ReadOnlySequence<byte> buff)
+    {
+        var s = buff.Slice(1, 8);
+        buff = buff.Slice(s.End);
+        uint count = BufferMarshal.AsRefOrCopy<BigEndianUInt32>(s).HostValue;
+
+        var dic = new Dictionary<string, object?>();
+        for (uint i = 0; i < count; i++)
+        {
+            string key = ParseString(ref buff, false);
+            object? val = Parse(ref buff);
+            dic[key] = val;
+        }
+        if (buff.IsEmpty)
+        {
+            return dic;
+        }
+
+        // Check count + 1 tokens
+        string endKey = ParseString(ref buff, false);
+        if (endKey != string.Empty)
+        {
+            // Broken
+            throw new InvalidDataException($"Malformed EcmaArray close-part: {endKey}");
+        }
+        ParseObjectEnd(ref buff);
+
+        return dic;
     }
 
 }

@@ -171,6 +171,8 @@ using Spangle.Rtmp.Amf0;
                 => $"Amf0Writer.WriteString(writer, {fieldOrProp.Name})",
             "IReadOnlyDictionary"
                 => $"Amf0Writer.WriteObject(writer, {fieldOrProp.Name})",
+            "Object"
+                => $"Amf0Writer.Write(writer, {fieldOrProp.Name})",
             _
                 => null
         };
