@@ -25,6 +25,7 @@ internal abstract class ReadBasicHeader : IReadStateAction
         int fullLen = context.BasicHeader.RequiredLength;
         if (fullLen > 1)
         {
+            reader.AdvanceTo(firstBuff.Start);
             (ReadOnlySequence<byte> fullBuff, _) = await reader.ReadExactlyAsync(fullLen, ct);
             fullBuff.CopyTo(context.BasicHeader.AsSpan());
             endPos = fullBuff.End;
