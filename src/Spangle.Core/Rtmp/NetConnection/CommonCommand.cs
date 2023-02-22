@@ -3,7 +3,7 @@
 namespace Spangle.Rtmp.NetConnection;
 
 [Amf0Serializable]
-internal partial struct CommonResult
+internal partial struct CommonCommand
 {
     [Amf0Field(0)] public string     CommandName;
     [Amf0Field(1)] public double     TransactionId;

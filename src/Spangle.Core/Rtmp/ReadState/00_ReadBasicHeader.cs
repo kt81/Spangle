@@ -15,6 +15,7 @@ internal abstract class ReadBasicHeader : IReadStateAction
     {
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
+        context.PreviousFormat = context.BasicHeader.Format;
 
         // Check the first byte
         (ReadOnlySequence<byte> firstBuff, _) = await reader.ReadExactlyAsync(1, ct);
@@ -25,7 +26,7 @@ internal abstract class ReadBasicHeader : IReadStateAction
         int fullLen = context.BasicHeader.RequiredLength;
         if (fullLen > 1)
         {
-            reader.AdvanceTo(firstBuff.Start);
+            reader.AdvanceTo(firstBuff.Start); // reset reading
             (ReadOnlySequence<byte> fullBuff, _) = await reader.ReadExactlyAsync(fullLen, ct);
             fullBuff.CopyTo(context.BasicHeader.AsSpan());
             endPos = fullBuff.End;

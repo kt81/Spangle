@@ -69,41 +69,66 @@ as the timestamp of the Type 0 chunk.
 /// Chunk Message Header structure
 /// Shared by Type0-2 and Type3 with extended timestamp
 /// </summary>
-[StructLayout(LayoutKind.Explicit, Pack = 1, Size = MaxSize)]
+[StructLayout(LayoutKind.Explicit, Pack = 1)]
 internal struct MessageHeader
 {
-    public const int MaxSize = 27;
+    public const int MaxSize = 15;
 
     /// <summary>
     /// For a type-0 chunk, the absolute timestamp of the message is sent here.
     /// If the timestamp is greater than or equal to 16777215 (hexadecimal 0xFFFFFF), this field MUST be 16777215,
     /// indicating the presence of the Extended Timestamp field to encode the full 32 bit timestamp.
     /// Otherwise, this field SHOULD be the entire timestamp.
-    /// </summary>
-    [FieldOffset(0)] public BigEndianUInt24 Timestamp;
-
-    /// <summary>
+    ///
     /// For a type-1 or type-2 chunk, the difference between the previous chunk’s timestamp and the current chunk’s timestamp is sent here.
     /// If the delta is greater than or equal to 16777215 (hexadecimal 0xFFFFFF), this field MUST be 16777215,
     /// indicating the presence of the Extended Timestamp field to encode the full 32 bit delta.
     /// Otherwise, this field SHOULD be the actual delta.
     /// </summary>
-    [FieldOffset(0)] public BigEndianUInt24 TimestampDelta;
+    [FieldOffset(0)] public BigEndianUInt24 TimestampOrDelta;
 
     [FieldOffset(3)] public BigEndianUInt24 Length;
-    [FieldOffset(6)] public MessageType TypeId;
-    [FieldOffset(7)] public uint StreamId;
-    [FieldOffset(15)] public BigEndianUInt32 ExtendedTimeStamp;
+    [FieldOffset(6)] public MessageType     TypeId;
+    [FieldOffset(7)] public uint            StreamId;
+
+    /// <summary>
+    /// The Extended Timestamp field is used to encode timestamps or timestamp deltas that are greater than 16777215 (0xFFFFFF);
+    /// that is, for timestamps or timestamp deltas that don’t fit in the 24 bit fields of Type 0, 1, or 2 chunks.
+    /// This field encodes the complete 32-bit timestamp or timestamp delta.
+    /// The presence of this field is indicated by setting the timestamp field of a Type 0 chunk,
+    /// or the timestamp delta field of a Type 1 or 2 chunk, to 16777215 (0xFFFFFF).
+    /// This field is present in Type 3 chunks when the most recent Type 0, 1, or 2 chunk for the same chunk stream ID
+    /// indicated the presence of an extended timestamp field.
+    /// </summary>
+    [FieldOffset(11)] public BigEndianUInt32 ExtendedTimeStamp;
 
     /// <summary>
     /// Whether this header has an Extended Timestamp
     /// </summary>
-    public bool HasExtendedTimestamp => Timestamp.HostValue == BigEndianUInt24.MaxValue;
+    public bool HasExtendedTimestamp => TimestampOrDelta.HostValue == BigEndianUInt24.MaxValue;
 
     /// <summary>
     /// Irresponsible check of this == default
     /// </summary>
     public bool IsDefault => Length.HostValue == 0;
+
+    public uint TimestampOrDeltaInterop
+    {
+        get => HasExtendedTimestamp ? ExtendedTimeStamp.HostValue : TimestampOrDelta.HostValue;
+        set
+        {
+            if (value >= BigEndianUInt24.MaxValue)
+            {
+                TimestampOrDelta = BigEndianUInt24.FromHost(BigEndianUInt24.MaxValue);
+                ExtendedTimeStamp = BigEndianUInt32.FromHost(value);
+            }
+            else
+            {
+                TimestampOrDelta = BigEndianUInt24.FromHost(value);
+                ExtendedTimeStamp = BigEndianUInt32.FromHost(0);
+            }
+        }
+    }
 
     public unsafe Span<byte> AsSpan()
     {
@@ -115,16 +140,7 @@ internal struct MessageHeader
 
     public void SetFmt0(uint timestamp, uint length, MessageType typeId, uint streamId)
     {
-        if (timestamp < BigEndianUInt24.MaxValue)
-        {
-            Timestamp = BigEndianUInt24.FromHost(timestamp);
-        }
-        else
-        {
-            Timestamp = BigEndianUInt24.FromHost(BigEndianUInt24.MaxValue);
-            ExtendedTimeStamp = BigEndianUInt32.FromHost(timestamp);
-        }
-
+        TimestampOrDeltaInterop = timestamp;
         Length = BigEndianUInt24.FromHost(length);
         TypeId = typeId;
         StreamId = streamId;
@@ -132,14 +148,13 @@ internal struct MessageHeader
 
     public void SetFmt1(uint timestampDelta, uint length, MessageType typeId)
     {
-        TimestampDelta = BigEndianUInt24.FromHost(timestampDelta);
+        TimestampOrDeltaInterop = timestampDelta;
         Length = BigEndianUInt24.FromHost(length);
         TypeId = typeId;
     }
 
     public void SetFmt2(uint timestampDelta)
     {
-        TimestampDelta = BigEndianUInt24.FromHost(timestampDelta);
+        TimestampOrDeltaInterop = timestampDelta;
     }
-
 }

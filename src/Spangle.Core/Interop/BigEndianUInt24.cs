@@ -38,9 +38,9 @@ public unsafe struct BigEndianUInt24 : IInteropType<uint, BigEndianUInt24>
             {
                 throw new ArgumentOutOfRangeException(nameof(value), $"The value {value} is out of the range of 24-bit number");
             }
-            _val[0] = (byte)(value >> 16 & 0xFF);
-            _val[1] = (byte)(value >> 8 & 0xFF);
-            _val[2] = (byte)(value >> 0 & 0xFF);
+            _val[0] = (byte)(value >>> 16 & 0xFF);
+            _val[1] = (byte)(value >>> 8 & 0xFF);
+            _val[2] = (byte)(value >>> 0 & 0xFF);
         }
     }
 

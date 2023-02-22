@@ -4,26 +4,36 @@ using Spangle.Rtmp;
 
 namespace Spangle.Tests.Rtmp.ReadState;
 
-internal static class TestContext
+public class TestContext
 {
+    public RtmpReceiverContext Context { get; }
+    public Pipe ReceivePipe { get; }
+    public Pipe SendPipe { get; }
+    public CancellationTokenSource CTokenSrc { get; }
+
+    public TestContext()
+    {
+        ReceivePipe = new Pipe();
+        SendPipe = new Pipe();
+        CTokenSrc = new CancellationTokenSource();
+        // Test case timeout
+        CTokenSrc.CancelAfter(TimeSpan.FromSeconds(3));
+        Context = RtmpReceiverContext.CreateInstance("test", ReceivePipe.Reader, SendPipe.Writer, CTokenSrc.Token);
+    }
+
     /// <summary>
     ///
     /// </summary>
     /// <param name="dataToReader"></param>
     /// <returns>context, writtenPipe</returns>
-    public static async ValueTask<(RtmpReceiverContext, PipeReader)> WithData(byte[] dataToReader)
+    public static async ValueTask<TestContext> WithData(byte[] dataToReader)
     {
-        var readPipe = new Pipe();
-        var writePipe = new Pipe();
-        var cts = new CancellationTokenSource();
-        // Test case timeout
-        cts.CancelAfter(TimeSpan.FromSeconds(3));
-        var context = RtmpReceiverContext.CreateInstance("test", readPipe.Reader, writePipe.Writer, cts.Token);
-        // `Read` pipe is read by tests
-        readPipe.Writer.Write(dataToReader);
-        await readPipe.Writer.FlushAsync(cts.Token);
-        // `Write` pipe is written by the StateAction and is read by tests
+        var self = new TestContext();
+        // `Receive` pipe is read by tests
+        self.ReceivePipe.Writer.Write(dataToReader);
+        await self.ReceivePipe.Writer.FlushAsync(self.CTokenSrc.Token);
+        // `Send` pipe is written by the StateAction and is read by tests
         // var writtenPipe = writePipe.Reader;
-        return (context, writePipe.Reader);
+        return self;
     }
 }

@@ -14,8 +14,12 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     // =======================================================================
 
-    internal BasicHeader   BasicHeader   = default;
-    internal MessageHeader MessageHeader = default;
+    internal BasicHeader         BasicHeader   = default;
+    internal MessageHeader       MessageHeader = default;
+    /// <summary>
+    /// Previous message format for next Fmt3
+    /// </summary>
+    internal MessageHeaderFormat PreviousFormat  = MessageHeaderFormat.Fmt0;
 
     internal BasicHeader   BasicHeaderToSend   = default;
     internal MessageHeader MessageHeaderToSend = default;
@@ -54,6 +58,10 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     private uint StreamIdPointer = Protocol.ControlStreamId + 1;
     private Dictionary<uint, RtmpNetStream> _netStreams = new();
 
+    /// <summary>
+    /// Returns "Current" stream in receiving context.
+    /// Do not call this out of the stream specific command context.
+    /// </summary>
     internal RtmpNetStream NetStream
     {
         get { return _netStreams[MessageHeader.StreamId]; }

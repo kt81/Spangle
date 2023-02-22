@@ -21,7 +21,7 @@ internal class RtmpNetStream
     public uint   Id { get; }
     public string Name { get; }
 
-    private WeakReference<RtmpReceiverContext> _context;
+    private readonly WeakReference<RtmpReceiverContext> _context;
     private RtmpReceiverContext Context {
         get
         {

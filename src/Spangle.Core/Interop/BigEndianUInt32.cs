@@ -48,6 +48,10 @@ public unsafe struct BigEndianUInt32 : IInteropType<uint, BigEndianUInt32>
         }
     }
 
+    public void Clear()
+    {
+    }
+
     public override readonly string ToString()
     {
         return HostValue.ToString();

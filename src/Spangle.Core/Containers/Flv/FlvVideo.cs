@@ -4,7 +4,7 @@ using Spangle.Rtmp;
 namespace Spangle.Containers.Flv;
 
 [SuppressMessage("ReSharper", "InconsistentNaming")]
-public enum FlvVideoCodec : uint
+internal enum FlvVideoCodec : uint
 {
     H263     = 2,
     ScreenV1 = 3,
@@ -24,7 +24,33 @@ public enum FlvVideoCodec : uint
     CommunityVP9  = 15,
 }
 
-public static class FlvVideoCodecExtensions
+internal enum FlvVideoFrameType : uint
+{
+    Keyframe             = 1,
+    InterFrame           = 2,
+    DisposableInterFrame = 3,
+    GeneratedKeyframe    = 4,
+    MiscFrame            = 5, // video info / command frame
+}
+
+/*
+ FrameType UB[4]
+ CodecID   UB[4]
+ */
+internal struct FlvVideoControl
+{
+    private readonly byte _value;
+
+    public FlvVideoControl(byte value)
+    {
+        _value = value;
+    }
+
+    public FlvVideoFrameType FrameType => (FlvVideoFrameType)(_value >>> 4);
+    public FlvVideoFrameType CodecId => (FlvVideoFrameType)(_value & 0b1111);
+}
+
+internal static class FlvVideoCodecExtensions
 {
     public static VideoCodec ToInternal(this FlvVideoCodec codec)
     {
