@@ -14,15 +14,16 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     // =======================================================================
 
-    internal BasicHeader         BasicHeader   = default;
-    internal MessageHeader       MessageHeader = default;
-    /// <summary>
-    /// Previous message format for next Fmt3
-    /// </summary>
-    internal MessageHeaderFormat PreviousFormat  = MessageHeaderFormat.Fmt0;
+    internal BasicHeader   BasicHeader   = default;
+    internal MessageHeader MessageHeader = default;
 
     internal BasicHeader   BasicHeaderToSend   = default;
     internal MessageHeader MessageHeaderToSend = default;
+
+    /// <summary>
+    /// Previous message format for next Fmt3
+    /// </summary>
+    internal MessageHeaderFormat PreviousFormat = MessageHeaderFormat.Fmt0;
 
     #endregion
 
@@ -31,14 +32,15 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     // =======================================================================
 
     // TODO 設定とかからもらう
-    public uint Bandwidth    = 1500000;
-    public uint MaxChunkSize = 128;
+    public uint Bandwidth      = 1500000;
+    public uint ChunkSize      = Protocol.MinChunkSize;
+    public uint MaxMessageSize = Protocol.MaxMessageSizeDefault;
 
     /// <summary>
     /// Timeout milliseconds.
     /// It is checked for every State actions.
     /// </summary>
-    public int Timeout = 5000;
+    public int Timeout = 0;
 
     public string? App;
     public string? PreparingStreamName;
@@ -55,8 +57,8 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public   ReceivingState ConnectionState = ReceivingState.HandShaking;
     internal HandshakeState HandshakeState  = HandshakeState.Uninitialized;
 
-    private uint StreamIdPointer = Protocol.ControlStreamId + 1;
-    private Dictionary<uint, RtmpNetStream> _netStreams = new();
+    private uint                            StreamIdPointer = Protocol.ControlStreamId + 1;
+    private Dictionary<uint, RtmpNetStream> _netStreams     = new();
 
     /// <summary>
     /// Returns "Current" stream in receiving context.
@@ -74,7 +76,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     // =======================================================================
 
     internal IReadStateAction.Action MoveNext { get; private set; }
-        = StateStore<ReadBasicHeader>.Action;
+        = StateStore<ReadChunkHeader>.Action;
 
     internal void SetNext<TProcessor>() where TProcessor : IReadStateAction
     {
@@ -112,7 +114,6 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     internal void ReleaseStream(string streamName)
     {
-
     }
 
     public override bool IsCompleted => ConnectionState == ReceivingState.Terminated;

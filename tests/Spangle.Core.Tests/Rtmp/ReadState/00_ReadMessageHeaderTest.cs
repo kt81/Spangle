@@ -6,10 +6,10 @@ using Spangle.Rtmp.ReadState;
 namespace Spangle.Tests.Rtmp.ReadState;
 
 /// <summary>
-/// Test for <see cref="ReadMessageHeader"/> and <see cref="MessageHeader"/>
+/// Test for <see cref="ReadChunkHeader"/> and <see cref="MessageHeader"/>
 /// See also <seealso cref="Spangle.Rtmp.ProtocolControlMessage.MessageType"/>
 /// </summary>
-public class ReadMessageHeaderTest
+public class ReadChunkHeaderTest
 {
     [Fact]
     public async Task TestFmt0()
@@ -28,7 +28,7 @@ public class ReadMessageHeaderTest
         context.BasicHeader.Format = MessageHeaderFormat.Fmt0;
         context.BasicHeader.ChunkStreamId = 3;
 
-        await ReadMessageHeader.Perform(context);
+        await ReadChunkHeader.ReadMessageHeader(context);
         context.MessageHeader.TimestampOrDelta.HostValue.Should().Be(0u);
         context.MessageHeader.Length.HostValue.Should().Be(msgLen);
         context.MessageHeader.TypeId.Should().Be(MessageType.CommandAmf0);
@@ -50,7 +50,7 @@ public class ReadMessageHeaderTest
         context.BasicHeader.Format = MessageHeaderFormat.Fmt1;
         context.BasicHeader.ChunkStreamId = 3;
 
-        await ReadMessageHeader.Perform(context);
+        await ReadChunkHeader.ReadMessageHeader(context);
         context.MessageHeader.TimestampOrDelta.HostValue.Should().Be(0u);
         context.MessageHeader.Length.HostValue.Should().Be(msgLen);
         context.MessageHeader.TypeId.Should().Be(MessageType.CommandAmf0);
@@ -83,7 +83,7 @@ public class ReadMessageHeaderTest
         receivePipe.Writer.Write(fmt0);
         await receivePipe.Writer.FlushAsync(ct);
 
-        await ReadMessageHeader.Perform(context);
+        await ReadChunkHeader.ReadMessageHeader(context);
         context.MessageHeader.TimestampOrDelta.HostValue.Should().Be(0u);
         context.MessageHeader.Length.HostValue.Should().Be(msgLen);
         context.MessageHeader.TypeId.Should().Be(MessageType.Audio);
@@ -105,7 +105,7 @@ public class ReadMessageHeaderTest
         receivePipe.Writer.Write(fmt1);
         await receivePipe.Writer.FlushAsync(ct);
 
-        await ReadMessageHeader.Perform(context);
+        await ReadChunkHeader.ReadMessageHeader(context);
         context.MessageHeader.TimestampOrDelta.HostValue.Should().Be(tsDelta);
         context.MessageHeader.Length.HostValue.Should().Be(msgLen);
         context.MessageHeader.TypeId.Should().Be(MessageType.Audio);
@@ -125,7 +125,7 @@ public class ReadMessageHeaderTest
         receivePipe.Writer.Write(fmt2);
         await receivePipe.Writer.FlushAsync(ct);
 
-        await ReadMessageHeader.Perform(context);
+        await ReadChunkHeader.ReadMessageHeader(context);
         context.MessageHeader.TimestampOrDelta.HostValue.Should().Be(tsDelta);
         context.MessageHeader.Length.HostValue.Should().Be(msgLen);
         context.MessageHeader.TypeId.Should().Be(MessageType.Audio);
@@ -144,7 +144,7 @@ public class ReadMessageHeaderTest
         receivePipe.Writer.Write(fmt3);
         await receivePipe.Writer.FlushAsync(ct);
 
-        await ReadMessageHeader.Perform(context);
+        await ReadChunkHeader.ReadMessageHeader(context);
         context.MessageHeader.TimestampOrDelta.HostValue.Should().Be(tsDelta);
         context.MessageHeader.Length.HostValue.Should().Be(msgLen);
         context.MessageHeader.TypeId.Should().Be(MessageType.Audio);
@@ -178,7 +178,7 @@ public class ReadMessageHeaderTest
         receivePipe.Writer.Write(fmt0);
         await receivePipe.Writer.FlushAsync(ct);
 
-        await ReadMessageHeader.Perform(context);
+        await ReadChunkHeader.ReadMessageHeader(context);
         context.MessageHeader.TimestampOrDelta.HostValue.Should().Be(0xFFu);
         context.MessageHeader.Length.HostValue.Should().Be(msgLen);
         context.MessageHeader.TypeId.Should().Be(MessageType.Audio);
@@ -196,7 +196,7 @@ public class ReadMessageHeaderTest
         receivePipe.Writer.Write(fmt3);
         await receivePipe.Writer.FlushAsync(ct);
 
-        await ReadMessageHeader.Perform(context);
+        await ReadChunkHeader.ReadMessageHeader(context);
         context.MessageHeader.TimestampOrDelta.HostValue.Should().Be(0u);
         context.MessageHeader.Length.HostValue.Should().Be(msgLen);
         context.MessageHeader.TypeId.Should().Be(MessageType.Audio);

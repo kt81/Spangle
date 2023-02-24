@@ -10,7 +10,7 @@ public class ReadBasicHeaderTest
     {
         byte[] expected = { 0b00_000011 }; // fmt=0, csId=3
         var context = (await TestContext.WithData(expected)).Context;
-        await ReadBasicHeader.Perform(context);
+        await ReadChunkHeader.ReadBasicHeader(context);
         context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt0);
         context.BasicHeader.ChunkStreamId.Should().Be(3u);
     }
@@ -20,7 +20,7 @@ public class ReadBasicHeaderTest
     {
         byte[] expected = { 0xFF }; // fmt=3, csId=63
         var context = (await TestContext.WithData(expected)).Context;
-        await ReadBasicHeader.Perform(context);
+        await ReadChunkHeader.ReadBasicHeader(context);
         context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt3);
         context.BasicHeader.ChunkStreamId.Should().Be(63u);
     }
@@ -30,7 +30,7 @@ public class ReadBasicHeaderTest
     {
         byte[] expected = { 0b01_000000, 0x00 }; // fmt=1, csId=64
         var context = (await TestContext.WithData(expected)).Context;
-        await ReadBasicHeader.Perform(context);
+        await ReadChunkHeader.ReadBasicHeader(context);
         context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt1);
         context.BasicHeader.ChunkStreamId.Should().Be(64u);
     }
@@ -40,7 +40,7 @@ public class ReadBasicHeaderTest
     {
         byte[] expected = { 0b10_000000, 0xFF }; // fmt=2, csId=255+64
         var context = (await TestContext.WithData(expected)).Context;
-        await ReadBasicHeader.Perform(context);
+        await ReadChunkHeader.ReadBasicHeader(context);
         context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt2);
         context.BasicHeader.ChunkStreamId.Should().Be(319u);
     }
@@ -50,7 +50,7 @@ public class ReadBasicHeaderTest
     {
         byte[] expected = { 0b01_000001, 0x00, 0x00 }; // fmt=1, csId=64
         var context = (await TestContext.WithData(expected)).Context;
-        await ReadBasicHeader.Perform(context);
+        await ReadChunkHeader.ReadBasicHeader(context);
         context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt1);
         context.BasicHeader.ChunkStreamId.Should().Be(64u);
     }
@@ -60,7 +60,7 @@ public class ReadBasicHeaderTest
     {
         byte[] expected = { 0b11_000001, 0xFF, 0xFF }; // fmt=3, csId=65535+64
         var context = (await TestContext.WithData(expected)).Context;
-        await ReadBasicHeader.Perform(context);
+        await ReadChunkHeader.ReadBasicHeader(context);
         context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt3);
         context.BasicHeader.ChunkStreamId.Should().Be(65599);
     }

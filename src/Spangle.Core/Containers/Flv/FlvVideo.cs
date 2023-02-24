@@ -37,7 +37,7 @@ internal enum FlvVideoFrameType : uint
  FrameType UB[4]
  CodecID   UB[4]
  */
-internal struct FlvVideoControl
+internal readonly struct FlvVideoControl
 {
     private readonly byte _value;
 
@@ -47,7 +47,12 @@ internal struct FlvVideoControl
     }
 
     public FlvVideoFrameType FrameType => (FlvVideoFrameType)(_value >>> 4);
-    public FlvVideoFrameType CodecId => (FlvVideoFrameType)(_value & 0b1111);
+    public FlvVideoCodec Codec => (FlvVideoCodec)(_value & 0b1111);
+
+    public override string ToString()
+    {
+        return $$"""FlvVideoControl {frameType:{{FrameType}}, codec:{{Codec}}}""";
+    }
 }
 
 internal static class FlvVideoCodecExtensions

@@ -1,18 +1,60 @@
 ﻿using System.Buffers;
+using System.Diagnostics;
 using System.IO.Pipelines;
+using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 using Spangle.IO;
+using Spangle.Logging;
 using Spangle.Rtmp.Chunk;
 using Spangle.Rtmp.ProtocolControlMessage;
+using ZLogger;
 
 namespace Spangle.Rtmp.ReadState;
 
 /// <summary>
-///     ReadMessageHeader
-///     <see cref="MessageHeader" />
+/// ReadBasicHeader
+/// See <see cref="BasicHeader" /> and <see cref="MessageHeader"/>
 /// </summary>
-internal abstract class ReadMessageHeader : IReadStateAction
+internal abstract class ReadChunkHeader : IReadStateAction
 {
+    private static readonly ILogger<ReadChunkHeader> s_logger = SpangleLogManager.GetLogger<ReadChunkHeader>();
+
     public static async ValueTask Perform(RtmpReceiverContext context)
+    {
+        await ReadBasicHeader(context);
+        await ReadMessageHeader(context);
+        SetNextByMessageType(context);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static async ValueTask ReadBasicHeader(RtmpReceiverContext context)
+    {
+        PipeReader reader = context.Reader;
+        CancellationToken ct = context.CancellationToken;
+        context.PreviousFormat = context.BasicHeader.Format;
+
+        // Check the first byte
+        (ReadOnlySequence<byte> firstBuff, _) = await reader.ReadExactAsync(1, ct);
+        firstBuff.CopyTo(context.BasicHeader.AsSpan());
+        var endPos = firstBuff.End;
+
+        // Read the remaining buffer if needed
+        int fullLen = context.BasicHeader.RequiredLength;
+        if (fullLen > 1)
+        {
+            reader.AdvanceTo(firstBuff.Start); // reset reading
+            (ReadOnlySequence<byte> fullBuff, _) = await reader.ReadExactAsync(fullLen, ct);
+            fullBuff.CopyTo(context.BasicHeader.AsSpan());
+            endPos = fullBuff.End;
+        }
+
+        reader.AdvanceTo(endPos);
+
+        DumpBasicHeader(context);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static async ValueTask ReadMessageHeader(RtmpReceiverContext context)
     {
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
@@ -20,19 +62,20 @@ internal abstract class ReadMessageHeader : IReadStateAction
 
         if (len > 0)
         {
-            (ReadOnlySequence<byte> buff, _) = await reader.ReadExactlyAsync(len, ct);
+            (ReadOnlySequence<byte> buff, _) = await reader.ReadExactAsync(len, ct);
             buff.CopyTo(context.MessageHeader.AsSpan());
             reader.AdvanceTo(buff.End);
 
             if (context.MessageHeader.HasExtendedTimestamp)
             {
                 // Requires reading of extended timestamp
-                (buff, _) = await reader.ReadExactlyAsync(sizeof(uint), ct);
+                (buff, _) = await reader.ReadExactAsync(sizeof(uint), ct);
                 buff.CopyTo(context.MessageHeader.ExtendedTimeStamp.AsSpan());
                 reader.AdvanceTo(buff.End);
             }
         }
 
+        // Compute or set timestamp
         switch (context.BasicHeader.Format)
         {
             case MessageHeaderFormat.Fmt0:
@@ -52,15 +95,17 @@ internal abstract class ReadMessageHeader : IReadStateAction
                 {
                     context.Timestamp += context.MessageHeader.TimestampOrDeltaInterop;
                 }
+
                 break;
             default:
                 throw new InvalidDataException($"Unrecognized message header format {context.BasicHeader.Format}");
         }
 
-        DispatchNextByMessageType(context);
+        DumpMessageHeader(context);
     }
 
-    private static void DispatchNextByMessageType(RtmpReceiverContext context)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void SetNextByMessageType(RtmpReceiverContext context)
     {
         switch (context.MessageHeader.TypeId)
         {
@@ -83,5 +128,17 @@ internal abstract class ReadMessageHeader : IReadStateAction
                 throw new NotImplementedException(
                     $"The processor of [{context.MessageHeader.TypeId}] is not implemented.");
         }
+    }
+
+    [Conditional("DEBUG")]
+    private static void DumpBasicHeader(RtmpReceiverContext context)
+    {
+        s_logger.ZLogTrace(context.BasicHeader.ToString());
+    }
+
+    [Conditional("DEBUG")]
+    private static void DumpMessageHeader(RtmpReceiverContext context)
+    {
+        s_logger.ZLogTrace(context.MessageHeader.ToString());
     }
 }

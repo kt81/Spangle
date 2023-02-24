@@ -2,6 +2,21 @@
 
 internal static class Protocol
 {
+    /// <summary>
+    /// Max chunk size to set
+    /// </summary>
+    public const uint MaxChunkSize = 65536;
+
+    /// <summary>
+    /// Min chunk size to set
+    /// </summary>
+    public const uint MinChunkSize = 128;
+
+    /// <summary>
+    /// Default of max message size
+    /// </summary>
+    public const uint MaxMessageSizeDefault = MaxChunkSize * 4;
+
     /*
      * (5.4. Protocol Control Messages)
      * These protocol control messages MUST have message stream ID 0 (known as the control stream)

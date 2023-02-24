@@ -73,8 +73,8 @@ internal abstract class NetConnectionHandler
 
         s_logger.ZLogTrace("Send SetChunkSize (1)");
         // MaxChunkSize's first bit must be 0
-        Debug.Assert(context.MaxChunkSize <= 0x7FFF_FFFF);
-        var setChunkSize = BigEndianUInt32.FromHost(context.MaxChunkSize);
+        Debug.Assert(context.ChunkSize <= 0x7FFF_FFFF);
+        var setChunkSize = BigEndianUInt32.FromHost(context.ChunkSize);
         RtmpWriter.Write(context, 0, MessageType.SetChunkSize,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref setChunkSize);
 

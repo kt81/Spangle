@@ -15,17 +15,17 @@ internal abstract class SetChunkSize : IReadStateAction
     {
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
-        (ReadOnlySequence<byte> buff, _) = await reader.ReadExactlyAsync(ChunkSizeLength, ct);
+        (ReadOnlySequence<byte> buff, _) = await reader.ReadExactAsync(ChunkSizeLength, ct);
         uint size = BufferMarshal.As<BigEndianUInt32>(buff).HostValue;
         reader.AdvanceTo(buff.End);
         IReadStateAction.EnsureValidProtocolControlMessage(context);
 
-        if (size is 0 or > 0x0FFFFFFF)
+        if (size is < Protocol.MinChunkSize or > Protocol.MaxChunkSize)
         {
-            throw new IOException(ZString.Format("Invalid chunk size: {0}", size));
+            throw new InvalidOperationException(ZString.Format("Invalid chunk size: {0}", size));
         }
 
-        context.MaxChunkSize = size;
-        context.SetNext<ReadBasicHeader>();
+        context.ChunkSize = size;
+        context.SetNext<ReadChunkHeader>();
     }
 }

@@ -67,14 +67,14 @@ internal class HandshakeHandler
         var ct = receiverContext.CancellationToken;
 
         // Deal C0S0
-        (buff, _) = await reader.ReadExactlyAsync(s_sizeOfC0S0, ct);
+        (buff, _) = await reader.ReadExactAsync(s_sizeOfC0S0, ct);
         VerifyC0(buff);
         reader.AdvanceTo(buff.End);
         var s0 = new C0S0(RtmpVersion.Rtmp3);
         SendMessage(writer, ref s0);
 
         // Deal C1S1
-        var tC1 = reader.ReadExactlyAsync(s_sizeOfC1S1, ct);
+        var tC1 = reader.ReadExactAsync(s_sizeOfC1S1, ct);
         var s1 = new C1S1(NowMs());
         SendMessage(writer, ref s1);
         ((buff, _), _) = await ValueTaskEx.WhenAll(tC1, writer.FlushAsync(ct));
@@ -85,7 +85,7 @@ internal class HandshakeHandler
         await writer.FlushAsync(ct);
         ChangeState(receiverContext, HandshakeState.AckSent);
         reader.AdvanceTo(buff.End);
-        (buff, _) = await reader.ReadExactlyAsync(s_sizeOfC2S2, ct);
+        (buff, _) = await reader.ReadExactAsync(s_sizeOfC2S2, ct);
         VerifyC2(buff, ref s1);
 
         // Mark the buffer up to end of C2 has been consumed

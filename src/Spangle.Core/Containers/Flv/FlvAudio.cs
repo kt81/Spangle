@@ -59,6 +59,11 @@ internal readonly struct FlvAudioControl
     public FlvAudioCodec Codec => (FlvAudioCodec)(_value >>> 4);
     public FlvAudioSampleRate SampleRate => (FlvAudioSampleRate)((_value >>> 2) & 0b0011);
     public FlvAudioSampleSize SampleSize => (FlvAudioSampleSize)(_value & 0b0001);
+
+    public override string ToString()
+    {
+        return $$"""FlvAudioControl {codec:{{Codec}}, sizeRate:{{SampleRate}}, sampleSize:{{SampleSize}}}""";
+    }
 }
 
 internal struct FlvAudio

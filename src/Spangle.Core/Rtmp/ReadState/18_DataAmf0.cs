@@ -13,7 +13,7 @@ internal abstract class DataAmf0 : IReadStateAction
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
         (ReadOnlySequence<byte> buff, _) =
-            await reader.ReadExactlyAsync((int)context.MessageHeader.Length.HostValue, ct);
+            await reader.ReadExactAsync((int)context.MessageHeader.Length.HostValue, ct);
 
         // Parse command
         string command = ParseString(ref buff);
@@ -31,6 +31,6 @@ internal abstract class DataAmf0 : IReadStateAction
         reader.AdvanceTo(buff.End);
         await context.Writer.FlushAsync(ct);
 
-        context.SetNext<ReadBasicHeader>();
+        context.SetNext<ReadChunkHeader>();
     }
 }

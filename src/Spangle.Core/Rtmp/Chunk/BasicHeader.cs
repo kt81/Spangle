@@ -53,14 +53,14 @@ internal unsafe struct BasicHeader
 
     public MessageHeaderFormat Format
     {
-        get => (MessageHeaderFormat)(_value[0] >>> 6);
+        readonly get => (MessageHeaderFormat)(_value[0] >>> 6);
         // xx11_1111
         set => _value[0] = (byte)(((byte)value << 6) | (_value[0] & FbIdMask));
     }
 
     public uint ChunkStreamId
     {
-        get
+        readonly get
         {
             var checkBits = (byte)(_value[0] & MaxIdH1);
             return checkBits switch
@@ -93,18 +93,24 @@ internal unsafe struct BasicHeader
         }
     }
 
-    public int RequiredLength => (_value[0] & FbIdMask) switch
+    public readonly int RequiredLength => (_value[0] & FbIdMask) switch
     {
         H2Code => 2,
         H3Code => 3,
         _      => 1,
     };
 
-    public Span<byte> AsSpan()
+    public readonly Span<byte> AsSpan()
     {
         fixed (void* p = &this)
         {
             return new Span<byte>(p, MaxSize);
         }
+    }
+
+    public override readonly string ToString()
+    {
+        return
+            $$"""BasicHeader {fmt:{{Format}}, csId:{{ChunkStreamId}}} {{string.Join(' ', AsSpan().ToArray().Select(x => $"{x:X02}"))}}""";
     }
 }
