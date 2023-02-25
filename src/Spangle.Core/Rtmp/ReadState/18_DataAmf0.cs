@@ -9,7 +9,6 @@ internal abstract class DataAmf0 : IReadStateAction
     public static async ValueTask Perform(RtmpReceiverContext context)
     {
         PipeReader reader = context.Reader;
-        CancellationToken ct = context.CancellationToken;
         var (buff, disposeHandle) = await ReadHelper.ReadMessageBody(context);
 
         using (disposeHandle)
@@ -32,7 +31,7 @@ internal abstract class DataAmf0 : IReadStateAction
         {
             reader.AdvanceTo(buff.End);
         }
-        await context.Writer.FlushAsync(ct);
+        // await context.Writer.FlushAsync(context.CancellationToken);
 
         context.SetNext<ReadChunkHeader>();
     }

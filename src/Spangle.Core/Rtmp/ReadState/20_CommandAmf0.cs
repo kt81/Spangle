@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
+using System.Runtime.CompilerServices;
 using Spangle.Rtmp.NetConnection;
 using Spangle.Rtmp.NetStream;
 using static Spangle.Rtmp.Amf0.Amf0SequenceParser;
@@ -30,6 +31,7 @@ internal abstract class CommandAmf0 : IReadStateAction
         context.SetNext<ReadChunkHeader>();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void DispatchRpc(RtmpReceiverContext context, ref ReadOnlySequence<byte> buff)
     {
         // Parse command
