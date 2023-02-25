@@ -49,6 +49,10 @@ internal abstract class CommandAmf0 : IReadStateAction
                 NetConnectionHandler.OnFCPublish(context, transactionId, commandObject, ParseString(ref buff));
                 context.ConnectionState = ReceivingState.WaitingPublish;
                 break;
+            case NetConnectionHandler.Commands.FCUnpublish:
+                NetConnectionHandler.OnFCUnpublish(context, transactionId, commandObject, ParseString(ref buff));
+                context.ConnectionState = ReceivingState.WaitingPublish;
+                break;
             case NetConnectionHandler.Commands.CreateStream:
                 NetConnectionHandler.OnCreateStream(context, transactionId, commandObject);
                 break;
@@ -56,10 +60,12 @@ internal abstract class CommandAmf0 : IReadStateAction
             // NetStream Commands
             // -------------------------------------------------------------------
             case RtmpNetStream.Commands.Publish:
-                string streamName = ParseString(ref buff);
-                var stream = context.NetStream;
-                stream.OnPublish(transactionId, commandObject,
-                    streamName, ParseString(ref buff));
+                context.EnsureStreamCreated().OnPublish(transactionId, commandObject,
+                    ParseString(ref buff), ParseString(ref buff));
+                break;
+            case RtmpNetStream.Commands.DeleteStream:
+                context.EnsureStreamCreated().OnDeleteStream(transactionId, commandObject,
+                    ParseNumber(ref buff));
                 break;
             default:
                 throw new NotImplementedException($"The command `{command}` is not implemented.");

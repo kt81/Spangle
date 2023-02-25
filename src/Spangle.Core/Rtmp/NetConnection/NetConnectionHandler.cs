@@ -1,6 +1,5 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Spangle.Interop;
 using Spangle.Logging;
@@ -29,6 +28,7 @@ internal abstract class NetConnectionHandler
         // No document
         public const string ReleaseStream = "releaseStream";
         public const string FCPublish     = "FCPublish";
+        public const string FCUnpublish     = "FCUnpublish";
     }
 
     private static class Keys
@@ -115,15 +115,21 @@ internal abstract class NetConnectionHandler
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
     }
 
+    public static void OnFCUnpublish(
+        RtmpReceiverContext context,
+        double transactionId,
+        AmfObject? commandObject,
+        string streamName)
+    {
+        s_logger.ZLogTrace("OnFCUnpublish (do nothing) ({0}, {1})", transactionId, streamName);
+    }
+
     public static void OnCreateStream(
         RtmpReceiverContext context,
         double transactionId,
         AmfObject? commandObject)
     {
-        if (context.PreparingStreamName is null)
-        {
-            context.PreparingStreamName = "none-fcPublish-ph";
-        }
+        context.PreparingStreamName ??= "none-fcPublish-ph";
 
         var stream = context.CreateStream(context.PreparingStreamName);
         s_logger.ZLogTrace("Created stream: {0}({1})", stream.Id, stream.Name);

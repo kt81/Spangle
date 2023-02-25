@@ -3,6 +3,7 @@ using Spangle.Rtmp.Chunk;
 using Spangle.Rtmp.Handshake;
 using Spangle.Rtmp.NetStream;
 using Spangle.Rtmp.ReadState;
+using Spangle.Util;
 using ZLogger;
 
 namespace Spangle.Rtmp;
@@ -57,17 +58,13 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public   ReceivingState ConnectionState = ReceivingState.HandShaking;
     internal HandshakeState HandshakeState  = HandshakeState.Uninitialized;
 
-    private uint                            StreamIdPointer = Protocol.ControlStreamId + 1;
-    private Dictionary<uint, RtmpNetStream> _netStreams     = new();
+    private uint _streamIdPointer = Protocol.ControlStreamId + 1;
 
     /// <summary>
     /// Returns "Current" stream in receiving context.
     /// Do not call this out of the stream specific command context.
     /// </summary>
-    internal RtmpNetStream NetStream
-    {
-        get { return _netStreams[MessageHeader.StreamId]; }
-    }
+    internal RtmpNetStream? NetStream { get; private set; }
 
     #endregion
 
@@ -108,12 +105,33 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     internal RtmpNetStream CreateStream(string streamName)
     {
-        uint streamId = StreamIdPointer++;
-        return _netStreams[streamId] = new RtmpNetStream(this, streamId, streamName);
+        if (NetStream != null)
+        {
+            ThrowHelper.ThrowOverSpec(this, "cannot communicate multiple streams in single connection");
+        }
+
+        uint streamId = _streamIdPointer++;
+        return NetStream = new RtmpNetStream(this, streamId, streamName);
+    }
+
+    internal void RemoveStream()
+    {
+        NetStream = null;
     }
 
     internal void ReleaseStream(string streamName)
     {
+        // It don't mean a thing
+    }
+
+    internal RtmpNetStream EnsureStreamCreated()
+    {
+        if (NetStream == null)
+        {
+            throw new InvalidOperationException("NetStream has not been created.");
+        }
+
+        return NetStream;
     }
 
     public override bool IsCompleted => ConnectionState == ReceivingState.Terminated;

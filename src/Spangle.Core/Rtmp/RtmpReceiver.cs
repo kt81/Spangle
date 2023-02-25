@@ -74,6 +74,8 @@ public sealed class RtmpReceiver : IReceiver<RtmpReceiverContext>, IDisposable
                 await context.MoveNext(context);
             }
         }
+
+        s_logger.ZLogInformation("Rtmp connection closed");
     }
 
     public void Dispose()

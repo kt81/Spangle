@@ -130,6 +130,22 @@ internal class RtmpNetStream
             csId, publishingStreamId, result);
     }
 
+    public void OnDeleteStream(
+        double transactionId,
+        AmfObject? commandObject,
+        double streamId
+    )
+    {
+        if (Id != (uint)streamId)
+        {
+            throw new InvalidOperationException("The streamId given does not match current Id.");
+        }
+
+        _logger.ZLogInformation("Close stream: ({0}) {1}", Id, Name);
+        Context.RemoveStream();
+        Context.ConnectionState = ReceivingState.Terminated;
+    }
+
     public void OnSetDataFrame(
         ref ReadOnlySequence<byte> buff)
     {
