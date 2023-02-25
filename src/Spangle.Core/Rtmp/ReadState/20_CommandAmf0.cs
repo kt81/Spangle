@@ -1,6 +1,5 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
-using Spangle.IO;
 using Spangle.Rtmp.NetConnection;
 using Spangle.Rtmp.NetStream;
 using static Spangle.Rtmp.Amf0.Amf0SequenceParser;
@@ -13,16 +12,31 @@ internal abstract class CommandAmf0 : IReadStateAction
     {
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
-        (ReadOnlySequence<byte> buff, _) =
-            await reader.ReadExactAsync((int)context.MessageHeader.Length.HostValue, ct);
 
+        var (buff, disposeHandle) = await ReadHelper.ReadMessageBody(context);
+
+        using (disposeHandle)
+        {
+            DispatchRpc(context, ref buff);
+
+            if (!disposeHandle.IsOriginalBufferConsumed)
+            {
+                reader.AdvanceTo(buff.End);
+            }
+        }
+
+        await context.Writer.FlushAsync(ct);
+
+        context.SetNext<ReadChunkHeader>();
+    }
+
+    private static void DispatchRpc(RtmpReceiverContext context, ref ReadOnlySequence<byte> buff)
+    {
         // Parse command
-        string command = ParseString(ref buff);
+        string command = ParseString(ref buff); // If too long, still leave it to an error to occur
         double transactionId = ParseNumber(ref buff);
         // dictionary or null
         AmfObject? commandObject = Parse(ref buff) as AmfObject;
-
-        // Dispatch RPC
         switch (command)
         {
             // NetConnection Commands
@@ -60,20 +74,15 @@ internal abstract class CommandAmf0 : IReadStateAction
             // NetStream Commands
             // -------------------------------------------------------------------
             case RtmpNetStream.Commands.Publish:
-                context.EnsureStreamCreated().OnPublish(transactionId, commandObject,
+                context.GetStreamOrError().OnPublish(transactionId, commandObject,
                     ParseString(ref buff), ParseString(ref buff));
                 break;
             case RtmpNetStream.Commands.DeleteStream:
-                context.EnsureStreamCreated().OnDeleteStream(transactionId, commandObject,
+                context.GetStreamOrError().OnDeleteStream(transactionId, commandObject,
                     ParseNumber(ref buff));
                 break;
             default:
                 throw new NotImplementedException($"The command `{command}` is not implemented.");
         }
-
-        reader.AdvanceTo(buff.End);
-        await context.Writer.FlushAsync(ct);
-
-        context.SetNext<ReadChunkHeader>();
     }
 }

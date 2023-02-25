@@ -15,7 +15,7 @@ internal abstract class Video : IReadStateAction
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
 
-        var enumerator = ReadHelper.ReadChunkedSequence(context).GetAsyncEnumerator(ct);
+        var enumerator = ReadHelper.ReadChunkedMessageBody(context).GetAsyncEnumerator(ct);
         await enumerator.MoveNextAsync();
         var buff = enumerator.Current;
 

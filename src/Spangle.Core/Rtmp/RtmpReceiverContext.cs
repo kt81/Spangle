@@ -124,7 +124,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
         // It don't mean a thing
     }
 
-    internal RtmpNetStream EnsureStreamCreated()
+    internal RtmpNetStream GetStreamOrError()
     {
         if (NetStream == null)
         {
