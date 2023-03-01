@@ -31,6 +31,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.SourceGenerator", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.SourceGenerator.Tests", "tests\Spangle.SourceGenerator.Tests\Spangle.SourceGenerator.Tests.csproj", "{3A5964BE-5537-4057-AFC7-E8B8C845F9B8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.Net.Transport.SRT", "src\Spangle.Net.Transport.SRT\Spangle.Net.Transport.SRT.csproj", "{E15DFA2A-E03C-4CAC-9E70-D44CFFA63ED9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,10 @@ Global
 		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E15DFA2A-E03C-4CAC-9E70-D44CFFA63ED9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E15DFA2A-E03C-4CAC-9E70-D44CFFA63ED9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E15DFA2A-E03C-4CAC-9E70-D44CFFA63ED9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E15DFA2A-E03C-4CAC-9E70-D44CFFA63ED9}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{A8340966-1FBF-4B63-96DD-1ED284C01367} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
@@ -79,5 +85,6 @@ Global
 		{853F9F59-7AA3-491C-9151-7AAC654B21C5} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
 		{6B9D28EC-F84F-4ADE-BB02-029C57E35289} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
 		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8} = {094F95A7-D650-4408-8B17-081DEBBD5D5D}
+		{E15DFA2A-E03C-4CAC-9E70-D44CFFA63ED9} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
 	EndGlobalSection
 EndGlobal

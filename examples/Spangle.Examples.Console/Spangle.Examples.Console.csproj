@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Using Include="Spangle"/>
+    <Using Include="Spangle" />
   </ItemGroup>
 
   <ItemGroup>
@@ -19,7 +19,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Spangle.Core\Spangle.Core.csproj"/>
+    <ProjectReference Include="..\..\src\Spangle.Core\Spangle.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
   </ItemGroup>
 
 </Project>
