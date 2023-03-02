@@ -38,7 +38,7 @@ public sealed class SRTListener : IDisposable
         }
     }
 
-    public void Start(int backlog = (int)SocketOptionName.MaxConnections)
+    public unsafe void Start(int backlog = (int)SocketOptionName.MaxConnections)
     {
         if (_active)
         {
@@ -48,8 +48,7 @@ public sealed class SRTListener : IDisposable
         IntPtr pSockAddrIn = Marshal.AllocCoTaskMem(s_socketAddressSize);
         try
         {
-            // ReSharper disable once NotAccessedVariable
-            var addr = Marshal.PtrToStructure<sockaddr_in>(pSockAddrIn);
+            ref var addr = ref MemoryMarshal.AsRef<sockaddr_in>(new Span<byte>(pSockAddrIn.ToPointer(), s_socketAddressSize));
             addr.sin_family = AF_INET;
             addr.sin_port = (ushort)IPAddress.HostToNetworkOrder((short)_serverSocketEP.Port);
 #pragma warning disable CS0618
@@ -58,7 +57,6 @@ public sealed class SRTListener : IDisposable
             addr.sin_zero = 0L;
 
             SWIGTYPE_p_sockaddr socketAddress = new SWIGTYPE_p_sockaddr(pSockAddrIn, false);
-            socketAddress = SocketHelper.CreateSocketAddress(_serverSocketEP.Address.ToString(), _serverSocketEP.Port);
             int result = srt_bind(_handle, socketAddress, s_socketAddressSize);
             ThrowHelper.ThrowIfError(result);
             result = srt_listen(_handle, backlog);

@@ -6,6 +6,14 @@
     <Nullable>enable</Nullable>
     <LangVersion>11</LangVersion>
   </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
   
   <ItemGroup>
     <Using Include="System.Int32" Alias="SRTSOCKET" />
