@@ -7,11 +7,11 @@ namespace Spangle;
 
 public abstract class ReceiverContextBase<TSelf> : IReceiverContext<TSelf> where TSelf : ReceiverContextBase<TSelf>
 {
-    public string Id { get; init; }
+    public string Id { get; }
     public EndPoint? RemoteEndPoint { get; init; }
 
-    public PipeReader Reader { get; init; }
-    public PipeWriter Writer { get; init; }
+    public PipeReader Reader { get; }
+    public PipeWriter Writer { get; }
 
     public CancellationToken CancellationToken { get; set; }
 

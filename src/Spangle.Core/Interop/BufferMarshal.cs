@@ -2,7 +2,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
-using Spangle.Util;
 
 namespace Spangle.Interop;
 
@@ -23,9 +22,7 @@ public static class BufferMarshal
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ref TMessage As<TMessage>(in ReadOnlySequence<byte> buff) where TMessage : unmanaged
     {
-        Span<byte> copied = new byte[MarshalHelper<TMessage>.Size];
-        buff.CopyTo(copied);
-        return ref MemoryMarshal.AsRef<TMessage>(copied);
+        return ref MemoryMarshal.AsRef<TMessage>(buff.ToArray());
     }
 
     /// <summary>
@@ -64,5 +61,24 @@ public static class BufferMarshal
         }
 
         return Encoding.UTF8.GetString(strBuf);
+    }
+
+    public static void DumpHex(byte[] data, Action<string> output) => DumpHex(new ReadOnlySpan<byte>(data), output);
+    public static void DumpHex(ReadOnlySpan<byte> data, Action<string> output)
+    {
+        const int tokenLen = 8;
+        const int lineTokensLen = 8;
+        while (data.Length > 0)
+        {
+            var lineTokens = new string[lineTokensLen];
+            for (var i = 0; i < lineTokensLen && data.Length > 0; i++)
+            {
+                int len = Math.Min(tokenLen, data.Length);
+                var token = data[..len];
+                lineTokens[i] = string.Join(' ', token.ToArray().Select(x => $"{x:X02}"));
+                data = data[len..];
+            }
+            output.Invoke(string.Join("  ", lineTokens));
+        }
     }
 }

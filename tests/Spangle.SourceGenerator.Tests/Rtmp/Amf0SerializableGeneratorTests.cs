@@ -1,7 +1,7 @@
 ﻿using System.IO.Pipelines;
 using System.Runtime.InteropServices;
 using FluentAssertions;
-using Spangle.Rtmp.Amf0;
+using Spangle.Protocols.Rtmp.Amf0;
 using Spangle.SourceGenerator.Rtmp;
 
 namespace Spangle.SourceGenerator.Tests.Rtmp;

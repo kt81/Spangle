@@ -8,7 +8,7 @@
 #pragma warning disable CS8604
 
 using System.Buffers;
-using Spangle.Rtmp.Amf0;
+using Spangle.Protocols.Rtmp.Amf0;
 
 namespace Spangle.Tests;
 

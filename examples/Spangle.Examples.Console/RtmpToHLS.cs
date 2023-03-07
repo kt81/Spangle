@@ -2,7 +2,7 @@
 using System.Net.Sockets;
 using Cysharp.Text;
 using Microsoft.Extensions.Logging;
-using Spangle.Rtmp;
+using Spangle.Protocols.Rtmp;
 using ZLogger;
 
 namespace Spangle.Examples.Console;
@@ -40,7 +40,7 @@ public class RtmpToHLS
         }
     }
 
-    static async ValueTask ProcessConnection(RtmpReceiver receiver, TcpClient tcpClient, ILogger logger)
+    private static async ValueTask ProcessConnection(RtmpReceiver receiver, TcpClient tcpClient, ILogger logger)
     {
         string id = ZString.Concat(tcpClient.GetHashCode(), "[",
             tcpClient.Client.RemoteEndPoint?.ToString() ?? "none", "]");

@@ -37,10 +37,12 @@ internal sealed class SRTPipe : IDuplexPipe, IDisposable
         _receivePipe = new Pipe(receivePipeOptions);
         _sendPipe = new Pipe(sendPipeOptions);
 
+        // ReSharper disable AsyncVoidLambda
         receivePipeOptions.ReaderScheduler.Schedule(
             async obj => await (obj as SRTPipe)!.ReadFromSRT().ConfigureAwait(false), this);
         sendPipeOptions.WriterScheduler.Schedule(
             async obj => await (obj as SRTPipe)!.WriteToSRT().ConfigureAwait(false), this);
+        // ReSharper restore AsyncVoidLambda
     }
 
     public void Reset()

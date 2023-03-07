@@ -43,4 +43,8 @@
     <ProjectReference Include="..\..\src\Spangle.Core\Spangle.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Protocols" />
+  </ItemGroup>
+
 </Project>

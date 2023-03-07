@@ -1,9 +1,8 @@
 ﻿using System.Net;
-using System.Net.Sockets;
 using Cysharp.Text;
 using Microsoft.Extensions.Logging;
 using Spangle.Net.Transport.SRT;
-using Spangle.SRT;
+using Spangle.Protocols.SRT;
 using ZLogger;
 
 namespace Spangle.Examples.Console;
@@ -43,7 +42,8 @@ public class SRTToHLS
 
     private static async ValueTask ProcessConnection(SRTReceiver receiver, SRTClient srtClient, ILogger logger)
     {
-        string id = ZString.Concat(srtClient.GetHashCode());
+        string id = ZString.Concat(srtClient.GetHashCode(), "[",
+            srtClient.RemoteEndPoint.ToString() ?? "none", "]");
         try
         {
             logger.ZLogDebug("Connection opened: {0}", id);

@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -11,8 +10,17 @@ namespace Spangle.Net.Transport.SRT;
 [SuppressMessage("ReSharper", "BuiltInTypeReferenceStyle")]
 public sealed class SRTListener : IDisposable
 {
-    private static readonly StaticFinalizeHandle s_finalizeHandle    = StaticFinalizeHandle.Instance;
-    private static readonly int                  s_socketAddressSize = Marshal.SizeOf<sockaddr_in>();
+    // [SuppressMessage("ReSharper", "InconsistentNaming")] private const int SRT_ERROR = -1;
+
+    // ReSharper disable once UnusedMember.Local
+    private static readonly StaticFinalizeHandle s_finalizeHandle = StaticFinalizeHandle.Instance;
+
+    private static readonly int s_socketAddressSize = Marshal.SizeOf<sockaddr_in>();
+
+    // private static readonly IntPtr          s_pFalsy            = Marshal.AllocCoTaskMem(sizeof(int));
+    // private static readonly SWIGTYPE_p_void s_falsyInt;
+    // private static readonly IntPtr          s_pEventsForAccept = Marshal.AllocCoTaskMem(sizeof(int));
+    // private static readonly SWIGTYPE_p_int  s_eventsForAccept;
 
     private readonly IPEndPoint _serverSocketEP;
     private readonly SRTSOCKET  _handle;
@@ -20,11 +28,22 @@ public sealed class SRTListener : IDisposable
     private bool _active;
     private bool _disposed;
 
-    private CancellationTokenSource _tokenSource = new();
+    private readonly CancellationTokenSource _tokenSource = new();
 
     static SRTListener()
     {
         srt_startup();
+        // s_falsyInt = new SWIGTYPE_p_void(s_pFalsy, false);
+        // s_eventsForAccept = new SWIGTYPE_p_int(s_pEventsForAccept, false);
+        // unsafe
+        // {
+        //     // map values for pointer
+        //     ref int falsy = ref MemoryMarshal.AsRef<int>(new Span<byte>(s_pFalsy.ToPointer(), sizeof(int)));
+        //     falsy = 0;
+        //     ref int events = ref MemoryMarshal.AsRef<int>(new Span<byte>(s_pEventsForAccept.ToPointer(), sizeof(int)));
+        //     // ReSharper disable once BitwiseOperatorOnEnumWithoutFlags
+        //     events = (int)(SRT_EPOLL_OPT.SRT_EPOLL_IN | SRT_EPOLL_OPT.SRT_EPOLL_ERR);
+        // }
     }
 
     public SRTListener(IPEndPoint localEP)
@@ -36,6 +55,13 @@ public sealed class SRTListener : IDisposable
         {
             throw new SRTException(srt_getlasterror_str());
         }
+
+        // non-blocking? 🤔
+        // if (SRT_ERROR == srt_setsockflag(_handle, SRT_SOCKOPT.SRTO_RCVSYN, s_falsyInt, sizeof(int))
+        //     || SRT_ERROR == srt_setsockflag(_handle, SRT_SOCKOPT.SRTO_SNDSYN, s_falsyInt, sizeof(int)))
+        // {
+        //     throw new SRTException(srt_getlasterror_str());
+        // }
     }
 
     public unsafe void Start(int backlog = (int)SocketOptionName.MaxConnections)
@@ -48,7 +74,8 @@ public sealed class SRTListener : IDisposable
         IntPtr pSockAddrIn = Marshal.AllocCoTaskMem(s_socketAddressSize);
         try
         {
-            ref var addr = ref MemoryMarshal.AsRef<sockaddr_in>(new Span<byte>(pSockAddrIn.ToPointer(), s_socketAddressSize));
+            ref var addr =
+                ref MemoryMarshal.AsRef<sockaddr_in>(new Span<byte>(pSockAddrIn.ToPointer(), s_socketAddressSize));
             addr.sin_family = AF_INET;
             addr.sin_port = (ushort)IPAddress.HostToNetworkOrder((short)_serverSocketEP.Port);
 #pragma warning disable CS0618
@@ -70,7 +97,7 @@ public sealed class SRTListener : IDisposable
         _active = true;
     }
 
-    public async ValueTask<SRTClient> AcceptSRTClientAsync()
+    public ValueTask<SRTClient> AcceptSRTClientAsync()
     {
         if (!_active)
         {
@@ -91,9 +118,11 @@ public sealed class SRTListener : IDisposable
                 throw new SRTException(srt_getlasterror_str());
             }
 
-            return new SRTClient(peerHandle, _tokenSource.Token, pPeerAddr, pPeerAddrSize);
+            var ep = ConvertToEndPoint(pPeerAddr);
+
+            return ValueTask.FromResult(new SRTClient(peerHandle, ep, _tokenSource.Token));
         }
-        catch
+        finally
         {
             if (pPeerAddr != IntPtr.Zero)
             {
@@ -104,9 +133,14 @@ public sealed class SRTListener : IDisposable
             {
                 Marshal.FreeCoTaskMem(pPeerAddrSize);
             }
-
-            throw;
         }
+    }
+
+    private static unsafe IPEndPoint ConvertToEndPoint(IntPtr pPeerAddr)
+    {
+        ref readonly sockaddr_in addr =
+            ref MemoryMarshal.AsRef<sockaddr_in>(new ReadOnlySpan<byte>(pPeerAddr.ToPointer(), s_socketAddressSize));
+        return new IPEndPoint(addr.sin_addr, addr.sin_port);
     }
 
     public void Dispose()
@@ -141,59 +175,9 @@ public sealed class SRTListener : IDisposable
 
         ~StaticFinalizeHandle()
         {
+            // Marshal.FreeCoTaskMem(s_pFalsy);
+            // Marshal.FreeCoTaskMem(s_pEventsForAccept);
             srt_cleanup();
         }
     }
-}
-
-[SuppressMessage("ReSharper", "BuiltInTypeReferenceStyle")]
-public class SRTClient : IDisposable
-{
-    private bool _disposed = false;
-
-    private readonly SRTSOCKET           _peerHandle;
-    private readonly ICollection<IntPtr> _relatedHandlesToBeFree;
-    private readonly SRTPipe             _pipe;
-
-    public IDuplexPipe Pipe => _pipe;
-
-    internal SRTClient(SRTSOCKET peerHandle, CancellationToken cancellationToken,
-        params IntPtr[] relatedHandlesToBeFree)
-    {
-        _pipe = new SRTPipe(peerHandle, cancellationToken);
-        _peerHandle = peerHandle;
-        _relatedHandlesToBeFree = relatedHandlesToBeFree;
-    }
-
-    private void ReleaseUnmanagedResources()
-    {
-        foreach (IntPtr p in _relatedHandlesToBeFree)
-        {
-            Marshal.FreeCoTaskMem(p);
-        }
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        ReleaseUnmanagedResources();
-        if (disposing)
-        {
-            _pipe.Dispose();
-        }
-
-        _disposed = true;
-    }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    ~SRTClient() => Dispose(false);
 }
