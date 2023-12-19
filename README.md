@@ -1,14 +1,17 @@
 ﻿Spangle Media Server (WIP)
 ===================
 
+THIS PROJECT IS WORKING In PROGRESS
+====================================
+
 Target
 ------
 
 ### Media Streaming
 
 - Ingest
-  - RTMP
-  - RTSP (low priority)
+  - RTMP (+ Enhanced)
+  - RTSP (very low priority)
   - SRT
 - Web Origin
   - HLS
@@ -18,9 +21,9 @@ Target
 - Codecs
   - H.264
   - H.265
+  - AV1
   - AAC
   - Opus
-  - AV1
 
 ### Web Console
 
