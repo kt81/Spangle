@@ -1,10 +1,10 @@
 ﻿Spangle Media Server (WIP)
 ===================
 
-THIS PROJECT IS WORKING In PROGRESS
+THIS PROJECT IS WORKING IN PROGRESS
 ====================================
 
-Target
+Planning Goal
 ------
 
 ### Media Streaming
@@ -25,22 +25,22 @@ Target
   - AAC
   - Opus
 
-### Web Console
+### Web Console (Goal of Effort)
 
 - Control multiple servers
 - Easy monitoring
 - Setting editor
 
-### Advanced Features (I don't know if I'll do it)
+### Advanced Features (I don't know if I'm going to do it)
 
 - DRM
 - Transcoder integration (Hardware, x26X)
 
 ### Others
 
-- Mainly target UGC contents
-- Full C# (or .NET family)
+- Target mainly UGC content
+- Almost pure C#
 - High performance
 - Highly customizable (plugin, fork, etc...)
-- Fail over with very little gap
-- Out-of-box timed metadata support
+- Fail over with very little gap (Goal of Effort)
+- Out-of-the-box support for timed metadata 
