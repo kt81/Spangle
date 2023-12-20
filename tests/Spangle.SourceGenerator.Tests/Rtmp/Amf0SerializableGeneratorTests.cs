@@ -1,4 +1,5 @@
-﻿using System.IO.Pipelines;
+﻿#pragma warning disable CS0436 // Type conflicts with imported type
+using System.IO.Pipelines;
 using System.Runtime.InteropServices;
 using FluentAssertions;
 using Spangle.Protocols.Rtmp.Amf0;

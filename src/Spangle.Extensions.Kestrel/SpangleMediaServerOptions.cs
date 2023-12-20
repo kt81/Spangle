@@ -9,7 +9,7 @@ public class SpangleMediaServerOptions
     /// </summary>
     public const string SectionPath = "Spangle";
 
-    public RtmpOptions Rtmp { get; set; }
+    public RtmpOptions Rtmp { get; set; } = new();
 }
 
 public class RtmpOptions : MediaProtocolOptions
