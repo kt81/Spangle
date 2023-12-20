@@ -12,6 +12,6 @@ internal static class DumpLoggingExtensions
         [CallerArgumentExpression("anonObject")]
         string? name = null)
     {
-        logger.ZLogDebug("[{0}]:{1}", name, System.Text.Json.JsonSerializer.Serialize(anonObject));
+        logger.ZLogDebug($"[{name}]:{System.Text.Json.JsonSerializer.Serialize(anonObject)}");
     }
 }

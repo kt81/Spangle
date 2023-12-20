@@ -1,12 +1,10 @@
-﻿using System.IO.Pipelines;
-
-namespace Spangle;
+﻿namespace Spangle;
 
 /// <summary>
 /// Common interface of instances receiving streaming
 /// </summary>
 /// <typeparam name="TContext"></typeparam>
-public interface IReceiver<in TContext> where TContext : IReceiverContext<TContext>
+public interface IReceiver<in TContext> where TContext : IReceiverContext
 {
     ValueTask StartAsync(TContext context);
 }

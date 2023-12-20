@@ -1,14 +1,16 @@
 ﻿using System.IO.Pipelines;
 using System.Net;
+using Cysharp.Text;
 using Microsoft.Extensions.Logging;
 using Spangle.Logging;
 
 namespace Spangle;
 
-public abstract class ReceiverContextBase<TSelf> : IReceiverContext<TSelf> where TSelf : ReceiverContextBase<TSelf>
+public abstract class ReceiverContextBase<TSelf> : IReceiverContext
+    where TSelf : ReceiverContextBase<TSelf>
 {
-    public string Id { get; }
-    public EndPoint? RemoteEndPoint { get; init; }
+    public abstract string Id { get; }
+    public abstract EndPoint EndPoint { get; }
 
     public PipeReader Reader { get; }
     public PipeWriter Writer { get; }
@@ -17,22 +19,21 @@ public abstract class ReceiverContextBase<TSelf> : IReceiverContext<TSelf> where
 
     public abstract bool IsCompleted { get; }
 
-    public bool IsCancellationRequested => CancellationToken.IsCancellationRequested;
-
-    public static TSelf CreateInstance(string id, PipeReader reader, PipeWriter writer, CancellationToken ct = default) =>
-        throw new NotImplementedException("Implement this in sub-classes.");
-
-    protected ReceiverContextBase(string id, PipeReader reader, PipeWriter writer, CancellationToken ct)
+    protected ReceiverContextBase(PipeReader reader, PipeWriter writer, CancellationToken ct)
     {
-        Id = id;
         Reader = reader;
         Writer = writer;
         CancellationToken = ct;
     }
 
+    public override string ToString()
+    {
+        return ZString.Format("{0}({1} from {2})", GetType().Name, Id, EndPoint.ToString());
+    }
+
     #region Logging support
 
-    protected static ILogger<TSelf> Logger;
+    protected static readonly ILogger<TSelf> Logger;
 
     static ReceiverContextBase()
     {

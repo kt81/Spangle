@@ -118,7 +118,7 @@ internal class RtmpNetStream
         uint csId = context.BasicHeader.ChunkStreamId;
         const uint publishingStreamId = Protocol.ControlStreamId + 1;
 
-        _logger.ZLogTrace("Send UserControlMessage (4) StreamBegin (0) : 1");
+        _logger.ZLogTrace($"Send UserControlMessage (4) StreamBegin (0) : 1");
         var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin,
             BigEndianUInt32.FromHost(publishingStreamId).AsSpan());
         RtmpWriter.Write(context, 0, MessageType.UserControl,
@@ -141,7 +141,7 @@ internal class RtmpNetStream
             throw new InvalidOperationException("The streamId given does not match current Id.");
         }
 
-        _logger.ZLogInformation("Close stream: ({0}) {1}", Id, Name);
+        _logger.ZLogInformation($"Close stream: ({Id}) {Name}");
         Context.RemoveStream();
         Context.ConnectionState = ReceivingState.Terminated;
     }

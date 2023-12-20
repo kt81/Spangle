@@ -49,10 +49,6 @@ internal readonly struct FlvVideoControl
     public FlvVideoFrameType FrameType => (FlvVideoFrameType)(_value >>> 4);
     public FlvVideoCodec Codec => (FlvVideoCodec)(_value & 0b1111);
 
-    public override string ToString()
-    {
-        return $$"""FlvVideoControl {frameType:{{FrameType}}, codec:{{Codec}}}""";
-    }
 }
 
 internal static class FlvVideoCodecExtensions

@@ -1,5 +1,4 @@
-﻿using Cysharp.Text;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using ZLogger;
 
 namespace Spangle.Examples.Console;
@@ -8,33 +7,36 @@ public static class LoggerExtensions
 {
     public static void AddColorizedZLoggerConsole(this ILoggingBuilder builder, string concernedTarget)
     {
-        builder.AddZLoggerConsole(configureEnableAnsiEscapeCode: true, configure: options =>
+        builder.AddZLoggerConsole(options =>
         {
-            options.PrefixFormatter = (writer, info) =>
+            options.UsePlainTextFormatter(formatter =>
             {
-                if (info.LogLevel == LogLevel.Error)
+                // \u001b[31m => Red(ANSI Escape Code)
+                // \u001b[0m => Reset
+                // \u001b[38;5;***m => 256 Colors(08 is Gray)
+                formatter.SetPrefixFormatter($"{0}{1}|{2:short}|", (writer, info) =>
                 {
-                    ZString.Utf8Format(writer, "\u001b[31m[{0}][{1}] ", info.LogLevel, info.CategoryName);
-                }
-                else
-                {
-                    if (!info.CategoryName.StartsWith(concernedTarget))
+                    var escapeSequence = "";
+                    if (info.LogLevel >= LogLevel.Error)
                     {
-                        ZString.Utf8Format(writer, "\u001b[38;5;08m[{0}][{1}] ", info.LogLevel, info.CategoryName);
+                        escapeSequence = "\u001b[31m";
                     }
-                    else
+                    else if (!info.Category.Name.Contains(concernedTarget))
                     {
-                        ZString.Utf8Format(writer, "[{0}][{1}] ", info.LogLevel, info.CategoryName);
+                        escapeSequence = "\u001b[38;5;08m";
                     }
-                }
-            };
-            options.SuffixFormatter = (writer, info) =>
-            {
-                if (info.LogLevel == LogLevel.Error || !info.CategoryName.StartsWith(concernedTarget))
+
+                    writer.Format(escapeSequence, info.Timestamp, info.LogLevel);
+                });
+
+                formatter.SetSuffixFormatter($"{0}", (writer, info) =>
                 {
-                    ZString.Utf8Format(writer, "\u001b[0m", "");
-                }
-            };
+                    if (info.LogLevel == LogLevel.Error || !info.Category.Name.Contains(concernedTarget))
+                    {
+                        writer.Format("\u001b[0m");
+                    }
+                });
+            });
         });
     }
 }

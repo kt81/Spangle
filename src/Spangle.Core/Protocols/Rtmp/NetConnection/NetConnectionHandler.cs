@@ -47,7 +47,7 @@ internal abstract class NetConnectionHandler
         AmfObject commandObject,
         AmfObject? optionalUserArgs = null)
     {
-        s_logger.ZLogTrace("NetCommand.Connect");
+        s_logger.ZLogTrace($"NetCommand.Connect");
         s_logger.DumpObject(commandObject);
         s_logger.DumpObject(optionalUserArgs);
 
@@ -56,29 +56,29 @@ internal abstract class NetConnectionHandler
 
         var band = BigEndianUInt32.FromHost(context.Bandwidth);
 
-        s_logger.ZLogTrace("Send WindowAcknowledgementSize (5)");
+        s_logger.ZLogTrace($"Send WindowAcknowledgementSize (5)");
         RtmpWriter.Write(context, 0, MessageType.WindowAcknowledgementSize,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref band);
 
-        s_logger.ZLogTrace("Send SetPeerBandwidth (6)");
+        s_logger.ZLogTrace($"Send SetPeerBandwidth (6)");
         var peerBw = new SetPeerBandwidth { AcknowledgementWindowSize = band, LimitType = BandwidthLimitType.Dynamic, };
         RtmpWriter.Write(context, 0, MessageType.SetPeerBandwidth,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref peerBw);
 
-        s_logger.ZLogTrace("Send UseControlMessage (4) StreamBegin (0) : 0");
+        s_logger.ZLogTrace($"Send UseControlMessage (4) StreamBegin (0) : 0");
         var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin,
             BigEndianUInt32.FromHost(Protocol.ControlStreamId).AsSpan());
         RtmpWriter.Write(context, 0, MessageType.UserControl,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref streamBegin);
 
-        s_logger.ZLogTrace("Send SetChunkSize (1)");
+        s_logger.ZLogTrace($"Send SetChunkSize (1)");
         // MaxChunkSize's first bit must be 0
         Debug.Assert(context.ChunkSize <= 0x7FFF_FFFF);
         var setChunkSize = BigEndianUInt32.FromHost(context.ChunkSize);
         RtmpWriter.Write(context, 0, MessageType.SetChunkSize,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref setChunkSize);
 
-        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(OnConnect));
+        s_logger.ZLogTrace($"Send RPC Response _result() for {nameof(OnConnect)}()");
         var result = ConnectResult.CreateDefault();
         result.TransactionId = transactionId; // expected always 1
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
@@ -91,7 +91,7 @@ internal abstract class NetConnectionHandler
         AmfObject? commandObject,
         string streamName)
     {
-        s_logger.ZLogTrace("Send _result ({0}, {1}, {2})", transactionId, streamName, nameof(OnReleaseStream));
+        s_logger.ZLogTrace($"Send _result ({transactionId}, {streamName}, {nameof(OnReleaseStream)})");
         context.PreparingStreamName = streamName;
         var result = new CommonCommand { CommandName = "_result", TransactionId = transactionId, Properties = null, };
         context.ReleaseStream(streamName);
@@ -105,7 +105,7 @@ internal abstract class NetConnectionHandler
         AmfObject? commandObject,
         string streamName)
     {
-        s_logger.ZLogTrace("Send onFCPublish ({0}, {1})", transactionId, streamName);
+        s_logger.ZLogTrace($"Send onFCPublish ({transactionId}, {streamName})");
         context.PreparingStreamName = streamName;
         var result = new CommonCommand
         {
@@ -121,7 +121,7 @@ internal abstract class NetConnectionHandler
         AmfObject? commandObject,
         string streamName)
     {
-        s_logger.ZLogTrace("OnFCUnpublish (do nothing) ({0}, {1})", transactionId, streamName);
+        s_logger.ZLogTrace($"OnFCUnpublish (do nothing) ({transactionId}, {streamName})");
     }
 
     public static void OnCreateStream(
@@ -132,9 +132,9 @@ internal abstract class NetConnectionHandler
         context.PreparingStreamName ??= "none-fcPublish-ph";
 
         var stream = context.CreateStream(context.PreparingStreamName);
-        s_logger.ZLogTrace("Created stream: {0}({1})", stream.Id, stream.Name);
+        s_logger.ZLogTrace($"Created stream: {stream.Id}({stream.Name})");
 
-        s_logger.ZLogTrace("Send RPC Response _result() for {0}()", nameof(OnCreateStream));
+        s_logger.ZLogTrace($"Send RPC Response _result() for {nameof(OnCreateStream)}()");
         var result = CreateStreamResult.Create(transactionId, stream.Id);
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);

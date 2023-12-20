@@ -1,20 +1,21 @@
-﻿using System.IO.Pipelines;
+﻿using System.Net;
+using Cysharp.Text;
+using Spangle.Net.Transport.SRT;
 
 namespace Spangle.Protocols.SRT;
 
-public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>,
-    IReceiverContext<SRTReceiverContext>
+public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
 {
-    public SRTReceiverContext(string id, PipeReader reader, PipeWriter writer, CancellationToken ct) : base(id, reader, writer, ct)
+    private readonly SRTClient _client;
+
+    public override string Id { get; }
+    public override bool IsCompleted => _client.IsCompleted;
+    public override EndPoint EndPoint => _client.RemoteEndPoint;
+
+    public SRTReceiverContext(SRTClient client, CancellationToken ct)
+        : base(client.Pipe.Input, client.Pipe.Output, ct)
     {
+        Id = ZString.Format("SRT_{0}", client.PeerHandle);
+        _client = client;
     }
-
-    public static new SRTReceiverContext CreateInstance(string id, PipeReader reader, PipeWriter writer,
-        CancellationToken ct = default)
-    {
-        return new SRTReceiverContext(id, reader, writer, ct);
-    }
-
-
-    public override bool IsCompleted { get; }
 }

@@ -22,41 +22,51 @@ public class SRTToHLS
         var listenEndPoint = new IPEndPoint(IPAddress.Parse("0.0.0.0"), 2000);
         var listener = new SRTListener(listenEndPoint);
         using SRTReceiver receiver = new SRTReceiver();
+        var cts = new CancellationTokenSource();
+        System.Console.CancelKeyPress += (_, _) =>
+        {
+            cts.Cancel();
+        };
+        var ct = cts.Token;
 
         listener.Start();
-        _logger.ZLogInformation("Starting to accept connections.");
+        _logger.ZLogInformation($"Starting to accept connections.");
 
         while (true)
         {
+            if (cts.IsCancellationRequested)
+            {
+                break;
+            }
             try
             {
-                var srtClient = await listener.AcceptSRTClientAsync();
-                _ = Task.Run(() => ProcessConnection(receiver, srtClient, _logger));
+                var srtClient = await listener.AcceptSRTClientAsync(ct);
+                // ReSharper disable once AccessToDisposedClosure
+                _ = Task.Run(() => ProcessConnection(receiver, srtClient, _logger, ct), ct);
             }
             catch (Exception e)
             {
-                _logger.ZLogError("Error: {0}", e);
+                _logger.ZLogError($"Error: {e}");
             }
         }
     }
 
-    private static async ValueTask ProcessConnection(SRTReceiver receiver, SRTClient srtClient, ILogger logger)
+    private static async Task ProcessConnection(SRTReceiver receiver, SRTClient srtClient, ILogger logger, CancellationToken ct)
     {
-        string id = ZString.Concat(srtClient.GetHashCode(), "[",
-            srtClient.RemoteEndPoint.ToString() ?? "none", "]");
+        var context = new SRTReceiverContext(srtClient, ct);
         try
         {
-            logger.ZLogDebug("Connection opened: {0}", id);
-            await receiver.BeginReadAsync(id, srtClient.Pipe);
+            logger.ZLogDebug($"Connection opened: {context.ToString()}");
+            await receiver.StartAsync(context);
         }
         catch (Exception e)
         {
-            logger.ZLogError("Error: {0}", e);
+            logger.ZLogError($"Error: {e}");
         }
         finally
         {
             srtClient.Dispose();
-            logger.ZLogDebug("Connection closed: {0}", id);
+            logger.ZLogDebug($"Connection closed: {context.ToString()}");
         }
     }
 }

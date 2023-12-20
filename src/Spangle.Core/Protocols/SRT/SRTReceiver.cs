@@ -24,7 +24,7 @@ public sealed class SRTReceiver : ReceiverBase<SRTReceiver, SRTReceiverContext>
         while (!context.IsCompleted)
         {
             var result = await context.Reader.ReadAsync(readTimeoutSource.Token);
-            s_logger.ZLogDebug("Data received");
+            s_logger.ZLogDebug($"Data received");
             var buff = result.Buffer;
             ParseTSHeader(ref buff);
 
@@ -44,7 +44,7 @@ public sealed class SRTReceiver : ReceiverBase<SRTReceiver, SRTReceiverContext>
 
         }
 
-        s_logger.ZLogInformation("SRT connection closed");
+        s_logger.ZLogInformation($"SRT connection closed");
     }
 
     private void ParseTSHeader(ref ReadOnlySequence<byte> buff)

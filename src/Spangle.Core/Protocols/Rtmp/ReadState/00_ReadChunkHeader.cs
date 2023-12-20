@@ -98,7 +98,7 @@ internal abstract class ReadChunkHeader : IReadStateAction
 
                 break;
             default:
-                throw new InvalidDataException($"Unrecognized message header format {context.BasicHeader.Format}");
+                throw new InvalidDataException($"Unrecognized message header format {context.BasicHeader.Format:@format}");
         }
 
         DumpMessageHeader(context);
@@ -126,19 +126,20 @@ internal abstract class ReadChunkHeader : IReadStateAction
                 break;
             default:
                 throw new NotImplementedException(
-                    $"The processor of [{context.MessageHeader.TypeId}] is not implemented.");
+                    $"The processor of [{context.MessageHeader.TypeId:@typeId}] is not implemented.");
         }
     }
 
     [Conditional("DEBUG")]
     private static void DumpBasicHeader(RtmpReceiverContext context)
     {
-        s_logger.ZLogTrace(context.BasicHeader.ToString());
+        s_logger.ZLogTrace($"{context.BasicHeader.ToString()}");
     }
 
     [Conditional("DEBUG")]
     private static void DumpMessageHeader(RtmpReceiverContext context)
     {
-        s_logger.ZLogTrace(context.MessageHeader.ToString());
+        ref var m = ref context.MessageHeader;
+        s_logger.ZLogTrace($$"""MessageHeader {ts:{{m.TimestampOrDeltaInterop}}, msgLen:{{m.Length}}, msgTypeId:{{m.TypeId}}, streamId:{{m.StreamId}}}""");
     }
 }

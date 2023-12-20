@@ -15,13 +15,13 @@ internal abstract class Video : IReadStateAction
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
 
-        var enumerator = ReadHelper.ReadChunkedMessageBody(context).GetAsyncEnumerator(ct);
+        await using var enumerator = ReadHelper.ReadChunkedMessageBody(context).GetAsyncEnumerator(ct);
         await enumerator.MoveNextAsync();
         var buff = enumerator.Current;
 
         // Parse control
-        var control = new FlvVideoControl(buff.FirstSpan[0]);
-        s_logger.ZLogDebug(control.ToString());
+        var c = new FlvVideoControl(buff.FirstSpan[0]);
+        s_logger.ZLogDebug($$"""FlvVideoControl {frameType:{{c.FrameType}}, codec:{{c.Codec}}}""");
 
         reader.AdvanceTo(buff.End);
 
