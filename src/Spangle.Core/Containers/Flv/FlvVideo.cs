@@ -22,6 +22,15 @@ internal enum FlvVideoCodec : uint
     CommunityAV1  = 13,
     CommunityVP8  = 14,
     CommunityVP9  = 15,
+
+    // enhanced-rtmp FourCC
+    // https://www.w3.org/TR/webcodecs-codec-registry/#video-codec-registry
+    EnhancedAV1     = 'a' << 24 | 'v' << 16 | '0' << 8 | '1',
+    EnhancedAVC1    = 'a' << 24 | 'v' << 16 | 'c' << 8 | '1',
+    EnhancedAVC3    = 'a' << 24 | 'v' << 16 | 'c' << 8 | '3',
+    EnhancedHEVC    = 'h' << 24 | 'v' << 16 | 'c' << 8 | '1',
+    EnhancedHEVCAlt = 'h' << 24 | 'e' << 16 | 'v' << 8 | '1',
+    EnhancedVP9     = 'v' << 24 | 'p' << 16 | '0' << 8 | '9',
 }
 
 internal enum FlvVideoFrameType : uint
@@ -48,7 +57,6 @@ internal readonly struct FlvVideoControl
 
     public FlvVideoFrameType FrameType => (FlvVideoFrameType)(_value >>> 4);
     public FlvVideoCodec Codec => (FlvVideoCodec)(_value & 0b1111);
-
 }
 
 internal static class FlvVideoCodecExtensions
