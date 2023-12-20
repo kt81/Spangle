@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
-    <LangVersion>11</LangVersion>
+    <LangVersion>latest</LangVersion>
     <RootNamespace>Spangle</RootNamespace>
   </PropertyGroup>
 
