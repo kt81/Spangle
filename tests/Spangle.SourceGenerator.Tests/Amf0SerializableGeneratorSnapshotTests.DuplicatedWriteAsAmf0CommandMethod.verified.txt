@@ -6,8 +6,6 @@
       Severity: Error,
       WarningLevel: 0,
       Location: : (6,24)-(6,68),
-      Description: ,
-      HelpLink: ,
       MessageFormat: The Amf0Serializable struct {0} must not contain its own implementation of WriteAsAmf0Command in it,
       Message: The Amf0Serializable struct DuplicatedWriteAsAmf0CommandMethodTestStruct must not contain its own implementation of WriteAsAmf0Command in it,
       Category: SpangleSourceGen
