@@ -1,7 +1,9 @@
-﻿namespace Spangle.Containers;
+﻿using System.Threading.Channels;
+
+namespace Spangle.Mux;
 
 public interface IMuxer<TInputContext, TOutputContext>
-    where TInputContext : IReceiverContext<TInputContext>
+    where TInputContext : IReceiverContext
     where TOutputContext : ISenderContext<TOutputContext>
 {
 

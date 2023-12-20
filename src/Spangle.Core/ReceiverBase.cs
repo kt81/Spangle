@@ -2,9 +2,9 @@
 
 public abstract class ReceiverBase<TReceiver, TReceiverContext> : IReceiver<TReceiverContext>, IDisposable
     where TReceiver : ReceiverBase<TReceiver, TReceiverContext>
-    where TReceiverContext : IReceiverContext<TReceiverContext>
+    where TReceiverContext : IReceiverContext
 {
-    private bool _disposed = false;
+    private bool _disposed;
 
     private readonly CancellationTokenSource _lifetimeCancellationTokenSource = new();
 

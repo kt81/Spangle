@@ -16,9 +16,9 @@ public sealed class RtmpReceiver : ReceiverBase<RtmpReceiver, RtmpReceiverContex
 
     protected override async ValueTask BeginReadAsync(RtmpReceiverContext context, CancellationTokenSource readTimeoutSource)
     {
-        s_logger.ZLogDebug("Begin to handshake");
+        s_logger.ZLogDebug($"Begin to handshake");
         await HandshakeHandler.DoHandshakeAsync(context);
-        s_logger.ZLogDebug("Handshake done");
+        s_logger.ZLogDebug($"Handshake done");
         context.ConnectionState = ReceivingState.WaitingConnect;
 
         while (!context.IsCompleted)
@@ -35,7 +35,7 @@ public sealed class RtmpReceiver : ReceiverBase<RtmpReceiver, RtmpReceiverContex
             }
         }
 
-        s_logger.ZLogInformation("Rtmp connection closed");
+        s_logger.ZLogInformation($"Rtmp connection closed");
     }
 
 }

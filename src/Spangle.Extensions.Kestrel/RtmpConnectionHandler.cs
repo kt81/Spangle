@@ -5,9 +5,16 @@ namespace Spangle.Extensions.Kestrel;
 
 public class RtmpConnectionHandler : ConnectionHandler
 {
-    public override async Task OnConnectedAsync(ConnectionContext connection)
+    private readonly RtmpReceiver _rtmp;
+
+    public RtmpConnectionHandler(RtmpReceiver rtmp)
     {
-        using var rtmp = new RtmpReceiver();
-        await rtmp.BeginReadAsync(connection.GetIdentifier(), connection.Transport);
+        _rtmp = rtmp;
+    }
+
+    public override Task OnConnectedAsync(ConnectionContext connection)
+    {
+        var context = connection.CreateRtmpReceiverContext(default);
+        return _rtmp.StartAsync(context).AsTask();
     }
 }

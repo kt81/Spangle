@@ -21,8 +21,4 @@ public class NotInScopeException : NotSupportedException
     {
         ReceiverContext = receiverContext;
     }
-
-    protected NotInScopeException(SerializationInfo info, StreamingContext context) : base(info, context)
-    {
-    }
 }

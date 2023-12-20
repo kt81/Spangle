@@ -103,7 +103,7 @@ internal class HandshakeHandler
             return;
         }
 
-        s_logger.ZLogError("Unsupported rtmp version: {0}", c0.RtmpVersion);
+        s_logger.ZLogError($"Unsupported rtmp version: {c0.RtmpVersion}");
         throw new Exception();
     }
 
@@ -122,9 +122,9 @@ internal class HandshakeHandler
             return;
         }
 
-        s_logger.ZLogError("RandomEcho is mismatched. Orig:{0}... Echo:{1}...",
-            BitConverter.ToString(s1.RandomSpan[..10].ToArray()),
-            BitConverter.ToString(c2.RandomEchoSpan[..10].ToArray()));
+        s_logger.ZLogError($"RandomEcho is mismatched. " +
+                           $"Orig:{BitConverter.ToString(s1.RandomSpan[..10].ToArray())}... " +
+                           $"Echo:{BitConverter.ToString(c2.RandomEchoSpan[..10].ToArray())}...");
         throw new Exception("Not match");
     }
 
@@ -145,7 +145,7 @@ internal class HandshakeHandler
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void ChangeState(RtmpReceiverContext receiverContext, HandshakeState newState)
     {
-        s_logger.ZLogTrace("HandshakeState changed => {0}", newState);
+        s_logger.ZLogTrace($"HandshakeState changed => {newState}");
         receiverContext.HandshakeState = newState;
     }
 }

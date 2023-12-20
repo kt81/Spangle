@@ -15,13 +15,14 @@ internal abstract class Audio : IReadStateAction
         PipeReader reader = context.Reader;
         CancellationToken ct = context.CancellationToken;
 
-        var enumerator = ReadHelper.ReadChunkedMessageBody(context).GetAsyncEnumerator(ct);
+        await using var enumerator = ReadHelper.ReadChunkedMessageBody(context).GetAsyncEnumerator(ct);
         await enumerator.MoveNextAsync();
         var buff = enumerator.Current;
 
         // Parse control
-        var control = new FlvAudioControl(buff.FirstSpan[0]);
-        s_logger.ZLogDebug(control.ToString());
+        var c = new FlvAudioControl(buff.FirstSpan[0]);
+        s_logger.ZLogDebug(
+            $$"""FlvAudioControl {codec:{{c.Codec}}, sizeRate:{{c.SampleRate}}, sampleSize:{{c.SampleSize}}}""");
 
         reader.AdvanceTo(buff.End);
 

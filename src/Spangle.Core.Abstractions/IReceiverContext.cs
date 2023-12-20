@@ -9,7 +9,7 @@ public interface IReceiverContext
     /// The identifier of the connection that will be used for logging.
     /// </summary>
     public string Id { get; }
-    public EndPoint? RemoteEndPoint { get; }
+    public EndPoint EndPoint { get; }
 
     public PipeReader Reader { get; }
     public PipeWriter Writer { get; }
@@ -17,8 +17,4 @@ public interface IReceiverContext
     public CancellationToken CancellationToken { get; set; }
 
     public bool IsCompleted { get; }
-}
-public interface IReceiverContext<out TSelf> : IReceiverContext where TSelf : IReceiverContext<TSelf>
-{
-    public static abstract TSelf CreateInstance(string id, PipeReader reader, PipeWriter writer, CancellationToken ct = default);
 }

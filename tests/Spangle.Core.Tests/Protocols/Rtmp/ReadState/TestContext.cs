@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
+using System.Net;
 using Spangle.Protocols.Rtmp;
 
 namespace Spangle.Tests.Protocols.Rtmp.ReadState;
@@ -18,7 +19,7 @@ public class TestContext
         CTokenSrc = new CancellationTokenSource();
         // Test case timeout
         CTokenSrc.CancelAfter(TimeSpan.FromSeconds(3));
-        Context = RtmpReceiverContext.CreateInstance("test", ReceivePipe.Reader, SendPipe.Writer, CTokenSrc.Token);
+        Context = new RtmpReceiverContext(ReceivePipe.Reader, SendPipe.Writer, GetDummyEP(), CTokenSrc.Token);
     }
 
     /// <summary>
@@ -35,5 +36,10 @@ public class TestContext
         // `Send` pipe is written by the StateAction and is read by tests
         // var writtenPipe = writePipe.Reader;
         return self;
+    }
+
+    private static EndPoint GetDummyEP()
+    {
+        return IPEndPoint.Parse("127.0.0.1:52345");
     }
 }

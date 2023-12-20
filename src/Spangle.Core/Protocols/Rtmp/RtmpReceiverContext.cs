@@ -1,4 +1,6 @@
 ﻿using System.IO.Pipelines;
+using System.Net;
+using System.Net.Sockets;
 using Spangle.Protocols.Rtmp.Chunk;
 using Spangle.Protocols.Rtmp.Handshake;
 using Spangle.Protocols.Rtmp.NetStream;
@@ -8,8 +10,7 @@ using ZLogger;
 
 namespace Spangle.Protocols.Rtmp;
 
-public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContext>,
-    IReceiverContext<RtmpReceiverContext>
+public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContext>
 {
     #region Headers
 
@@ -58,6 +59,10 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public   ReceivingState ConnectionState = ReceivingState.HandShaking;
     internal HandshakeState HandshakeState  = HandshakeState.Uninitialized;
 
+    public override string Id { get; }
+    public override EndPoint EndPoint { get; }
+    public override bool IsCompleted => ConnectionState == ReceivingState.Terminated;
+
     private uint _streamIdPointer = Protocol.ControlStreamId + 1;
 
     /// <summary>
@@ -65,6 +70,12 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     /// Do not call this out of the stream specific command context.
     /// </summary>
     internal RtmpNetStream? NetStream { get; private set; }
+
+    #endregion
+
+    #region IO
+
+    // ChannelWriter<FlvPacket>
 
     #endregion
 
@@ -78,7 +89,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     internal void SetNext<TProcessor>() where TProcessor : IReadStateAction
     {
         MoveNext = StateStore<TProcessor>.Action;
-        Logger.ZLogTrace("State changed: {0}", typeof(TProcessor).Name);
+        Logger.ZLogTrace($"State changed: {typeof(TProcessor).Name}");
     }
 
     #endregion
@@ -86,15 +97,30 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     #region ctor
 
     // =======================================================================
-    private RtmpReceiverContext(string id, PipeReader reader, PipeWriter writer, CancellationToken ct) : base(id,
-        reader, writer, ct)
+
+    public RtmpReceiverContext(PipeReader reader, PipeWriter writer, EndPoint remoteEndPoint, CancellationToken ct,
+        string? id = null) : base(reader, writer, ct)
     {
+        EndPoint = remoteEndPoint;
+        Id = id ?? Guid.NewGuid().ToString();
     }
 
-    public static new RtmpReceiverContext CreateInstance(string id, PipeReader reader, PipeWriter writer,
-        CancellationToken ct = default)
+    public static RtmpReceiverContext CreateFromTcpClient(TcpClient client, CancellationToken ct)
     {
-        return new RtmpReceiverContext(id, reader, writer, ct);
+        var stream = client.GetStream();
+        if (!stream.CanRead)
+        {
+            throw new ArgumentException("TCPClient must be able to read", nameof(client));
+        }
+
+        if (!stream.CanWrite)
+        {
+            throw new ArgumentException("TCPClient must be able to write", nameof(client));
+        }
+
+        return new RtmpReceiverContext(
+            PipeReader.Create(stream), PipeWriter.Create(stream),
+            client.Client.LocalEndPoint!, ct);
     }
 
     #endregion
@@ -133,8 +159,6 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
         return NetStream;
     }
-
-    public override bool IsCompleted => ConnectionState == ReceivingState.Terminated;
 
     #endregion
 }

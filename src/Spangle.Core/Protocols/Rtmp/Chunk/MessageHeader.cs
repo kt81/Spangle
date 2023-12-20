@@ -157,9 +157,4 @@ internal struct MessageHeader
     {
         TimestampOrDeltaInterop = timestampDelta;
     }
-
-    public override string ToString()
-    {
-        return $$"""MessageHeader {ts:{{TimestampOrDeltaInterop}}, msgLen:{{Length}}, msgTypeId:{{TypeId}}, streamId:{{StreamId}}}""";
-    }
 }
