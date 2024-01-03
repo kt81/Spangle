@@ -27,9 +27,9 @@
   <ItemGroup>
     <PackageReference Include="AsyncAwaitBestPractices" Version="7.0.0" />
     <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="8.0.0" />
-    <PackageReference Include="SrtSharp" Version="1.5.1.10027" />
+    <PackageReference Include="Spangle.LusterBits" Version="0.1.1" />
     <PackageReference Include="ValueTaskSupplement" Version="1.1.0" />
-    <PackageReference Include="ZLogger" Version="2.0.2" />
+    <PackageReference Include="ZLogger" Version="2.1.0" />
     <PackageReference Include="ZString" Version="2.5.1" />
   </ItemGroup>
 
