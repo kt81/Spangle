@@ -3,8 +3,9 @@
 namespace Spangle;
 
 [SuppressMessage("ReSharper", "InconsistentNaming")]
-public enum AudioCodec
+public enum AudioCodec : uint
 {
-    MP3 = 1,
-    AAC = 10,
+    // Internal FourCC
+    MP3 = 'm' << 24 | 'p' << 16 | '0' << 8 | '3',
+    AAC = 'm' << 24 | 'p' << 16 | '4' << 8 | 'a', // MPEG-4 AAC
 }

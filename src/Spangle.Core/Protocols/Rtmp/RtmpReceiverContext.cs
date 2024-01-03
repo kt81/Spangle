@@ -38,6 +38,9 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public uint ChunkSize      = Protocol.MinChunkSize;
     public uint MaxMessageSize = Protocol.MaxMessageSizeDefault;
 
+    public VideoCodec VideoCodec = VideoCodec.H264;
+    public AudioCodec AudioCodec = AudioCodec.AAC;
+
     /// <summary>
     /// Timeout milliseconds.
     /// It is checked for every State actions.
