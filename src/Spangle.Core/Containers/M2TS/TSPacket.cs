@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace Spangle.Containers.M2TS;
 
@@ -13,52 +14,52 @@ internal unsafe struct TSPacket
 
     // Header
     [FieldOffset(0)]             public readonly  TSHeader                 Header;
-    [FieldOffset(TSHeader.Size)] private readonly TSHeaderAdaptationFields _tsHeaderAdaptationFields;
+    [FieldOffset(TSHeader.Size)] private readonly AdaptationFieldsBasic _adaptationFieldsBasic;
 
     // Optional fields and/or payload
     [FieldOffset(TSHeader.Size)] private fixed byte _others[MaxPayloadSize];
 
-    public readonly ref readonly TSHeaderAdaptationFields AdaptationFields
+    public readonly ref readonly AdaptationFieldsBasic AdaptationFieldsBasic
     {
         get
         {
-            if (!Header.AdaptationFieldControl.HasAdaptation())
-            {
-                throw new InvalidOperationException("The packet has no adaptation fields.");
-            }
-
+            // Must call HasAdaptationField() before accessing this property.
+            Debug.Assert(Header.AdaptationFieldControl.HasAdaptationField(), "The packet has no adaptation fields.");
 #pragma warning disable CS9084
-            return ref _tsHeaderAdaptationFields;
+            return ref _adaptationFieldsBasic;
 #pragma warning restore CS9084
         }
     }
 
-    // Optional fields
-    private const int PCROffset = TSHeader.Size + TSHeaderAdaptationFields.Size;
+    #region Optional fields for AdaptationFields
+
+    private const int PCROffset = TSHeader.Size + AdaptationFieldsBasic.Size;
     public ref readonly PCR PCR => ref MemoryMarshal.AsRef<PCR>(OthersAsSpan().Slice(PCROffset, PCR.Size));
 
-    private readonly int OPCROffset => PCROffset + (AdaptationFields.HasPCR ? PCR.Size : 0);
+    private readonly int OPCROffset => PCROffset + (AdaptationFieldsBasic.HasPCR ? PCR.Size : 0);
     public ref readonly PCR OPCR => ref MemoryMarshal.AsRef<PCR>(OthersAsSpan().Slice(OPCROffset, PCR.Size));
 
-    private readonly int SpliceCountdownOffset => OPCROffset + (AdaptationFields.HasOPCR ? PCR.Size : 0);
+    private readonly int SpliceCountdownOffset => OPCROffset + (AdaptationFieldsBasic.HasOPCR ? PCR.Size : 0);
     public readonly byte SpliceCountdown => _others[SpliceCountdownOffset];
 
-    private readonly int TransportPrivateDataOffset => SpliceCountdownOffset + (AdaptationFields.HasSplicingPoint ? 1 : 0);
+    private readonly int TransportPrivateDataOffset => SpliceCountdownOffset + (AdaptationFieldsBasic.HasSplicingPoint ? 1 : 0);
     public readonly byte TransportPrivateDataLength => _others[TransportPrivateDataOffset];
 
-    private readonly int PrivateDataBytesOffset => TransportPrivateDataOffset + (AdaptationFields.HasTransportPrivateData ? 1 : 0);
+    private readonly int PrivateDataBytesOffset => TransportPrivateDataOffset + (AdaptationFieldsBasic.HasTransportPrivateData ? 1 : 0);
 
     public readonly ReadOnlySpan<byte> PrivateDataBytes =>
         OthersAsSpan().Slice(PrivateDataBytesOffset, TransportPrivateDataLength);
 
-    // Adaptation field extensions
+    #endregion
+
+    #region Adaptation field extensions
 
     private readonly int AdaptationFieldExtensionOffset =>
-        PrivateDataBytesOffset + (AdaptationFields.HasTransportPrivateData ? TransportPrivateDataLength : 0);
+        PrivateDataBytesOffset + (AdaptationFieldsBasic.HasTransportPrivateData ? TransportPrivateDataLength : 0);
     public readonly byte AdaptationFieldExtensionLength => _others[AdaptationFieldExtensionOffset];
 
     private readonly int AdaptationFieldExtensionFlagsOffset =>
-        AdaptationFieldExtensionOffset + (AdaptationFields.HasAdaptationFieldExtension ? AdaptationFieldExtensionLength : 0);
+        AdaptationFieldExtensionOffset + (AdaptationFieldsBasic.HasAdaptationFieldExtension ? AdaptationFieldExtensionLength : 0);
     public readonly bool HasLtw => _others[AdaptationFieldExtensionFlagsOffset] >>> 7 == 1;
     public readonly bool HasPiecewiseRate => ((_others[AdaptationFieldExtensionFlagsOffset] >>> 6) & 0x01) == 1;
     public readonly bool HasSeamlessSplice => ((_others[AdaptationFieldExtensionFlagsOffset] >>> 5) & 0x01) == 1;
@@ -82,6 +83,8 @@ internal unsafe struct TSPacket
     public readonly byte DTSNextAU32To30 => (byte)(_others[SeamlessSpliceDataOffset] & 0b1111);
     public readonly ReadOnlySpan<byte> DTSNextAU29To15 => OthersAsSpan().Slice(SeamlessSpliceDataOffset + 1, 2);
     public readonly ReadOnlySpan<byte> DTSNextAU14To0 => OthersAsSpan().Slice(SeamlessSpliceDataOffset + 2, 2);
+
+    #endregion
 
     private readonly ReadOnlySpan<byte> OthersAsSpan()
     {

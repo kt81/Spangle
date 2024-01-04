@@ -61,9 +61,9 @@ PID: {header.PID}
 AdaptationFieldControl: {header.AdaptationFieldControl}
 ContinuityCounter: 0x{header.ContinuityCounter:X}
 """);
-        if (header.AdaptationFieldControl.HasAdaptation())
+        if (header.AdaptationFieldControl.HasAdaptationField())
         {
-            ref readonly var adaptation = ref ts.AdaptationFields;
+            ref readonly var adaptation = ref ts.AdaptationFieldsBasic;
             s_logger.ZLogDebug($"""
 TS Adaptation Header ---
 AdaptationFieldLength: {adaptation.AdaptationFieldLength}
