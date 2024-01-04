@@ -1,22 +1,48 @@
 ﻿using System.Runtime.InteropServices;
+using Spangle.LusterBits;
 
 namespace Spangle.Containers.M2TS;
 
+[LusterCharm]
 [StructLayout(LayoutKind.Sequential, Pack = Size, Size = Size)]
-internal unsafe struct TSHeader
+internal unsafe partial struct TSHeader
 {
     public const int Size = 4;
 
+    [
+        // Header fields
+        BitField(typeof(byte), "SyncByte", 8, description: "Sync byte"),
+        BitField(typeof(byte), "TransportError", 1, description: "Transport error indicator"),
+        BitField(typeof(byte), "PayloadUnitStart", 1, description: "Payload unit start indicator"),
+        BitField(typeof(byte), "TransportPriority", 1, description: "Transport priority"),
+        BitField(typeof(ushort), "PID", 13, description: "PID"),
+        BitField(typeof(TransportScramblingType), "TransportScrambling", 2, description: "Transport scrambling control"),
+        BitField(typeof(AdaptationFieldControlType), "AdaptationFieldControl", 2, description: "Adaptation field control"),
+        BitField(typeof(byte), "ContinuityCounter", 4, description: "Continuity counter"),
+    ]
     private fixed byte _value[Size];
 
-    // Header fields
-    public readonly byte SyncByte => _value[0];
-    public readonly byte TransportError => (byte)(_value[1] >>> 7);
-    public readonly byte PayloadUnitStart => (byte)((_value[1] & 0x40) >>> 6);
-    public readonly byte TransportPriority => (byte)((_value[1] & 0x20) >>> 5);
-    public readonly ushort PID => (ushort)(((_value[1] & 0x1F) << 8) + _value[2]);
-    public readonly TransportScramblingType TransportScrambling => (TransportScramblingType)(_value[3] >>> 6);
-    public readonly AdaptationFieldType AdaptationFieldControl => (AdaptationFieldType)((_value[3] & 0x30) >>> 4);
-    public readonly byte ContinuityCounter => (byte)(_value[3] & 0x0F);
+    public enum TransportScramblingType : byte
+    {
+        None  = 0b00,
+        User1 = 0b01,
+        User2 = 0b10,
+        User3 = 0b11,
+    }
 
+    [Flags]
+    public enum AdaptationFieldControlType : byte
+    {
+        Payload = 0b01,
+        AdaptationField = 0b10,
+        // Both = 0b11,
+    }
+}
+
+internal static class AdaptationFieldTypeExtensions
+{
+    public static bool HasPayload(this TSHeader.AdaptationFieldControlType type)
+        => (type & TSHeader.AdaptationFieldControlType.Payload) != 0;
+    public static bool HasAdaptationField(this TSHeader.AdaptationFieldControlType type)
+        => (type & TSHeader.AdaptationFieldControlType.AdaptationField) != 0;
 }

@@ -6,7 +6,7 @@ using Spangle.Logging;
 var mode = new Argument<string>(
     name: "mode",
     description: "Mode to run (srt-hls / rtmp-hls)",
-    getDefaultValue: () => "rtmp-hls");
+    getDefaultValue: () => "srt-hls");
 var cmd = new RootCommand("Spangle Example Console application.") { mode };
 
 var loggerFactory = LoggerFactory.Create(conf =>
