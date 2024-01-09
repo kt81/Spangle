@@ -13,4 +13,5 @@ public static class SpangleLogManager
     }
 
     internal static ILogger<T> GetLogger<T>() where T : class => s_loggerFactory.CreateLogger<T>();
+    internal static ILogger GetLogger(string name) => s_loggerFactory.CreateLogger(name);
 }

@@ -111,7 +111,7 @@ internal sealed class {{FieldAttributeName}} : Attribute
 #pragma warning disable CS8604
 
 using System.Buffers;
-using Spangle.Protocols.Rtmp.Amf0;
+using Spangle.Transport.Rtmp.Amf0;
 
 {{ns}}
 
