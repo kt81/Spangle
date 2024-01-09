@@ -42,4 +42,9 @@
     </ProjectReference>
     <ProjectReference Include="..\Spangle.Core.Abstractions\Spangle.Core.Abstractions.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Containers\Flv\AVC\" />
+    <Folder Include="Transport\Rtmp\Codec\" />
+  </ItemGroup>
 </Project>

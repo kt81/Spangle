@@ -1,5 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-using Spangle.Protocols.Rtmp;
+using Spangle.Transport.Rtmp;
 
 namespace Spangle.Util;
 

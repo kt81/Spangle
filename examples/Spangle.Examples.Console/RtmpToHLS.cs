@@ -1,7 +1,7 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
-using Spangle.Protocols.Rtmp;
+using Spangle.Transport.Rtmp;
 using ZLogger;
 
 namespace Spangle.Examples.Console;
