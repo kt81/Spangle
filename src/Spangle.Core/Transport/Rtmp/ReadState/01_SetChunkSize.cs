@@ -13,7 +13,7 @@ internal abstract class SetChunkSize : IReadStateAction
 
     public static async ValueTask Perform(RtmpReceiverContext context)
     {
-        PipeReader reader = context.Reader;
+        PipeReader reader = context.RemoteReader;
         CancellationToken ct = context.CancellationToken;
         (ReadOnlySequence<byte> buff, _) = await reader.ReadExactAsync(ChunkSizeLength, ct);
         uint size = BufferMarshal.As<BigEndianUInt32>(buff).HostValue;

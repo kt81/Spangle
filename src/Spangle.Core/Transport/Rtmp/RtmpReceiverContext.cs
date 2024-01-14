@@ -1,6 +1,7 @@
 ﻿using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
+using Spangle.Spinner;
 using Spangle.Transport.Rtmp.Chunk;
 using Spangle.Transport.Rtmp.Handshake;
 using Spangle.Transport.Rtmp.NetStream;
@@ -10,7 +11,7 @@ using ZLogger;
 
 namespace Spangle.Transport.Rtmp;
 
-public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContext>
+public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContext>, INALFileFormatSpinnerIntakeAdapter
 {
     #region Headers
 

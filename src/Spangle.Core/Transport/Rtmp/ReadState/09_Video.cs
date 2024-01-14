@@ -14,7 +14,7 @@ internal abstract class Video : IReadStateAction
 
     public static async ValueTask Perform(RtmpReceiverContext context)
     {
-        PipeReader reader = context.Reader;
+        PipeReader reader = context.RemoteReader;
         CancellationToken ct = context.CancellationToken;
 
         await using var enumerator = ReadHelper.ReadChunkedMessageBody(context).GetAsyncEnumerator(ct);
@@ -23,6 +23,7 @@ internal abstract class Video : IReadStateAction
 
         var packetType = ReadVideoTagHeader(context, ref buff, enumerator);
         ReadVideoTagBody(context, ref buff, enumerator, packetType);
+        await context.VideoWriter.FlushAsync(ct);
 
         reader.AdvanceTo(buff.End);
 
@@ -46,7 +47,6 @@ internal abstract class Video : IReadStateAction
     private static FlvVideoPacketType ReadVideoTagHeader(RtmpReceiverContext context, ref ReadOnlySequence<byte> buff,
         IAsyncEnumerator<ReadOnlySequence<byte>> enumerator)
     {
-
         // Parse control
         var ctrl = new FlvVideoControl(buff.FirstSpan[0]);
         context.IsEnhanced = ctrl.IsEnhanced; // aka. IsExHeader
@@ -94,7 +94,7 @@ internal abstract class Video : IReadStateAction
 
         if (context.VideoCodec == VideoCodec.H264)
         {
-            FlvAVCReader.Read(buff);
+            FlvAVCReader.ReadAndSendNext(context, buff);
         }
 
         if (context.VideoCodec == VideoCodec.AV1)

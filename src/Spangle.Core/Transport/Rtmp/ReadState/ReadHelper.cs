@@ -17,7 +17,7 @@ internal static class ReadHelper
     /// <exception cref="InvalidOperationException"></exception>
     public static async IAsyncEnumerable<ReadOnlySequence<byte>> ReadChunkedMessageBody(RtmpReceiverContext context)
     {
-        var reader = context.Reader;
+        var reader = context.RemoteReader;
         uint readingChunkStreamId = context.BasicHeader.ChunkStreamId;
         // Total length to read with this method (header length is not included)
         uint totalLength = context.MessageHeader.Length.HostValue;
@@ -66,7 +66,7 @@ internal static class ReadHelper
         if (msgLen <= context.ChunkSize)
         {
             // Single chunk
-            (ReadOnlySequence<byte> b, _) = await context.Reader.ReadExactAsync(msgLen, context.CancellationToken);
+            (ReadOnlySequence<byte> b, _) = await context.RemoteReader.ReadExactAsync(msgLen, context.CancellationToken);
             return (b, default);
         }
 

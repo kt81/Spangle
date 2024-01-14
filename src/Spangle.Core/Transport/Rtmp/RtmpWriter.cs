@@ -20,7 +20,7 @@ public static class RtmpWriter
     {
         int plLen = MarshalHelper<TPayload>.Size;
         int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, plLen);
-        var buff = context.Writer.GetSpan(plLen);
+        var buff = context.RemoteWriter.GetSpan(plLen);
 
         // Write the payload
         unsafe
@@ -31,7 +31,7 @@ public static class RtmpWriter
             }
         }
 
-        context.Writer.Advance(plLen);
+        context.RemoteWriter.Advance(plLen);
 
         return hLen + plLen;
     }
@@ -42,14 +42,14 @@ public static class RtmpWriter
         TempWriter.Clear(); // ArrayBufferWriter only clears the area that is actually used. 😊
         int plLen = payload.WriteBytes(TempWriter);
         int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, plLen);
-        context.Writer.Write(TempWriter.WrittenSpan);
+        context.RemoteWriter.Write(TempWriter.WrittenSpan);
         return hLen + plLen;
     }
 
     private static int WriteHeader(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
         uint chunkStreamId, uint streamId, int payloadLength)
     {
-        var buff = context.Writer.GetSpan(HeaderMaxSize + payloadLength);
+        var buff = context.RemoteWriter.GetSpan(HeaderMaxSize + payloadLength);
         MessageHeaderFormat fmt;
 
         context.BasicHeaderToSend.ChunkStreamId = chunkStreamId;
@@ -75,13 +75,13 @@ public static class RtmpWriter
         int mhLen = fmt.GetMessageHeaderLength();
         context.MessageHeaderToSend.AsSpan()[..mhLen].CopyTo(buff.Slice(bhLen, mhLen));
         int totalHeaderLength = bhLen + mhLen;
-        context.Writer.Advance(totalHeaderLength);
+        context.RemoteWriter.Advance(totalHeaderLength);
 
         if (context.MessageHeaderToSend.HasExtendedTimestamp)
         {
-            var exTimeBuff = context.Writer.GetSpan(sizeof(uint));
+            var exTimeBuff = context.RemoteWriter.GetSpan(sizeof(uint));
             context.MessageHeaderToSend.ExtendedTimeStamp.AsSpan().CopyTo(exTimeBuff);
-            context.Writer.Advance(exTimeBuff.Length);
+            context.RemoteWriter.Advance(exTimeBuff.Length);
         }
 
         return totalHeaderLength;
