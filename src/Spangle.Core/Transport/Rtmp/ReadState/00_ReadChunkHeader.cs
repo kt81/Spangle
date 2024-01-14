@@ -29,7 +29,7 @@ internal abstract class ReadChunkHeader : IReadStateAction
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static async ValueTask ReadBasicHeader(RtmpReceiverContext context)
     {
-        PipeReader reader = context.Reader;
+        PipeReader reader = context.RemoteReader;
         CancellationToken ct = context.CancellationToken;
         context.PreviousFormat = context.BasicHeader.Format;
 
@@ -56,7 +56,7 @@ internal abstract class ReadChunkHeader : IReadStateAction
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static async ValueTask ReadMessageHeader(RtmpReceiverContext context)
     {
-        PipeReader reader = context.Reader;
+        PipeReader reader = context.RemoteReader;
         CancellationToken ct = context.CancellationToken;
         int len = context.BasicHeader.Format.GetMessageHeaderLength();
 

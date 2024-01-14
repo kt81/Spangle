@@ -44,6 +44,14 @@ public unsafe struct BigEndianUInt24 : IInteropType<uint, BigEndianUInt24>
         }
     }
 
+    public readonly Span<byte> AsSpan()
+    {
+        fixed (byte* p = _val)
+        {
+            return new Span<byte>(p, Length);
+        }
+    }
+
     public override readonly string ToString()
     {
         return HostValue.ToString();

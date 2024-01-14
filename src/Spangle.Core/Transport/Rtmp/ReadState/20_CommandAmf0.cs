@@ -11,7 +11,7 @@ internal abstract class CommandAmf0 : IReadStateAction
 {
     public static async ValueTask Perform(RtmpReceiverContext context)
     {
-        PipeReader reader = context.Reader;
+        PipeReader reader = context.RemoteReader;
         CancellationToken ct = context.CancellationToken;
 
         var (buff, disposeHandle) = await ReadHelper.ReadMessageBody(context);
@@ -26,7 +26,7 @@ internal abstract class CommandAmf0 : IReadStateAction
             }
         }
 
-        await context.Writer.FlushAsync(ct);
+        await context.RemoteWriter.FlushAsync(ct);
 
         context.SetNext<ReadChunkHeader>();
     }

@@ -12,7 +12,7 @@ internal abstract class Audio : IReadStateAction
 
     public static async ValueTask Perform(RtmpReceiverContext context)
     {
-        PipeReader reader = context.Reader;
+        PipeReader reader = context.RemoteReader;
         CancellationToken ct = context.CancellationToken;
 
         await using var enumerator = ReadHelper.ReadChunkedMessageBody(context).GetAsyncEnumerator(ct);

@@ -8,7 +8,7 @@ internal abstract class DataAmf0 : IReadStateAction
 {
     public static async ValueTask Perform(RtmpReceiverContext context)
     {
-        PipeReader reader = context.Reader;
+        PipeReader reader = context.RemoteReader;
         var (buff, disposeHandle) = await ReadHelper.ReadMessageBody(context);
 
         using (disposeHandle)

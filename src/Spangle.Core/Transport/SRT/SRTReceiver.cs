@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using Spangle.Containers.M2TS;
 using Spangle.Interop;
+using Spangle.IO;
 using Spangle.Logging;
 using ZLogger;
 
@@ -23,14 +24,14 @@ public sealed class SRTReceiver : ReceiverBase<SRTReceiver, SRTReceiverContext>
     {
         while (!context.IsCompleted)
         {
-            var result = await context.Reader.ReadAsync(readTimeoutSource.Token);
+            var result = await context.RemoteReader.ReadAsync(readTimeoutSource.Token);
             s_logger.ZLogDebug($"Data received");
             var buff = result.Buffer;
             ParseTSHeader(ref buff);
 
             // ref var packet = ref BufferMarshal.AsRefOrCopy<TSPacket>(result.Buffer);
             //BufferMarshal.DumpHex(result.Buffer.ToArray(), s_logger.ZLogDebug);
-            context.Reader.AdvanceTo(result.Buffer.End);
+            context.RemoteReader.AdvanceTo(result.Buffer.End);
             // if (context.Timeout > 0)
             // {
             //     readTimeoutSource.CancelAfter(context.Timeout);

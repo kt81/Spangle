@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
 using System.Runtime.InteropServices;
 using Spangle.Interop;
+using Spangle.IO;
 using Spangle.LusterBits;
 
 namespace Spangle.Codecs.AVC;
@@ -9,7 +10,7 @@ namespace Spangle.Codecs.AVC;
 /// Map of AVCDecoderConfigurationRecord
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1, Size = Size)]
-internal unsafe struct AVCDecoderConfigurationRecordFixedPart
+internal unsafe struct AVCDecoderConfigurationRecord
 {
     public const int Size = 6;
 
@@ -31,66 +32,54 @@ internal unsafe struct AVCDecoderConfigurationRecordFixedPart
     /// <summary>
     /// AVCLevelIndication
     /// </summary>
-    public byte AVCLevel;
+    public AVCLevel AVCLevel;
 
     /// <summary>
     /// Length Size of NAL Units
     /// </summary>
     public int LengthSize => (_lengthSizeMinusOne & 0b11) + 1; // drop unused `reserved` bits
+
     private byte _lengthSizeMinusOne;
 
     /// <summary>
     /// numOfSequenceParameterSets
     /// </summary>
     public int NumOfSequenceParameterSets => _numOfSequenceParameterSets & 0x1F; // drop unused `reserved` bits
+
     private byte _numOfSequenceParameterSets;
 
-
-    // /// <summary>
-    // /// sequenceParameterSetLength
-    // /// </summary>
-    // public BigEndianUInt16 SequenceParameterSetLength;
     //
-    // private fixed byte _sequenceParameterSetNALUnit[22];
-    // public Span<byte> SequenceParameterSetNALUnit
-    // {
-    //     get
-    //     {
-    //         fixed (byte* p = _sequenceParameterSetNALUnit)
-    //         {
-    //             return new Span<byte>(p, 22);
-    //         }
-    //     }
-    // }
+    // Variable parts cannot be mapped to struct and no need.
     //
-    // /// <summary>
-    // /// numOfPictureParameterSets
-    // /// </summary>
-    // public byte NumOfPictureParameterSets;
-    //
-    // /// <summary>
-    // /// pictureParameterSetLength
-    // /// </summary>
-    // public BigEndianUInt16 PictureParameterSetLength;
-    //
-    // private fixed byte _pictureParameterSetNALUnit[5];
-    // public Span<byte> PictureParameterSetNALUnit
-    // {
-    //     get
-    //     {
-    //         fixed (byte* p = _pictureParameterSetNALUnit)
-    //         {
-    //             return new Span<byte>(p, 5);
-    //         }
-    //     }
-    // }
 
     public Span<byte> AsSpan()
     {
         var span = MemoryMarshal.CreateSpan(ref this, 1);
-        return MemoryMarshal.Cast<AVCDecoderConfigurationRecordFixedPart, byte>(span);
+        return MemoryMarshal.Cast<AVCDecoderConfigurationRecord, byte>(span);
     }
 }
+
+// [LusterCharm]
+// [StructLayout(LayoutKind.Sequential, Pack = 1, Size = MaxSize)]
+// public unsafe partial struct SequenceParameterSet
+// {
+//     public const int MaxSize = 0xFFFF;
+//     public const int FixedSize = 4;
+//
+//     [
+//         BitField(typeof(byte), "NALRefIdc", 3, description: "nal_ref_idc, containing forbidden_zero_bit"),
+//         BitField(typeof(byte), "NalUnitType", 5, description: "nal_unit_type"),
+//         BitField(typeof(byte), "ProfileIdc", 8, description: "profile_idc"),
+//         BitField(typeof(byte), "ConstraintSet0Flag", 1, description: "constraint_set0_flag"),
+//         BitField(typeof(byte), "ConstraintSet1Flag", 1, description: "constraint_set1_flag"),
+//         BitField(typeof(byte), "ConstraintSet2Flag", 1, description: "constraint_set2_flag"),
+//         BitField(typeof(byte), "ConstraintSet3Flag", 1, description: "constraint_set3_flag"),
+//         BitField(typeof(byte), "ReservedZero4Bits", 4, description: "reserved_zero_4bits"),
+//         BitField(typeof(byte), "LevelIdc", 8, description: "level_idc"),
+//     ]
+//     private fixed byte _fixed[FixedSize];
+//     private fixed byte _nalu[MaxSize - FixedSize];
+// }
 
 internal enum AVCProfile : byte
 {
@@ -164,4 +153,3 @@ internal enum AVCLevel : byte
     Level6_2 = 0xB6,
     Level8_5 = 0xCE,
 }
-

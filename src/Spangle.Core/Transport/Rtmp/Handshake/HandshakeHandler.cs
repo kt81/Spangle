@@ -62,8 +62,8 @@ internal class HandshakeHandler
     {
         ReadOnlySequence<byte> buff;
 
-        var reader = receiverContext.Reader;
-        var writer = receiverContext.Writer;
+        var reader = receiverContext.RemoteReader;
+        var writer = receiverContext.RemoteWriter;
         var ct = receiverContext.CancellationToken;
 
         // Deal C0S0
