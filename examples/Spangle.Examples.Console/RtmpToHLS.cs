@@ -1,7 +1,10 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
+using Spangle.Spinner;
+using Spangle.Transport.HLS;
 using Spangle.Transport.Rtmp;
+using ValueTaskSupplement;
 using ZLogger;
 
 namespace Spangle.Examples.Console;
@@ -19,8 +22,12 @@ public class RtmpToHLS
     public async ValueTask Start()
     {
         var listenEndPoint = new IPEndPoint(IPAddress.Parse("0.0.0.0"), 1935);
-        var listener = new TcpListener(listenEndPoint);
+        using var listener = new TcpListener(listenEndPoint);
+
         using RtmpReceiver receiver = new RtmpReceiver();
+        // TODO to be able to specify the container format (TS or fMP4(CMAF))
+        using HLSSender sender = new HLSSender();
+
         var cts = new CancellationTokenSource();
         System.Console.CancelKeyPress += (_, _) =>
         {
@@ -37,7 +44,7 @@ public class RtmpToHLS
             try
             {
                 var tcpClient = await listener.AcceptTcpClientAsync(ct);
-                _ = Task.Run(() => ProcessConnection(receiver, tcpClient, _logger, ct), ct);
+                _ = Task.Run(() => ProcessConnection(receiver, sender, tcpClient, _logger, ct), ct);
             }
             catch (Exception e)
             {
@@ -46,13 +53,19 @@ public class RtmpToHLS
         }
     }
 
-    private static async Task ProcessConnection(RtmpReceiver receiver, TcpClient tcpClient, ILogger logger, CancellationToken ct)
+    private static async Task ProcessConnection(RtmpReceiver receiver, HLSSender sender, TcpClient tcpClient,
+        ILogger logger, CancellationToken ct)
     {
-        var context = RtmpReceiverContext.CreateFromTcpClient(tcpClient, ct);
+        var rtmp = RtmpReceiverContext.CreateFromTcpClient(tcpClient, ct);
+        var hls = new HLSSenderContext(ct);
+        var spinner = new NALFileToAnnexBSpinner(rtmp, hls, ct);
         try
         {
-            logger.ZLogDebug($"Connection opened: {context.ToString()}");
-            await receiver.StartAsync(context);
+            logger.ZLogDebug($"Connection opened: {rtmp.ToString()}");
+            await ValueTaskEx.WhenAll(
+                receiver.StartAsync(rtmp),
+                sender.StartAsync(hls),
+                spinner.SpinAsync());
         }
         catch (Exception e)
         {
@@ -61,7 +74,7 @@ public class RtmpToHLS
         finally
         {
             tcpClient.Dispose();
-            logger.ZLogDebug($"Connection closed: {context.ToString()}");
+            logger.ZLogDebug($"Connection closed: {rtmp.ToString()}");
         }
     }
 }
