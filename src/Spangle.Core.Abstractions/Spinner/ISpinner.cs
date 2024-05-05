@@ -1,34 +1,28 @@
-﻿using System.IO.Pipelines;
+﻿using System.Buffers;
+using System.IO.Pipelines;
 
 namespace Spangle.Spinner;
 
-public interface ISpinner<TInput, TOutput>
-    where TInput : ISpinnerIntakeAdapter
-    where TOutput : ISpinnerOutletAdapter
+public interface ISpinner
 {
+    /// <summary>
+    /// Writer to pass to the upstream
+    /// </summary>
+    PipeWriter Intake { get; }
+
+    /// <summary>
+    /// Writer that is given by the downstream
+    /// </summary>
+    PipeWriter Outlet { set; }
+
+    /// <summary>
+    /// Spin the spinner
+    /// </summary>
+    /// <returns></returns>
     ValueTask SpinAsync();
-}
 
-/// <summary>
-/// Adapter for spinner intake
-///
-/// The readers are used to read the data by spinner
-/// ReceiverContexts have to implement a marker interface which inherits this interface
-/// </summary>
-public interface ISpinnerIntakeAdapter
-{
-    PipeReader VideoReader { get; }
-    PipeReader AudioReader { get; }
-}
-
-/// <summary>
-/// Adapter for spinner outlet
-///
-/// The writers are used to write the data by spinner
-/// SenderContexts have to implement a marker interface which inherits this interface
-/// </summary>
-public interface ISpinnerOutletAdapter
-{
-    PipeWriter VideoWriter { get; }
-    PipeWriter AudioWriter { get; }
+    /// <summary>
+    /// Fire and forget the spinning
+    /// </summary>
+    void BeginSpin();
 }

@@ -7,33 +7,22 @@ namespace Spangle.Codecs;
 
 public static unsafe class NALFileFormat
 {
-    public static int WriteNALU(IBufferWriter<byte> buff, ReadOnlySequence<byte> nalu, int lengthSize)
+    public static int WriteNALU(IBufferWriter<byte> buff, ReadOnlySequence<byte> nalu)
     {
-        WriteNALUIndicator(buff, (int)nalu.Length, lengthSize);
+        int lengthSize = WriteNALUIndicator(buff, (int)nalu.Length);
         nalu.CopyTo(buff.GetSpan((int)nalu.Length));
         buff.Advance((int)nalu.Length);
         return lengthSize + (int)nalu.Length;
     }
 
-    private static void WriteNALUIndicator(IBufferWriter<byte> buff, int naluLength, int lengthSize)
+    private static int WriteNALUIndicator(IBufferWriter<byte> buff, int naluLength)
     {
+        // We always treat the NALU length size as 4 internally in this application.
+        const int lengthSize = 4;
         var lenSpan = buff.GetSpan(lengthSize);
-        switch (lengthSize)
-        {
-            case 1:
-                lenSpan[0] = (byte)naluLength;
-                break;
-            case 2:
-                BigEndianUInt16.FromHost((ushort)naluLength).AsSpan().CopyTo(lenSpan);
-                break;
-            case 4:
-                BigEndianUInt32.FromHost((uint)naluLength).AsSpan().CopyTo(lenSpan);
-                break;
-            default:
-                throw new InvalidDataException();
-        }
-
+        BigEndianUInt32.FromHost((uint)naluLength).AsSpan().CopyTo(lenSpan);
         buff.Advance(lengthSize);
+        return lengthSize;
     }
 
     // FileFormat

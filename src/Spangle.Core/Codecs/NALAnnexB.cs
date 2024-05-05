@@ -16,8 +16,9 @@ public static unsafe class NALAnnexB
         return l + (int)nalu.Length;
     }
 
-    private static int WriteNALUIndicator(IBufferWriter<byte> buff)
+    public static int WriteNALUIndicator(IBufferWriter<byte> buff)
     {
+        // Always give 3 bytes type for NALU indicator
         var span = buff.GetSpan(NALUIndicatorSize);
         span[0] = 0x00;
         span[1] = 0x00;

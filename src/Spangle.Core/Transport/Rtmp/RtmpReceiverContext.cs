@@ -1,7 +1,8 @@
 ﻿using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
-using Spangle.Spinner;
+using Microsoft.Extensions.Logging;
+using Spangle.Logging;
 using Spangle.Transport.Rtmp.Chunk;
 using Spangle.Transport.Rtmp.Handshake;
 using Spangle.Transport.Rtmp.NetStream;
@@ -11,8 +12,14 @@ using ZLogger;
 
 namespace Spangle.Transport.Rtmp;
 
-public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContext>, INALFileFormatSpinnerIntakeAdapter
+public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContext>
 {
+    private static readonly ILogger<RtmpReceiverContext> s_logger;
+    static RtmpReceiverContext()
+    {
+        s_logger = SpangleLogManager.GetLogger<RtmpReceiverContext>();
+    }
+
     #region Headers
 
     // =======================================================================
@@ -38,9 +45,6 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public uint Bandwidth      = 1500000;
     public uint ChunkSize      = Protocol.MinChunkSize;
     public uint MaxMessageSize = Protocol.MaxMessageSizeDefault;
-
-    public VideoCodec VideoCodec = VideoCodec.H264;
-    public AudioCodec AudioCodec = AudioCodec.AAC;
 
     /// <summary>
     /// Enhanced RTMP mode.
@@ -84,7 +88,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     #region IO
 
-    // ChannelWriter<FlvPacket>
+
 
     #endregion
 
@@ -99,6 +103,32 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     {
         MoveNext = StateStore<TProcessor>.Action;
         Logger.ZLogTrace($"State changed: {typeof(TProcessor).Name}");
+    }
+
+    public override async ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource)
+    {
+        s_logger.ZLogDebug($"Begin to handshake");
+        await HandshakeHandler.DoHandshakeAsync(this);
+        s_logger.ZLogDebug($"Handshake done");
+        ConnectionState = ReceivingState.WaitingConnect;
+
+        while (!IsCompleted)
+        {
+            if (Timeout > 0)
+            {
+                readTimeoutSource.CancelAfter(Timeout);
+                await MoveNext(this);
+                readTimeoutSource.TryReset();
+            }
+            else
+            {
+                await MoveNext(this);
+            }
+        }
+
+        readTimeoutSource.TryReset();
+
+        s_logger.ZLogInformation($"Rtmp connection closed");
     }
 
     #endregion

@@ -1,15 +1,19 @@
-﻿using System.IO.Pipelines;
+﻿using System.Buffers;
+using System.IO.Pipelines;
 using Spangle.Spinner;
 
 namespace Spangle.Transport.HLS;
 
-public class HLSSenderContext : ISenderContext<HLSSenderContext>, INALAnnexBSpinnerOutletAdapter
+public class HLSSenderContext : ISenderContext<HLSSenderContext>
 {
     public readonly CancellationToken CancellationToken;
-    public PipeWriter VideoWriter { get; }
-    public PipeWriter AudioWriter { get; }
+    public PipeWriter VideoIntake { get; set; }
+    public PipeWriter AudioIntake { get; set; }
+    public VideoCodec VideoCodec { get; set; }
+    public AudioCodec AudioCodec { get; set; }
     public PipeReader VideoReader { get; }
     public PipeReader AudioReader { get; }
+
 
     public HLSSenderContext(CancellationToken ct)
     {
@@ -18,8 +22,8 @@ public class HLSSenderContext : ISenderContext<HLSSenderContext>, INALAnnexBSpin
         var opt = new PipeOptions(useSynchronizationContext: false);
         var videoPipe = new Pipe(opt);
         var audioPipe = new Pipe(opt);
-        VideoWriter = videoPipe.Writer;
-        AudioWriter = audioPipe.Writer;
+        VideoIntake = videoPipe.Writer;
+        AudioIntake = audioPipe.Writer;
         VideoReader = videoPipe.Reader;
         AudioReader = audioPipe.Reader;
     }
