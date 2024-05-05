@@ -14,3 +14,10 @@ public enum VideoCodec : uint
     VP9 = 'v' << 24 | 'p' << 16 | '0' << 8 | '9',
     AV1 = 'a' << 24 | 'v' << 16 | '0' << 8 | '1',
 }
+
+public enum VideoFormat
+{
+    NALFileType,
+    NALAnnexB,
+    ISOBMFF,
+}

@@ -24,7 +24,6 @@ public class RtmpToHLS
         var listenEndPoint = new IPEndPoint(IPAddress.Parse("0.0.0.0"), 1935);
         using var listener = new TcpListener(listenEndPoint);
 
-        using RtmpReceiver receiver = new RtmpReceiver();
         // TODO to be able to specify the container format (TS or fMP4(CMAF))
         using HLSSender sender = new HLSSender();
 
@@ -44,7 +43,7 @@ public class RtmpToHLS
             try
             {
                 var tcpClient = await listener.AcceptTcpClientAsync(ct);
-                _ = Task.Run(() => ProcessConnection(receiver, sender, tcpClient, _logger, ct), ct);
+                _ = Task.Run(() => ProcessConnection(sender, tcpClient, _logger, ct), ct);
             }
             catch (Exception e)
             {
@@ -53,19 +52,16 @@ public class RtmpToHLS
         }
     }
 
-    private static async Task ProcessConnection(RtmpReceiver receiver, HLSSender sender, TcpClient tcpClient,
+    private static async Task ProcessConnection(HLSSender sender, TcpClient tcpClient,
         ILogger logger, CancellationToken ct)
     {
         var rtmp = RtmpReceiverContext.CreateFromTcpClient(tcpClient, ct);
         var hls = new HLSSenderContext(ct);
-        var spinner = new NALFileToAnnexBSpinner(rtmp, hls, ct);
+        LiveContext live = new LiveContext(rtmp, hls);
         try
         {
             logger.ZLogDebug($"Connection opened: {rtmp.ToString()}");
-            await ValueTaskEx.WhenAll(
-                receiver.StartAsync(rtmp),
-                sender.StartAsync(hls),
-                spinner.SpinAsync());
+            await live.StartAsync();
         }
         catch (Exception e)
         {

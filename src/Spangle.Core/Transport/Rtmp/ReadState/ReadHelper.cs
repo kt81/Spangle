@@ -1,13 +1,23 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 using Spangle.IO;
+using Spangle.Logging;
+using Spangle.Spinner;
 using Spangle.Transport.Rtmp.Chunk;
+using ZLogger;
 
 namespace Spangle.Transport.Rtmp.ReadState;
 
-internal static class ReadHelper
+internal class ReadHelper
 {
+    private static readonly ILogger<ReadHelper> s_logger;
+    static ReadHelper()
+    {
+        s_logger = SpangleLogManager.GetLogger<ReadHelper>();
+    }
+
     /// <summary>
     /// Read chunked long sequence.
     /// <see cref="PipeReader.AdvanceTo(System.SequencePosition)"/> must be called for each iteration.
@@ -27,6 +37,8 @@ internal static class ReadHelper
 
         while (totalLength > 0)
         {
+            s_logger.ZLogTrace($"Total length: {totalLength}, Chunk length: {chunkLength}");
+
             if (shouldConsumeHeader)
             {
                 await ReadChunkHeader.Perform(context);
@@ -44,7 +56,7 @@ internal static class ReadHelper
 
             (ReadOnlySequence<byte> result, _) = await reader.ReadExactAsync((int)chunkLength);
             totalLength -= chunkLength;
-            // Whole a chunk is read, so it should be consume header next time
+            // Whole a chunk is read, so it should be consumed header next time
             shouldConsumeHeader = true;
 
             yield return result;

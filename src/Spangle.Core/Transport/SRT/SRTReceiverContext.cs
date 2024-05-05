@@ -10,6 +10,8 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
 
     public override string Id { get; }
     public override bool IsCompleted => _client.IsCompleted;
+    public override ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource) => throw new NotImplementedException();
+
     public override EndPoint EndPoint => _client.RemoteEndPoint;
 
     public SRTReceiverContext(SRTClient client, CancellationToken ct)

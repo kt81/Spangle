@@ -1,0 +1,223 @@
+﻿using System.Buffers;
+using System.Diagnostics;
+using System.IO.Pipelines;
+using Microsoft.Extensions.Logging;
+using Spangle.Codecs;
+using Spangle.Codecs.AVC;
+using Spangle.Containers.Flv;
+using Spangle.Interop;
+using Spangle.Logging;
+using Spangle.Transport.Rtmp;
+using ZLogger;
+
+namespace Spangle.Spinner;
+
+/*
+NALU
+01 00 00 00 17 01
+~~ NALU Type
+   ~~~~~~~~ CompositionTime
+            ~~~~~
+ */
+
+/// <summary>
+/// NAL file to Annex B spinner
+/// </summary>
+public sealed class FlvAVCToM2TSSpinner : SpinnerBase<FlvAVCToM2TSSpinner>
+{
+    private bool _hasSentAUD = false;
+    // private bool _hasSentSPS = false;
+    // private bool _hasSentPPS = false;
+
+    private AVCDecoderConfigurationRecord? _avcConfig;
+
+    private RtmpReceiverContext _context;
+
+    private ArrayBufferWriter<byte> _pesBuffer = new(1024);
+
+    private static readonly ILogger<FlvAVCToM2TSSpinner> s_logger;
+
+    public FlvAVCToM2TSSpinner(PipeWriter anotherIntake, CancellationToken ct, RtmpReceiverContext context)
+        : base(anotherIntake, ct)
+    {
+        _context = context;
+    }
+
+    static FlvAVCToM2TSSpinner()
+    {
+        s_logger = SpangleLogManager.GetLogger<FlvAVCToM2TSSpinner>();
+    }
+
+    public override async ValueTask SpinAsync()
+    {
+        while (!CancellationToken.IsCancellationRequested)
+        {
+            var result = await IntakeReader.ReadAsync(CancellationToken);
+            var buff = result.Buffer;
+
+            // Read and send
+            if (buff.Length < 4 || !ReadAndSendNext(ref buff))
+            {
+                // Too few data is arrived
+                s_logger.ZLogWarning($"Delaying spinner due to insufficient data");
+                await Task.Delay(10, CancellationToken);
+                continue;
+            }
+
+            IntakeReader.AdvanceTo(buff.Start);
+            // TODO to PES
+            await Outlet.FlushAsync(CancellationToken);
+        }
+    }
+
+    private bool ReadAndSendNext(ref ReadOnlySequence<byte> buff)
+    {
+        var headerBuff = buff.Slice(0, FlvAVCAdditionalHeader.Size);
+        ref readonly var header = ref BufferMarshal.AsRefOrCopy<FlvAVCAdditionalHeader>(headerBuff);
+        buff = buff.Slice(headerBuff.End);
+
+        switch (header.PacketType)
+        {
+            case FlvAVCPacketType.SequenceHeader:
+                return ProcessAVCDecoderConfigurationRecord(ref buff);
+            case FlvAVCPacketType.Nalu:
+                return ProcessNALU(ref buff);
+            case FlvAVCPacketType.EndOfSequence:
+                break;
+            default:
+                throw new InvalidDataException($"Invalid FlvAVCPacketType: {header.PacketType}");
+        }
+
+        return true;
+    }
+
+    private bool ProcessAVCDecoderConfigurationRecord(ref ReadOnlySequence<byte> buff)
+    {
+        s_logger.ZLogTrace($"Parsing AVCDecoderConfigurationRecord fixed part");
+        var config = new AVCDecoderConfigurationRecord();
+        var configBuff = buff.Slice(0, AVCDecoderConfigurationRecord.Size);
+        configBuff.CopyTo(config.AsSpan());
+        buff = buff.Slice(configBuff.End);
+        _avcConfig = config;
+
+        int l = config.NumOfSequenceParameterSets;
+        s_logger.ZLogTrace($"Number of SPS: {l}");
+        const int spsLenSize = 2;
+        for (var i = 0; i < l; i++)
+        {
+            var spsLenBuff = buff.Slice(0, spsLenSize);
+            ushort spsLen = BufferMarshal.AsRefOrCopy<BigEndianUInt16>(spsLenBuff).HostValue;
+            var spsBuff = buff.Slice(spsLenSize, spsLen);
+            NALAnnexB.WriteNALU(_pesBuffer, spsBuff);
+            // _hasSentSPS = true;
+            buff = buff.Slice(spsBuff.End);
+        }
+
+        var ppsSizeBuff = buff.Slice(0, 1);
+        l = buff.FirstSpan[0];
+        buff = buff.Slice(ppsSizeBuff.End);
+        s_logger.ZLogTrace($"Number of PPS: {l}");
+        const int ppsLenSize = 2;
+        for (var i = 0; i < l; i++)
+        {
+            var ppsLenBuff = buff.Slice(0, ppsLenSize);
+            ushort ppsLen = BufferMarshal.AsRefOrCopy<BigEndianUInt16>(ppsLenBuff).HostValue;
+            var ppsBuff = buff.Slice(ppsLenSize, ppsLen);
+            NALAnnexB.WriteNALU(_pesBuffer, ppsBuff);
+            // _hasSentPPS = true;
+            buff = buff.Slice(ppsBuff.End);
+        }
+
+        return true;
+    }
+
+    private bool ProcessNALU(ref ReadOnlySequence<byte> buff)
+    {
+        Debug.Assert(_avcConfig != null);
+
+        int lengthSize = _avcConfig!.Value.LengthSize;
+        s_logger.ZLogTrace($"NALU Length Size: {lengthSize}");
+
+        // TODO We should check the real length of the dedicated video tags
+        while (buff.Length > lengthSize)
+        {
+            var lengthBuff = buff.Slice(0, lengthSize);
+
+            int length;
+            switch (lengthSize)
+            {
+                case 1:
+                    length = lengthBuff.FirstSpan[0];
+                    break;
+                case 2:
+                    {
+                        ref readonly var tmp = ref BufferMarshal.AsRefOrCopy<BigEndianUInt16>(lengthBuff);
+                        length = tmp.HostValue;
+                        break;
+                    }
+                case 4:
+                    {
+                        ref readonly var tmp = ref BufferMarshal.AsRefOrCopy<BigEndianUInt32>(lengthBuff);
+                        length = (int)tmp.HostValue;
+                        break;
+                    }
+                default:
+                    // Not to be reached
+                    throw new InvalidDataException();
+            }
+
+            if (buff.Length < lengthSize + length)
+            {
+                return true;
+            }
+
+            buff = buff.Slice(lengthBuff.End);
+
+            s_logger.ZLogTrace($"NALU Length: {length}");
+
+            var headerBuff = buff.Slice(0, 1);
+            ref readonly var header = ref BufferMarshal.AsRefOrCopy<NALUnitHeader>(headerBuff);
+
+            if (header.Type == NALUnitType.AUD)
+            {
+                _hasSentAUD = true;
+            }
+            else if (!_hasSentAUD)
+            {
+                _pesBuffer.Write(new byte[] { 0x00, 0x00, 0x00, 0x01, 0x09 });
+                _hasSentAUD = true;
+            }
+
+            NALAnnexB.WriteNALUIndicator(_pesBuffer);
+            var writeBuff = _pesBuffer.GetSpan(length);
+            var readBuff = buff.Slice(0, length);
+            readBuff.CopyTo(writeBuff);
+
+            _pesBuffer.Advance(length);
+            buff = buff.Slice(readBuff.End);
+        }
+
+        return true;
+    }
+
+    // private async ValueTask ReadMore(SequencePosition consumed, ref ReadOnlySequence<byte> buff)
+    // {
+    //     IntakeReader.AdvanceTo(consumed);
+    //     var res = await IntakeReader.ReadAsync(CancellationToken);
+    //     buff = res.Buffer;
+    // }
+
+    private void SendPES()
+    {
+        if (_pesBuffer.WrittenCount == 0)
+        {
+            return;
+        }
+
+        var pesBuff = _pesBuffer.WrittenSpan;
+
+        _pesBuffer.Clear();
+        // Send PES
+        Outlet.Write(pesBuff);
+    }
+}
