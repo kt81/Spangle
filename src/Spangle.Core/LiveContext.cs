@@ -63,7 +63,7 @@ public sealed class LiveContext : IDisposable
         {
             if (ReceiverContext.VideoCodec == VideoCodec.H264)
             {
-                return new FlvAVCToM2TSSpinner(SenderContext.VideoIntake, _cancellationToken, rtmp);
+                return new FlvAVCToM2TSSpinner(rtmp, SenderContext.VideoIntake, _cancellationToken);
             }
             throw new NotImplementedException();
         }
