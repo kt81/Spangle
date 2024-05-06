@@ -69,6 +69,7 @@ internal abstract class Video : IReadStateAction
 
         FlvVideoPacketType packetType;
         SequencePosition endPos;
+        int headerLength;
 
         if (context.IsEnhanced)
         {
@@ -79,6 +80,7 @@ internal abstract class Video : IReadStateAction
             fourCCBuff.CopyTo(fourCCVal.AsSpan());
             endPos = fourCCBuff.End;
             context.VideoCodec ??= FlvVideoCodecExtensions.ParseToInternal(fourCCVal.HostValue);
+            headerLength = 5;
         }
         else
         {
@@ -87,7 +89,10 @@ internal abstract class Video : IReadStateAction
             // The value is invalid. It must be ignored.
             packetType = FlvVideoPacketType.PacketTypeSequenceStart;
             endPos = buff.GetPosition(1);
+            headerLength = 1;
         }
+
+        context.VideoTagLengthQueue.Enqueue((int)context.MessageHeader.Length.HostValue - headerLength);
 
         buff = buff.Slice(endPos);
         return packetType;

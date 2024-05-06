@@ -12,36 +12,19 @@ using ZLogger;
 
 namespace Spangle.Spinner;
 
-/*
-NALU
-01 00 00 00 17 01
-~~ NALU Type
-   ~~~~~~~~ CompositionTime
-            ~~~~~
- */
-
 /// <summary>
 /// NAL file to Annex B spinner
 /// </summary>
-public sealed class FlvAVCToM2TSSpinner : SpinnerBase<FlvAVCToM2TSSpinner>
+public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter anotherIntake, CancellationToken ct)
+    : SpinnerBase<FlvAVCToM2TSSpinner>(anotherIntake, ct)
 {
-    private bool _hasSentAUD = false;
-    // private bool _hasSentSPS = false;
-    // private bool _hasSentPPS = false;
+    private bool _hasSentAUD;
 
     private AVCDecoderConfigurationRecord? _avcConfig;
 
-    private RtmpReceiverContext _context;
-
-    private ArrayBufferWriter<byte> _pesBuffer = new(1024);
+    private readonly ArrayBufferWriter<byte> _pesBuffer = new(1024);
 
     private static readonly ILogger<FlvAVCToM2TSSpinner> s_logger;
-
-    public FlvAVCToM2TSSpinner(PipeWriter anotherIntake, CancellationToken ct, RtmpReceiverContext context)
-        : base(anotherIntake, ct)
-    {
-        _context = context;
-    }
 
     static FlvAVCToM2TSSpinner()
     {
@@ -52,17 +35,15 @@ public sealed class FlvAVCToM2TSSpinner : SpinnerBase<FlvAVCToM2TSSpinner>
     {
         while (!CancellationToken.IsCancellationRequested)
         {
-            var result = await IntakeReader.ReadAsync(CancellationToken);
-            var buff = result.Buffer;
-
-            // Read and send
-            if (buff.Length < 4 || !ReadAndSendNext(ref buff))
+            if (!context.VideoTagLengthQueue.TryDequeue(out int messageLength))
             {
-                // Too few data is arrived
-                s_logger.ZLogWarning($"Delaying spinner due to insufficient data");
-                await Task.Delay(10, CancellationToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(10));
                 continue;
             }
+            var result = await IntakeReader.ReadAtLeastAsync(messageLength, CancellationToken);
+            var buff = result.Buffer;
+
+            ReadAndSendNext(ref buff, messageLength);
 
             IntakeReader.AdvanceTo(buff.Start);
             // TODO to PES
@@ -70,7 +51,7 @@ public sealed class FlvAVCToM2TSSpinner : SpinnerBase<FlvAVCToM2TSSpinner>
         }
     }
 
-    private bool ReadAndSendNext(ref ReadOnlySequence<byte> buff)
+    private void ReadAndSendNext(ref ReadOnlySequence<byte> buff, int messageLength)
     {
         var headerBuff = buff.Slice(0, FlvAVCAdditionalHeader.Size);
         ref readonly var header = ref BufferMarshal.AsRefOrCopy<FlvAVCAdditionalHeader>(headerBuff);
@@ -79,19 +60,19 @@ public sealed class FlvAVCToM2TSSpinner : SpinnerBase<FlvAVCToM2TSSpinner>
         switch (header.PacketType)
         {
             case FlvAVCPacketType.SequenceHeader:
-                return ProcessAVCDecoderConfigurationRecord(ref buff);
+                ProcessAVCDecoderConfigurationRecord(ref buff);
+                break;
             case FlvAVCPacketType.Nalu:
-                return ProcessNALU(ref buff);
+                ProcessNALU(ref buff, messageLength - FlvAVCAdditionalHeader.Size);
+                break;
             case FlvAVCPacketType.EndOfSequence:
                 break;
             default:
                 throw new InvalidDataException($"Invalid FlvAVCPacketType: {header.PacketType}");
         }
-
-        return true;
     }
 
-    private bool ProcessAVCDecoderConfigurationRecord(ref ReadOnlySequence<byte> buff)
+    private void ProcessAVCDecoderConfigurationRecord(ref ReadOnlySequence<byte> buff)
     {
         s_logger.ZLogTrace($"Parsing AVCDecoderConfigurationRecord fixed part");
         var config = new AVCDecoderConfigurationRecord();
@@ -127,20 +108,18 @@ public sealed class FlvAVCToM2TSSpinner : SpinnerBase<FlvAVCToM2TSSpinner>
             // _hasSentPPS = true;
             buff = buff.Slice(ppsBuff.End);
         }
-
-        return true;
     }
 
-    private bool ProcessNALU(ref ReadOnlySequence<byte> buff)
+    private void ProcessNALU(ref ReadOnlySequence<byte> buff, int messageLength)
     {
         Debug.Assert(_avcConfig != null);
 
         int lengthSize = _avcConfig!.Value.LengthSize;
         s_logger.ZLogTrace($"NALU Length Size: {lengthSize}");
 
-        // TODO We should check the real length of the dedicated video tags
-        while (buff.Length > lengthSize)
+        while (messageLength > 0)
         {
+            s_logger.ZLogTrace($"NALUs remaining: {messageLength}");
             var lengthBuff = buff.Slice(0, lengthSize);
 
             int length;
@@ -164,11 +143,6 @@ public sealed class FlvAVCToM2TSSpinner : SpinnerBase<FlvAVCToM2TSSpinner>
                 default:
                     // Not to be reached
                     throw new InvalidDataException();
-            }
-
-            if (buff.Length < lengthSize + length)
-            {
-                return true;
             }
 
             buff = buff.Slice(lengthBuff.End);
@@ -195,9 +169,13 @@ public sealed class FlvAVCToM2TSSpinner : SpinnerBase<FlvAVCToM2TSSpinner>
 
             _pesBuffer.Advance(length);
             buff = buff.Slice(readBuff.End);
-        }
 
-        return true;
+            messageLength -= lengthSize + length;
+            if (messageLength < 0)
+            {
+                throw new InvalidDataException("Invalid message length");
+            }
+        }
     }
 
     // private async ValueTask ReadMore(SequencePosition consumed, ref ReadOnlySequence<byte> buff)

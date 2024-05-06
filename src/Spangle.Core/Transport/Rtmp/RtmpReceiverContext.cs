@@ -1,4 +1,5 @@
-﻿using System.IO.Pipelines;
+﻿using System.Collections.Concurrent;
+using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
@@ -77,6 +78,8 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public override bool IsCompleted => ConnectionState == ReceivingState.Terminated;
 
     private uint _streamIdPointer = Protocol.ControlStreamId + 1;
+
+    public readonly ConcurrentQueue<int> VideoTagLengthQueue = new();
 
     /// <summary>
     /// Returns "Current" stream in receiving context.
