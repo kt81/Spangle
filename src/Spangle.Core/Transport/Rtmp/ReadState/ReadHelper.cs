@@ -83,13 +83,16 @@ internal class ReadHelper
         }
 
         // Multiple chunks, reconstruct buffer
+        // Each chunk is copied, so the original buffer must be consumed before reading the next chunk header.
         var chunks = ReadChunkedMessageBody(context).GetAsyncEnumerator(context.CancellationToken);
         await chunks.MoveNextAsync();
         var first = chunks.Current.ToMemorySegment();
+        context.RemoteReader.AdvanceTo(chunks.Current.End);
         var last = first;
         while (await chunks.MoveNextAsync())
         {
             last = last.Append(chunks.Current.ToArray());
+            context.RemoteReader.AdvanceTo(chunks.Current.End);
         }
 
         return (new ReadOnlySequence<byte>(first, 0, last, last.Memory.Length), new BufferDisposeHandle(first));

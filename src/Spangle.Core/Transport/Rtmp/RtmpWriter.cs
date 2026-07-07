@@ -42,8 +42,36 @@ public static class RtmpWriter
         TempWriter.Clear(); // ArrayBufferWriter only clears the area that is actually used. 😊
         int plLen = payload.WriteBytes(TempWriter);
         int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, plLen);
-        context.RemoteWriter.Write(TempWriter.WrittenSpan);
+
+        // Split the payload into chunks of SendChunkSize, with a Fmt3 continuation header between chunks
+        var span = TempWriter.WrittenSpan;
+        var chunkSize = (int)context.SendChunkSize;
+        var written = 0;
+        while (true)
+        {
+            int len = Math.Min(chunkSize, plLen - written);
+            context.RemoteWriter.Write(span.Slice(written, len));
+            written += len;
+            if (written >= plLen)
+            {
+                break;
+            }
+
+            hLen += WriteContinuationHeader(context, chunkStreamId);
+        }
+
         return hLen + plLen;
+    }
+
+    private static int WriteContinuationHeader(RtmpReceiverContext context, uint chunkStreamId)
+    {
+        context.BasicHeaderToSend.Format = MessageHeaderFormat.Fmt3;
+        context.BasicHeaderToSend.ChunkStreamId = chunkStreamId;
+        int bhLen = context.BasicHeaderToSend.RequiredLength;
+        var buff = context.RemoteWriter.GetSpan(bhLen);
+        context.BasicHeaderToSend.AsSpan()[..bhLen].CopyTo(buff);
+        context.RemoteWriter.Advance(bhLen);
+        return bhLen;
     }
 
     private static int WriteHeader(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
@@ -52,9 +80,11 @@ public static class RtmpWriter
         var buff = context.RemoteWriter.GetSpan(HeaderMaxSize + payloadLength);
         MessageHeaderFormat fmt;
 
+        // The first message on a new chunk stream must be Fmt0; the receiver has no reference header for it.
+        bool chunkStreamChanged = context.BasicHeaderToSend.ChunkStreamId != chunkStreamId;
         context.BasicHeaderToSend.ChunkStreamId = chunkStreamId;
 
-        if (context.MessageHeaderToSend.IsDefault || context.MessageHeaderToSend.StreamId != streamId)
+        if (chunkStreamChanged || context.MessageHeaderToSend.IsDefault || context.MessageHeaderToSend.StreamId != streamId)
         {
             // Force Fmt0
             context.BasicHeaderToSend.Format = fmt = MessageHeaderFormat.Fmt0;

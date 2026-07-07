@@ -44,7 +44,17 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     // TODO 設定とかからもらう
     public uint Bandwidth      = 1500000;
+
+    /// <summary>
+    /// Chunk size for incoming chunks. Updated by the SetChunkSize message from the peer.
+    /// </summary>
     public uint ChunkSize      = Protocol.MinChunkSize;
+
+    /// <summary>
+    /// Chunk size for outgoing chunks. Announced to the peer by our own SetChunkSize message.
+    /// </summary>
+    public uint SendChunkSize  = Protocol.MinChunkSize;
+
     public uint MaxMessageSize = Protocol.MaxMessageSizeDefault;
 
     /// <summary>

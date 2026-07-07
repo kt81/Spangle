@@ -125,7 +125,7 @@ internal class RtmpNetStream
         RtmpWriter.Write(context, 0, MessageType.UserControl,
             csId, Protocol.ControlStreamId, ref streamBegin);
 
-        var result = new OnStatusResult(OnStatusResult.Level.Status, OnStatusResult.Code.Play,
+        var result = new OnStatusResult(OnStatusResult.Level.Status, OnStatusResult.Code.Publish,
             $"Stream '{publishingName}' is now published.", publishingName);
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
             csId, publishingStreamId, result);
