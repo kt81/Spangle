@@ -7,16 +7,6 @@
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>
 
-<!--  <ItemGroup>-->
-<!--    <Using Include="Spangle" />-->
-<!--    <Using Include="Spangle.Extensions.Kestrel" />-->
-<!--  </ItemGroup>-->
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
-  </ItemGroup>
-
   <ItemGroup>
     <Content Include="..\..\.dockerignore">
       <Link>.dockerignore</Link>

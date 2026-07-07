@@ -28,6 +28,8 @@ public static class WebHostBuilderSpangleExtensions
         var opt = options.ApplicationServices.GetRequiredService<IOptions<SpangleMediaServerOptions>>();
         options.ListenAnyIP(opt.Value.Rtmp.Port,
             listenOptions => { listenOptions.UseConnectionHandler<RtmpConnectionHandler>(); });
+        // Explicit Listen* calls override URL-based configuration, so HTTP must be explicit too
+        options.ListenAnyIP(opt.Value.Http.Port);
         var loggerFactory = options.ApplicationServices.GetService<ILoggerFactory>();
         if (loggerFactory != null)
         {
