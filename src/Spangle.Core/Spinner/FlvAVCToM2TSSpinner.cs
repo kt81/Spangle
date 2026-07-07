@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Spangle.Codecs;
 using Spangle.Codecs.AVC;
 using Spangle.Containers.Flv;
+using Spangle.Containers.M2TS;
 using Spangle.Interop;
 using Spangle.Logging;
 using Spangle.Transport.Rtmp;
@@ -18,7 +19,13 @@ namespace Spangle.Spinner;
 public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter anotherIntake, CancellationToken ct)
     : SpinnerBase<FlvAVCToM2TSSpinner>(anotherIntake, ct)
 {
-    private bool _hasSentAUD;
+    // TODO move to another place
+    private const int  PidVideo      = 0x100;
+    private const byte StreamIdVideo = 0xE0;
+
+    private ulong? _dts;
+    private ulong? _pts;
+    private bool   _hasSentAUD;
 
     private AVCDecoderConfigurationRecord? _avcConfig;
 
@@ -35,27 +42,36 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
     {
         while (!CancellationToken.IsCancellationRequested)
         {
-            if (!context.VideoTagLengthQueue.TryDequeue(out int messageLength))
+            if (!context.VideoReaderContexts.TryDequeue(out var readerContext))
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(10));
                 continue;
             }
-            var result = await IntakeReader.ReadAtLeastAsync(messageLength, CancellationToken);
+
+            var result = await IntakeReader.ReadAtLeastAsync(readerContext.MessageLength, CancellationToken);
             var buff = result.Buffer;
 
-            ReadAndSendNext(ref buff, messageLength);
+            ReadAndSendNext(ref buff, readerContext);
 
             IntakeReader.AdvanceTo(buff.Start);
-            // TODO to PES
+
+            SendPES();
             await Outlet.FlushAsync(CancellationToken);
         }
     }
 
-    private void ReadAndSendNext(ref ReadOnlySequence<byte> buff, int messageLength)
+    private void ReadAndSendNext(ref ReadOnlySequence<byte> buff, VideoReaderContext readerContext)
     {
         var headerBuff = buff.Slice(0, FlvAVCAdditionalHeader.Size);
         ref readonly var header = ref BufferMarshal.AsRefOrCopy<FlvAVCAdditionalHeader>(headerBuff);
         buff = buff.Slice(headerBuff.End);
+
+        // timestamp is in milliseconds
+        // pts and dts are in 90kHz
+        //  timestamp / 1000 * 90000 = timestamp * 90
+        // round to 33 bits
+        _dts = (readerContext.Timestamp * 90ul) & 0x1FFFFFFFFul;
+        _pts = ((readerContext.Timestamp + header.CompositionTime.HostValue) * 90ul) & 0x1FFFFFFFFul;
 
         switch (header.PacketType)
         {
@@ -63,7 +79,8 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
                 ProcessAVCDecoderConfigurationRecord(ref buff);
                 break;
             case FlvAVCPacketType.Nalu:
-                ProcessNALU(ref buff, messageLength - FlvAVCAdditionalHeader.Size);
+                readerContext.MessageLength -= FlvAVCAdditionalHeader.Size;
+                ProcessNALU(ref buff, readerContext);
                 break;
             case FlvAVCPacketType.EndOfSequence:
                 break;
@@ -110,12 +127,13 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
         }
     }
 
-    private void ProcessNALU(ref ReadOnlySequence<byte> buff, int messageLength)
+    private void ProcessNALU(ref ReadOnlySequence<byte> buff, VideoReaderContext readerContext)
     {
         Debug.Assert(_avcConfig != null);
 
         int lengthSize = _avcConfig!.Value.LengthSize;
         s_logger.ZLogTrace($"NALU Length Size: {lengthSize}");
+        int messageLength = readerContext.MessageLength;
 
         while (messageLength > 0)
         {
@@ -193,9 +211,9 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
         }
 
         var pesBuff = _pesBuffer.WrittenSpan;
-
-        _pesBuffer.Clear();
-        // Send PES
+        // TODO PESWriter is still a stub; pass the raw ES data through until TS packetization is implemented
+        PESWriter.WritePES(pesBuff, PidVideo, 0, true, StreamIdVideo, _pts, _dts, Outlet);
         Outlet.Write(pesBuff);
+        _pesBuffer.Clear();
     }
 }

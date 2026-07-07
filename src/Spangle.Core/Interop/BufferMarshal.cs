@@ -22,7 +22,8 @@ public static class BufferMarshal
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ref TMessage As<TMessage>(in ReadOnlySequence<byte> buff) where TMessage : unmanaged
     {
-        return ref MemoryMarshal.AsRef<TMessage>(buff.ToArray());
+        // AsSpan() keeps binding to the writable AsRef(Span<byte>) overload under C# 14 first-class span conversions
+        return ref MemoryMarshal.AsRef<TMessage>(buff.ToArray().AsSpan());
     }
 
     /// <summary>
