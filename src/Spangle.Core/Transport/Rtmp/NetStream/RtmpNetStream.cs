@@ -129,6 +129,8 @@ internal class RtmpNetStream
             $"Stream '{publishingName}' is now published.", publishingName);
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
             csId, publishingStreamId, result);
+
+        context.ConnectionState = ReceivingState.Publishing;
     }
 
     public void OnDeleteStream(

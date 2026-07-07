@@ -7,18 +7,23 @@ using ZLogger;
 
 namespace Spangle.Transport.Rtmp.ReadState;
 
+/// <summary>
+/// Unwraps an FLV AUDIODATA tag and forwards the codec payload as a
+/// self-contained <see cref="MediaFrameHeader"/> frame.
+/// </summary>
 internal abstract class Audio
 {
     private static readonly ILogger<Audio> s_logger = SpangleLogManager.GetLogger<Audio>();
 
     public static async ValueTask Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
-        // Parse control
-        var c = new FlvAudioControl(payload.FirstSpan[0]);
+        // The assembled message is always a single segment
+        var span = payload.FirstSpan;
+        var ctrl = new FlvAudioControl(span[0]);
 
-        if (c.Codec != FlvAudioCodec.AAC)
+        if (ctrl.Codec != FlvAudioCodec.AAC)
         {
-            s_logger.ZLogWarning($"Unsupported audio codec, dropping: {c.Codec}");
+            s_logger.ZLogWarning($"Unsupported audio codec, dropping: {ctrl.Codec}");
             return;
         }
         if (context.MediaOutlet is null)
@@ -27,15 +32,27 @@ internal abstract class Audio
             return;
         }
 
-        context.AudioCodec ??= c.Codec.ToInternal();
+        var codec = ctrl.Codec.ToInternal();
+        context.AudioCodec ??= codec;
 
-        // Forward AACAUDIODATA ([AACPacketType][data]) without the control byte
-        var body = payload.Slice(1);
+        // AAC envelope: [control][AACPacketType][data]
+        var packetType = (FlvAACPacketType)span[1];
+        MediaFrameFlags flags;
+        switch (packetType)
+        {
+            case FlvAACPacketType.AACSequenceHeader:
+                flags = MediaFrameFlags.Config;
+                break;
+            case FlvAACPacketType.AACRaw:
+                flags = MediaFrameFlags.None;
+                break;
+            default:
+                throw new InvalidDataException($"Invalid FlvAACPacketType: {packetType}");
+        }
+
+        var body = payload.Slice(2);
         MediaFrameHeader.Write(context.MediaOutlet,
-            MediaFrameKind.Audio,
-            MediaFrameFlags.None,
-            (int)body.Length,
-            context.Timestamp);
+            MediaFrameKind.Audio, flags, (uint)codec, 0, (int)body.Length, context.Timestamp);
 
         var writeBuff = context.MediaOutlet.GetSpan((int)body.Length);
         body.CopyTo(writeBuff);

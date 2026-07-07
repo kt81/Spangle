@@ -30,7 +30,7 @@ internal abstract class CommandAmf0
             case NetConnectionHandler.Commands.Connect:
                 // null is not allowed for connect
                 ArgumentNullException.ThrowIfNull(commandObject);
-                IReadStateAction.EnsureValidProtocolControlMessage(context);
+                Protocol.EnsureValidProtocolControlMessage(context);
                 AmfObject? optionalArguments = null;
                 if (0 < buff.Length)
                 {
@@ -41,11 +41,11 @@ internal abstract class CommandAmf0
                 context.ConnectionState = ReceivingState.WaitingFCPublish;
                 break;
             case NetConnectionHandler.Commands.ReleaseStream:
-                IReadStateAction.EnsureValidProtocolControlMessage(context);
+                Protocol.EnsureValidProtocolControlMessage(context);
                 NetConnectionHandler.OnReleaseStream(context, transactionId, commandObject, ParseString(ref buff));
                 break;
             case NetConnectionHandler.Commands.FCPublish:
-                IReadStateAction.EnsureValidProtocolControlMessage(context);
+                Protocol.EnsureValidProtocolControlMessage(context);
                 NetConnectionHandler.OnFCPublish(context, transactionId, commandObject, ParseString(ref buff));
                 context.ConnectionState = ReceivingState.WaitingPublish;
                 break;

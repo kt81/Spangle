@@ -1,7 +1,24 @@
-﻿namespace Spangle.Transport.Rtmp;
+﻿using Cysharp.Text;
+
+namespace Spangle.Transport.Rtmp;
 
 internal static class Protocol
 {
+    /// <summary>
+    /// Ensures the current message satisfies the constraints of a Protocol Control Message (5.4).
+    /// </summary>
+    public static void EnsureValidProtocolControlMessage(RtmpReceiverContext context)
+    {
+        if (context.MessageHeader.StreamId == ControlStreamId)
+        {
+            return;
+        }
+
+        throw new IOException(ZString.Format(
+            "Invalid streamId({0}) or chunkStreamId({1}) for Protocol Control Message",
+            context.MessageHeader.StreamId, context.BasicHeader.ChunkStreamId));
+    }
+
     /// <summary>
     /// Max chunk size to set
     /// </summary>

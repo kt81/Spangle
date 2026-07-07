@@ -23,6 +23,7 @@ public sealed class M2TSWriter
     public const byte StreamIdAudio = 0xC0;
 
     private const byte StreamTypeH264    = 0x1B;
+    private const byte StreamTypeH265    = 0x24;
     private const byte StreamTypeAdtsAac = 0x0F;
 
     private const ulong PtsMask = (1ul << 33) - 1;
@@ -34,6 +35,7 @@ public sealed class M2TSWriter
 
     private bool _hasAudio;
     private byte _pmtVersion;
+    private VideoCodec _videoCodec = Spangle.VideoCodec.H264;
 
     /// <summary>
     /// Adds the audio stream to the PMT. The PMT version is incremented when this changes.
@@ -51,6 +53,31 @@ public sealed class M2TSWriter
             _pmtVersion = (byte)((_pmtVersion + 1) & 0x1F);
         }
     }
+
+    /// <summary>
+    /// The video codec declared in the PMT. The PMT version is incremented when this changes.
+    /// </summary>
+    public VideoCodec VideoCodec
+    {
+        get => _videoCodec;
+        set
+        {
+            if (_videoCodec == value)
+            {
+                return;
+            }
+            _videoCodec = value;
+            _pmtVersion = (byte)((_pmtVersion + 1) & 0x1F);
+        }
+    }
+
+    private byte VideoStreamType => _videoCodec switch
+    {
+        Spangle.VideoCodec.H264 => StreamTypeH264,
+        Spangle.VideoCodec.H265 => StreamTypeH265,
+        _ => throw new NotSupportedException(
+            $"{_videoCodec} has no MPEG-2 TS stream type; it requires the fMP4/CMAF pipeline"),
+    };
 
     /// <summary>
     /// Writes a PAT packet followed by a PMT packet.
@@ -198,7 +225,7 @@ public sealed class M2TSWriter
         s[10] = 0xF0; s[11] = 0x00;               // program_info_length = 0
 
         var pos = 12;
-        s[pos++] = StreamTypeH264;
+        s[pos++] = VideoStreamType;
         s[pos++] = 0xE0 | (PidVideo >> 8);
         s[pos++] = unchecked((byte)PidVideo);
         s[pos++] = 0xF0;
