@@ -1,4 +1,11 @@
-﻿Spangle:
+Spangle:
   Rtmp:
     Enabled: true
     Port: 1935
+  Http:
+    Port: 8080
+  Hls:
+    Enabled: true
+    OutputDirectory: hls-out
+    RequestPath: /hls
+    TargetSegmentDuration: 2.0

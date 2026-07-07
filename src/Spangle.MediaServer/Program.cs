@@ -1,31 +1,40 @@
+using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 using Spangle.Extensions.Kestrel;
 using Spangle.Extensions.Kestrel.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
-builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 builder.Services.AddSpangle();
-
 builder.WebHost.ConfigureSpangle();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+// Serve the HLS output directory over HTTP
+var options = app.Services.GetRequiredService<IOptions<SpangleMediaServerOptions>>().Value;
+var hlsDirectory = Path.GetFullPath(options.Hls.OutputDirectory);
+Directory.CreateDirectory(hlsDirectory);
+
+var contentTypes = new FileExtensionContentTypeProvider();
+contentTypes.Mappings[".m3u8"] = "application/vnd.apple.mpegurl";
+contentTypes.Mappings[".ts"] = "video/mp2t";
+
+app.UseDefaultFiles();
+app.UseStaticFiles(); // wwwroot (test player)
+app.UseStaticFiles(new StaticFileOptions
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-app.UseHttpsRedirection();
-
-app.UseAuthorization();
-
-app.MapControllers();
+    FileProvider = new PhysicalFileProvider(hlsDirectory),
+    RequestPath = options.Hls.RequestPath,
+    ContentTypeProvider = contentTypes,
+    OnPrepareResponse = static ctx =>
+    {
+        // Playlists change every segment; segments themselves are immutable
+        if (ctx.File.Name.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Context.Response.Headers.CacheControl = "no-cache, no-store";
+        }
+    },
+});
 
 app.Run();
