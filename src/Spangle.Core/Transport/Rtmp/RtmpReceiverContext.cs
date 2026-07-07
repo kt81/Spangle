@@ -79,7 +79,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     private uint _streamIdPointer = Protocol.ControlStreamId + 1;
 
-    public readonly ConcurrentQueue<int> VideoTagLengthQueue = new();
+    public readonly ConcurrentQueue<VideoReaderContext> VideoReaderContexts = new();
 
     /// <summary>
     /// Returns "Current" stream in receiving context.
@@ -203,4 +203,10 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     }
 
     #endregion
+}
+
+public struct VideoReaderContext
+{
+    public int  MessageLength;
+    public uint Timestamp;
 }

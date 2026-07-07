@@ -92,7 +92,11 @@ internal abstract class Video : IReadStateAction
             headerLength = 1;
         }
 
-        context.VideoTagLengthQueue.Enqueue((int)context.MessageHeader.Length.HostValue - headerLength);
+        context.VideoReaderContexts.Enqueue(new VideoReaderContext
+        {
+            MessageLength = (int)context.MessageHeader.Length.HostValue - headerLength,
+            Timestamp = context.Timestamp,
+        });
 
         buff = buff.Slice(endPos);
         return packetType;
