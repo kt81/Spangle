@@ -24,7 +24,7 @@ public class Amf0SerializableGeneratorTests
         // Unmarshal back to host value but cannot return to an original struct, to dictionary.
         var result = await reader.ReadAtLeastAsync(size);
         var buff = result.Buffer;
-        buff.Length.Should().BeGreaterOrEqualTo(size);
+        buff.Length.Should().BeGreaterThanOrEqualTo(size);
 
         object? expectsIntField = Amf0SequenceParser.Parse(ref buff);
         // Type information is lost during marshaling (by design)

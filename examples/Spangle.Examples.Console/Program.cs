@@ -3,10 +3,11 @@ using Microsoft.Extensions.Logging;
 using Spangle.Examples.Console;
 using Spangle.Logging;
 
-var mode = new Argument<string>(
-    name: "mode",
-    description: "Mode to run (srt-hls / rtmp-hls)",
-    getDefaultValue: () => "rtmp-hls");
+var mode = new Argument<string>("mode")
+{
+    Description = "Mode to run (srt-hls / rtmp-hls)",
+    DefaultValueFactory = _ => "rtmp-hls",
+};
 var cmd = new RootCommand("Spangle Example Console application.") { mode };
 
 var loggerFactory = LoggerFactory.Create(conf =>
@@ -16,9 +17,9 @@ var loggerFactory = LoggerFactory.Create(conf =>
 });
 SpangleLogManager.SetLoggerFactory(loggerFactory);
 
-cmd.SetHandler(async m =>
+cmd.SetAction(async (parseResult, _) =>
 {
-    switch (m)
+    switch (parseResult.GetValue(mode))
     {
         case "rtmp-hls":
             await new RtmpToHLS(loggerFactory.CreateLogger<RtmpToHLS>()).Start();
@@ -29,6 +30,6 @@ cmd.SetHandler(async m =>
         default:
             throw new ArgumentException("Unrecognized mode");
     }
-}, mode);
+});
 
-await cmd.InvokeAsync(args);
+return await cmd.Parse(args).InvokeAsync();
