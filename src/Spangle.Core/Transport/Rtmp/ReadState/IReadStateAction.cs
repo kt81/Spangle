@@ -10,7 +10,7 @@ internal interface IReadStateAction
     public static abstract ValueTask Perform(RtmpReceiverContext context);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    protected static void EnsureValidProtocolControlMessage(RtmpReceiverContext context)
+    internal static void EnsureValidProtocolControlMessage(RtmpReceiverContext context)
     {
         if (context.MessageHeader.StreamId == Protocol.ControlStreamId /* &&
             context.BasicHeader.ChunkStreamId == ControlChunkStreamId */)

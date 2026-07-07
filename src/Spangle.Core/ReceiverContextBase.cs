@@ -39,8 +39,7 @@ public abstract class ReceiverContextBase<TSelf>(PipeReader reader, PipeWriter w
     public PipeReader RemoteReader { get; } = reader;
     public PipeWriter RemoteWriter { get; } = writer;
 
-    public PipeWriter? VideoOutlet { get; set; }
-    public PipeWriter? AudioOutlet { get; set; }
+    public PipeWriter? MediaOutlet { get; set; }
 
     public CancellationToken CancellationToken { get; set; } = ct;
 

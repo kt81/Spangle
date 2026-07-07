@@ -81,8 +81,7 @@ public class RtmpToHLS
         finally
         {
             tcpClient.Dispose();
-            // Let the sender drain the remaining TS packets and finalize the playlist
-            await hls.VideoIntake.CompleteAsync();
+            // The completion propagates receiver -> spinner -> sender; wait for the playlist to be finalized
             await senderTask;
             logger.ZLogDebug($"Connection closed: {rtmp.ToString()}");
         }

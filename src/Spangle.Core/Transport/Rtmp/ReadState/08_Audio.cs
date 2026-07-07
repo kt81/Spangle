@@ -1,38 +1,46 @@
-﻿using System.IO.Pipelines;
+using System.Buffers;
 using Microsoft.Extensions.Logging;
 using Spangle.Containers.Flv;
 using Spangle.Logging;
+using Spangle.Spinner;
 using ZLogger;
 
 namespace Spangle.Transport.Rtmp.ReadState;
 
-internal abstract class Audio : IReadStateAction
+internal abstract class Audio
 {
     private static readonly ILogger<Audio> s_logger = SpangleLogManager.GetLogger<Audio>();
 
-    public static async ValueTask Perform(RtmpReceiverContext context)
+    public static async ValueTask Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
-        PipeReader reader = context.RemoteReader;
-        CancellationToken ct = context.CancellationToken;
-
-        await using var enumerator = ReadHelper.ReadChunkedMessageBody(context).GetAsyncEnumerator(ct);
-        await enumerator.MoveNextAsync();
-        var buff = enumerator.Current;
-
         // Parse control
-        var c = new FlvAudioControl(buff.FirstSpan[0]);
-        s_logger.ZLogDebug(
-            $$"""FlvAudioControl {codec:{{c.Codec}}, sizeRate:{{c.SampleRate}}, sampleSize:{{c.SampleSize}}}""");
+        var c = new FlvAudioControl(payload.FirstSpan[0]);
 
-        reader.AdvanceTo(buff.End);
-
-        // Continue reading
-        while (await enumerator.MoveNextAsync())
+        if (c.Codec != FlvAudioCodec.AAC)
         {
-            buff = enumerator.Current;
-            reader.AdvanceTo(buff.End);
+            s_logger.ZLogWarning($"Unsupported audio codec, dropping: {c.Codec}");
+            return;
+        }
+        if (context.MediaOutlet is null)
+        {
+            s_logger.ZLogWarning($"Audio frame arrived before the media outlet is ready; dropped");
+            return;
         }
 
-        context.SetNext<ReadChunkHeader>();
+        context.AudioCodec ??= c.Codec.ToInternal();
+
+        // Forward AACAUDIODATA ([AACPacketType][data]) without the control byte
+        var body = payload.Slice(1);
+        MediaFrameHeader.Write(context.MediaOutlet,
+            MediaFrameKind.Audio,
+            MediaFrameFlags.None,
+            (int)body.Length,
+            context.Timestamp);
+
+        var writeBuff = context.MediaOutlet.GetSpan((int)body.Length);
+        body.CopyTo(writeBuff);
+        context.MediaOutlet.Advance((int)body.Length);
+
+        await context.MediaOutlet.FlushAsync(context.CancellationToken);
     }
 }

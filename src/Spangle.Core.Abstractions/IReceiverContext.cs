@@ -38,14 +38,10 @@ public interface IReceiverContext
     public PipeWriter RemoteWriter { get; }
 
     /// <summary>
-    /// Video outlet
+    /// Outlet for framed media (video and audio) data.
+    /// Frames are written as an in-band header followed by the payload, in arrival order.
     /// </summary>
-    public PipeWriter? VideoOutlet { get; set; }
-
-    /// <summary>
-    /// Audio outlet
-    /// </summary>
-    public PipeWriter? AudioOutlet { get; set; }
+    public PipeWriter? MediaOutlet { get; set; }
 
     /// <summary>
     /// Cancellation token for the connection

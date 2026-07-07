@@ -89,13 +89,18 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     private uint _streamIdPointer = Protocol.ControlStreamId + 1;
 
-    public readonly ConcurrentQueue<VideoReaderContext> VideoReaderContexts = new();
+    private readonly Dictionary<uint, ChunkStreamState> _chunkStreams = new();
 
-    /// <summary>
-    /// True while a continuation (Fmt3) chunk header of the current message is being read.
-    /// Continuation chunks carry no timestamp, unlike Fmt3 chunks that start a new message.
-    /// </summary>
-    internal bool IsReadingChunkContinuation;
+    internal ChunkStreamState GetChunkStreamState(uint chunkStreamId)
+    {
+        if (_chunkStreams.TryGetValue(chunkStreamId, out var state))
+        {
+            return state;
+        }
+        state = new ChunkStreamState(chunkStreamId);
+        _chunkStreams.Add(chunkStreamId, state);
+        return state;
+    }
 
     /// <summary>
     /// Returns "Current" stream in receiving context.
@@ -219,11 +224,4 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     }
 
     #endregion
-}
-
-public struct VideoReaderContext
-{
-    public int  MessageLength;
-    public uint Timestamp;
-    public bool IsKeyFrame;
 }
