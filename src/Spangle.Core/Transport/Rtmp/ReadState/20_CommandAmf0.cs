@@ -7,28 +7,12 @@ using static Spangle.Transport.Rtmp.Amf0.Amf0SequenceParser;
 
 namespace Spangle.Transport.Rtmp.ReadState;
 
-internal abstract class CommandAmf0 : IReadStateAction
+internal abstract class CommandAmf0
 {
-    public static async ValueTask Perform(RtmpReceiverContext context)
+    public static async ValueTask Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
-        PipeReader reader = context.RemoteReader;
-        CancellationToken ct = context.CancellationToken;
-
-        var (buff, disposeHandle) = await ReadHelper.ReadMessageBody(context);
-
-        using (disposeHandle)
-        {
-            DispatchRpc(context, ref buff);
-
-            if (!disposeHandle.IsOriginalBufferConsumed)
-            {
-                reader.AdvanceTo(buff.End);
-            }
-        }
-
-        await context.RemoteWriter.FlushAsync(ct);
-
-        context.SetNext<ReadChunkHeader>();
+        DispatchRpc(context, ref payload);
+        await context.RemoteWriter.FlushAsync(context.CancellationToken);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -41,7 +41,7 @@ public sealed class LiveContext : IDisposable
         // TODO Insert video spinners to the chain based on configuration
         if (VideoSpinnerChain.Count == 0)
         {
-            ReceiverContext.VideoOutlet = spinner.Intake;
+            ReceiverContext.MediaOutlet = spinner.Intake;
         }
         else
         {
@@ -63,7 +63,7 @@ public sealed class LiveContext : IDisposable
         {
             if (ReceiverContext.VideoCodec == VideoCodec.H264)
             {
-                return new FlvAVCToM2TSSpinner(rtmp, SenderContext.VideoIntake, _cancellationToken);
+                return new FlvToM2TSSpinner(rtmp, SenderContext.VideoIntake, _cancellationToken);
             }
             throw new NotImplementedException();
         }
@@ -105,6 +105,12 @@ public sealed class LiveContext : IDisposable
         }
         finally
         {
+            // Signal downstream (spinner -> sender) that no more media will come
+            if (ReceiverContext.MediaOutlet is not null)
+            {
+                await ReceiverContext.MediaOutlet.CompleteAsync();
+            }
+
             // ReSharper disable MethodHasAsyncOverload
             contextCancellationRegistration.Dispose();
             lifetimeCancellationRegistration.Dispose();

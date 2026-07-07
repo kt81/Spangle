@@ -1,23 +1,14 @@
-﻿using System.Buffers;
-using System.IO.Pipelines;
+using System.Buffers;
 using Cysharp.Text;
 using Spangle.Interop;
-using Spangle.IO;
 
 namespace Spangle.Transport.Rtmp.ReadState;
 
-internal abstract class SetChunkSize : IReadStateAction
+internal abstract class SetChunkSize
 {
-    private const int ChunkSizeLength = 4; // 32bit Big Endian uint
-    // private static ILogger<SetChunkSize> s_logger = SpangleLogManager.GetLogger<SetChunkSize>();
-
-    public static async ValueTask Perform(RtmpReceiverContext context)
+    public static void Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
-        PipeReader reader = context.RemoteReader;
-        CancellationToken ct = context.CancellationToken;
-        (ReadOnlySequence<byte> buff, _) = await reader.ReadExactAsync(ChunkSizeLength, ct);
-        uint size = BufferMarshal.As<BigEndianUInt32>(buff).HostValue;
-        reader.AdvanceTo(buff.End);
+        uint size = BufferMarshal.As<BigEndianUInt32>(payload.Slice(0, 4)).HostValue;
         IReadStateAction.EnsureValidProtocolControlMessage(context);
 
         if (size is < Protocol.MinChunkSize or > Protocol.MaxChunkSize)
@@ -26,6 +17,5 @@ internal abstract class SetChunkSize : IReadStateAction
         }
 
         context.ChunkSize = size;
-        context.SetNext<ReadChunkHeader>();
     }
 }

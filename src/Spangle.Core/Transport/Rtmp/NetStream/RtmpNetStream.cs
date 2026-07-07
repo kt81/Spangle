@@ -181,5 +181,17 @@ internal class RtmpNetStream
             Context.VideoCodec = ((FlvVideoCodec)Convert.ToUInt32(videoCodecId)).ToInternal();
         }
 
+        if (data.TryGetValue("audiocodecid", out object? audioCodecId) && audioCodecId is not null)
+        {
+            var flvAudioCodec = (FlvAudioCodec)Convert.ToUInt32(audioCodecId);
+            if (flvAudioCodec == FlvAudioCodec.AAC)
+            {
+                Context.AudioCodec = flvAudioCodec.ToInternal();
+            }
+            else
+            {
+                _logger.ZLogWarning($"Unsupported audio codec in metadata, audio will be dropped: {flvAudioCodec}");
+            }
+        }
     }
 }

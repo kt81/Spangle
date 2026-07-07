@@ -1,38 +1,24 @@
-﻿using System.IO.Pipelines;
+using System.Buffers;
 using Spangle.Transport.Rtmp.NetStream;
 using static Spangle.Transport.Rtmp.Amf0.Amf0SequenceParser;
 
 namespace Spangle.Transport.Rtmp.ReadState;
 
-internal abstract class DataAmf0 : IReadStateAction
+internal abstract class DataAmf0
 {
-    public static async ValueTask Perform(RtmpReceiverContext context)
+    public static void Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
-        PipeReader reader = context.RemoteReader;
-        var (buff, disposeHandle) = await ReadHelper.ReadMessageBody(context);
+        // Parse command
+        string command = ParseString(ref payload);
 
-        using (disposeHandle)
+        // Dispatch RPC
+        switch (command)
         {
-            // Parse command
-            string command = ParseString(ref buff);
-
-            // Dispatch RPC
-            switch (command)
-            {
-                case RtmpNetStream.DataCommands.SetDataFrame:
-                    context.GetStreamOrError().OnSetDataFrame(ref buff);
-                    break;
-                default:
-                    throw new NotImplementedException($"The command `{command}` is not implemented.");
-            }
+            case RtmpNetStream.DataCommands.SetDataFrame:
+                context.GetStreamOrError().OnSetDataFrame(ref payload);
+                break;
+            default:
+                throw new NotImplementedException($"The command `{command}` is not implemented.");
         }
-
-        if (!disposeHandle.IsOriginalBufferConsumed)
-        {
-            reader.AdvanceTo(buff.End);
-        }
-        // await context.Writer.FlushAsync(context.CancellationToken);
-
-        context.SetNext<ReadChunkHeader>();
     }
 }
