@@ -1,14 +1,23 @@
 ﻿{
   Diagnostics: [
     {
-      Id: SPGEN001,
-      Title: Duplicated WriteAsAmf0Command method,
-      Severity: Error,
-      WarningLevel: 0,
-      Location: : (6,24)-(6,68),
-      MessageFormat: The Amf0Serializable struct {0} must not contain its own implementation of WriteAsAmf0Command in it,
+      Location: /*
+[Amf0Serializable]
+internal partial struct DuplicatedWriteAsAmf0CommandMethodTestStruct
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+{
+*/
+ : (6,24)-(6,68),
       Message: The Amf0Serializable struct DuplicatedWriteAsAmf0CommandMethodTestStruct must not contain its own implementation of WriteAsAmf0Command in it,
-      Category: SpangleSourceGen
+      Severity: Error,
+      Descriptor: {
+        Id: SPGEN001,
+        Title: Duplicated WriteAsAmf0Command method,
+        MessageFormat: The Amf0Serializable struct {0} must not contain its own implementation of WriteAsAmf0Command in it,
+        Category: SpangleSourceGen,
+        DefaultSeverity: Error,
+        IsEnabledByDefault: true
+      }
     }
   ]
 }

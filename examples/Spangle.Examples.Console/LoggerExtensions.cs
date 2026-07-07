@@ -14,7 +14,7 @@ public static class LoggerExtensions
                 // \u001b[31m => Red(ANSI Escape Code)
                 // \u001b[0m => Reset
                 // \u001b[38;5;***m => 256 Colors(08 is Gray)
-                formatter.SetPrefixFormatter($"{0}{1}|{2:short}|", (writer, info) =>
+                formatter.SetPrefixFormatter($"{0}{1}|{2:short}|", (in MessageTemplate writer, in LogInfo info) =>
                 {
                     var escapeSequence = "";
                     if (info.LogLevel >= LogLevel.Error)
@@ -29,7 +29,7 @@ public static class LoggerExtensions
                     writer.Format(escapeSequence, info.Timestamp, info.LogLevel);
                 });
 
-                formatter.SetSuffixFormatter($"{0}", (writer, info) =>
+                formatter.SetSuffixFormatter($"{0}", (in MessageTemplate writer, in LogInfo info) =>
                 {
                     if (info.LogLevel == LogLevel.Error || !info.Category.Name.Contains(concernedTarget))
                     {

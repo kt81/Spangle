@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 
 namespace Spangle.SourceGenerator.Tests.Rtmp;
 
-[UsesVerify]
 public class Amf0SerializableGeneratorSnapshotTests
 {
     [Fact]

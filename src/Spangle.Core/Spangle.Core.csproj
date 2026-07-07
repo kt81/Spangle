@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
@@ -25,12 +25,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AsyncAwaitBestPractices" Version="7.0.0" />
-    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="8.0.0" />
+    <PackageReference Include="AsyncAwaitBestPractices" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.9" />
     <PackageReference Include="Spangle.LusterBits" Version="0.1.1" />
     <PackageReference Include="ValueTaskSupplement" Version="1.1.0" />
-    <PackageReference Include="ZLogger" Version="2.1.0" />
-    <PackageReference Include="ZString" Version="2.5.1" />
+    <PackageReference Include="ZLogger" Version="2.5.10" />
+    <PackageReference Include="ZString" Version="2.6.0" />
   </ItemGroup>
 
   <ItemGroup>
