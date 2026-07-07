@@ -61,14 +61,13 @@ public sealed class LiveContext : IDisposable
     {
         if (ReceiverContext is RtmpReceiverContext rtmp && SenderContext is HLSSenderContext)
         {
-            if (ReceiverContext.VideoCodec == VideoCodec.H264)
-            {
-                return new FlvToM2TSSpinner(rtmp, SenderContext.VideoIntake, _cancellationToken);
-            }
-            throw new NotImplementedException();
+            // Codec support is the spinner's own concern; it rejects codecs
+            // that cannot be carried in its output container.
+            return new FlvToM2TSSpinner(rtmp, SenderContext.VideoIntake, _cancellationToken);
         }
 
-        throw new NotImplementedException();
+        throw new NotImplementedException(
+            $"No spinner is available for {ReceiverContext.GetType().Name} -> {SenderContext.GetType().Name}");
     }
 
     private bool _disposed;

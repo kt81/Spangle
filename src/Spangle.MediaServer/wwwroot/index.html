@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Spangle Media Server - Test Player</title>
+    <style>
+        body { font-family: sans-serif; max-width: 720px; margin: 2rem auto; }
+        video { width: 100%; background: #000; }
+        code { background: #eee; padding: 0.1rem 0.3rem; }
+    </style>
+</head>
+<body>
+<h1>Spangle Test Player</h1>
+<p>Publish a stream first, e.g.:</p>
+<pre><code>ffmpeg -re -f lavfi -i testsrc=size=640x360:rate=30 -f lavfi -i sine=frequency=440 \
+  -c:v libx264 -g 60 -pix_fmt yuv420p -c:a aac -f flv rtmp://localhost:1935/live/test</code></pre>
+<video id="video" controls autoplay muted></video>
+<p id="status"></p>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script>
+    const src = '/hls/playlist.m3u8';
+    const video = document.getElementById('video');
+    const status = document.getElementById('status');
+    if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.ERROR, (_, data) => {
+            status.textContent = `hls.js: ${data.type} / ${data.details}` + (data.fatal ? ' (fatal)' : '');
+        });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = src; // Safari
+    } else {
+        status.textContent = 'HLS is not supported in this browser.';
+    }
+</script>
+</body>
+</html>

@@ -9,7 +9,7 @@ internal abstract class SetChunkSize
     public static void Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
         uint size = BufferMarshal.As<BigEndianUInt32>(payload.Slice(0, 4)).HostValue;
-        IReadStateAction.EnsureValidProtocolControlMessage(context);
+        Protocol.EnsureValidProtocolControlMessage(context);
 
         if (size is < Protocol.MinChunkSize or > Protocol.MaxChunkSize)
         {

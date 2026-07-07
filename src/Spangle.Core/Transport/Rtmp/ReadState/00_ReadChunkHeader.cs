@@ -17,7 +17,7 @@ namespace Spangle.Transport.Rtmp.ReadState;
 /// per-chunk-stream state, and dispatches the message once it is complete.
 /// Chunks of different chunk streams may be interleaved.
 /// </summary>
-internal abstract class ReadChunkHeader : IReadStateAction
+internal abstract class ReadChunkHeader
 {
     private static readonly ILogger<ReadChunkHeader> s_logger = SpangleLogManager.GetLogger<ReadChunkHeader>();
 

@@ -1,10 +1,9 @@
 using System.Buffers;
-using System.Diagnostics;
 using System.IO.Pipelines;
 using Microsoft.Extensions.Logging;
 using Spangle.Codecs;
 using Spangle.Codecs.AVC;
-using Spangle.Containers.Flv;
+using Spangle.Codecs.HEVC;
 using Spangle.Containers.M2TS;
 using Spangle.Interop;
 using Spangle.Logging;
@@ -14,20 +13,24 @@ using ZLogger;
 namespace Spangle.Spinner;
 
 /// <summary>
-/// Converts framed FLV media (AVC video and AAC audio) into an MPEG-2 TS stream
-/// (PAT/PMT + PES). Consumes <see cref="MediaFrameHeader"/>-framed data from the intake pipe.
+/// Converts <see cref="MediaFrameHeader"/>-framed media (H.264/H.265 video and AAC audio)
+/// into an MPEG-2 TS stream (PAT/PMT + PES with Annex B / ADTS payload).
 /// </summary>
-public sealed class FlvToM2TSSpinner(RtmpReceiverContext context, PipeWriter anotherIntake, CancellationToken ct)
+public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anotherIntake, CancellationToken ct)
     : SpinnerBase<FlvToM2TSSpinner>(anotherIntake, ct)
 {
-    private static readonly byte[] s_accessUnitDelimiter = [0x00, 0x00, 0x00, 0x01, 0x09, 0xF0];
-    private static readonly byte[] s_startCode4 = [0x00, 0x00, 0x00, 0x01];
+    // Access unit delimiter NALUs, prepended to every access unit
+    private static readonly byte[] s_audH264 = [0x00, 0x00, 0x00, 0x01, 0x09, 0xF0];
+    private static readonly byte[] s_audH265 = [0x00, 0x00, 0x00, 0x01, 0x46, 0x01, 0x50];
 
-    private AVCDecoderConfigurationRecord? _avcConfig;
+    // ---- Video track state (established by the codec config frame) ----
+    private VideoCodec? _videoCodec;
+    private int         _naluLengthSize;
 
-    /// <summary>SPS/PPS in Annex B form, re-injected at every keyframe for segment independence.</summary>
+    /// <summary>Parameter sets (VPS/SPS/PPS) in Annex B form, re-injected at every keyframe for segment independence.</summary>
     private byte[]? _parameterSets;
 
+    // ---- Audio track state ----
     /// <summary>ADTS header template built from the AudioSpecificConfig; bytes 3..5 are patched per frame.</summary>
     private byte[]? _adtsTemplate;
 
@@ -95,36 +98,24 @@ public sealed class FlvToM2TSSpinner(RtmpReceiverContext context, PipeWriter ano
         }
     }
 
-    #region Video (AVC)
+    #region Video
 
     private void ProcessVideoFrame(in MediaFrameHeader frameHeader, ReadOnlySequence<byte> payload)
     {
-        var headerBuff = payload.Slice(0, FlvAVCAdditionalHeader.Size);
-        ref readonly var avcHeader = ref BufferMarshal.AsRefOrCopy<FlvAVCAdditionalHeader>(headerBuff);
-        var body = payload.Slice(headerBuff.End);
-
-        switch (avcHeader.PacketType)
+        if (frameHeader.IsConfig)
         {
-            case FlvAVCPacketType.SequenceHeader:
-                ProcessAVCDecoderConfigurationRecord(body);
-                return;
-            case FlvAVCPacketType.Nalu:
-                break;
-            case FlvAVCPacketType.EndOfSequence:
-                return;
-            default:
-                throw new InvalidDataException($"Invalid FlvAVCPacketType: {avcHeader.PacketType}");
+            ProcessVideoConfig(frameHeader.VideoCodec, payload);
+            return;
         }
 
-        // CompositionTime is SI24
-        var compositionTime = (int)avcHeader.CompositionTime.HostValue;
-        if ((compositionTime & 0x800000) != 0)
+        if (_videoCodec is null)
         {
-            compositionTime -= 0x1000000;
+            s_logger.ZLogWarning($"Video frame arrived before the codec config; dropped");
+            return;
         }
 
-        // timestamp is in milliseconds; pts and dts are in 90kHz units
-        long ptsMs = frameHeader.Timestamp + compositionTime;
+        // timestamps are in milliseconds; pts and dts are in 90kHz units
+        long ptsMs = frameHeader.Timestamp + frameHeader.CompositionTimeMs;
         if (ptsMs < 0)
         {
             ptsMs = 0;
@@ -132,7 +123,7 @@ public sealed class FlvToM2TSSpinner(RtmpReceiverContext context, PipeWriter ano
         ulong dts = frameHeader.Timestamp * 90ul;
         ulong pts = (ulong)ptsMs * 90ul;
 
-        BuildAccessUnit(body, frameHeader.IsKeyFrame);
+        BuildAccessUnit(payload, frameHeader.IsKeyFrame);
         if (_esBuffer.WrittenCount == 0)
         {
             return;
@@ -149,107 +140,48 @@ public sealed class FlvToM2TSSpinner(RtmpReceiverContext context, PipeWriter ano
         _esBuffer.Clear();
     }
 
-    private void ProcessAVCDecoderConfigurationRecord(ReadOnlySequence<byte> buff)
+    private void ProcessVideoConfig(VideoCodec codec, ReadOnlySequence<byte> payload)
     {
-        s_logger.ZLogTrace($"Parsing AVCDecoderConfigurationRecord fixed part");
-        var config = new AVCDecoderConfigurationRecord();
-        var configBuff = buff.Slice(0, AVCDecoderConfigurationRecord.Size);
-        configBuff.CopyTo(config.AsSpan());
-        buff = buff.Slice(configBuff.End);
-        _avcConfig = config;
-
-        var psBuffer = new ArrayBufferWriter<byte>(256);
-
-        int l = config.NumOfSequenceParameterSets;
-        s_logger.ZLogTrace($"Number of SPS: {l}");
-        const int spsLenSize = 2;
-        for (var i = 0; i < l; i++)
+        var parameterSets = new ArrayBufferWriter<byte>(256);
+        _naluLengthSize = codec switch
         {
-            var spsLenBuff = buff.Slice(0, spsLenSize);
-            ushort spsLen = BufferMarshal.AsRefOrCopy<BigEndianUInt16>(spsLenBuff).HostValue;
-            var spsBuff = buff.Slice(spsLenSize, spsLen);
-            WriteNaluWithStartCode4(psBuffer, spsBuff);
-            buff = buff.Slice(spsBuff.End);
-        }
-
-        var ppsSizeBuff = buff.Slice(0, 1);
-        l = buff.FirstSpan[0];
-        buff = buff.Slice(ppsSizeBuff.End);
-        s_logger.ZLogTrace($"Number of PPS: {l}");
-        const int ppsLenSize = 2;
-        for (var i = 0; i < l; i++)
-        {
-            var ppsLenBuff = buff.Slice(0, ppsLenSize);
-            ushort ppsLen = BufferMarshal.AsRefOrCopy<BigEndianUInt16>(ppsLenBuff).HostValue;
-            var ppsBuff = buff.Slice(ppsLenSize, ppsLen);
-            WriteNaluWithStartCode4(psBuffer, ppsBuff);
-            buff = buff.Slice(ppsBuff.End);
-        }
-
-        _parameterSets = psBuffer.WrittenSpan.ToArray();
+            VideoCodec.H264 => AVCDecoderConfigurationRecordReader.Parse(payload, parameterSets),
+            VideoCodec.H265 => HEVCDecoderConfigurationRecord.Parse(payload, parameterSets),
+            _ => throw new NotInScopeException(
+                $"{codec} cannot be carried in MPEG-2 TS; it requires the fMP4/CMAF pipeline (not implemented yet)"),
+        };
+        _parameterSets = parameterSets.WrittenSpan.ToArray();
+        _videoCodec = codec;
+        _tsWriter.VideoCodec = codec;
+        s_logger.ZLogDebug($"Video config: codec={codec}, naluLengthSize={_naluLengthSize}, parameterSets={_parameterSets.Length} bytes");
     }
 
-    private static void WriteNaluWithStartCode4(IBufferWriter<byte> writer, ReadOnlySequence<byte> nalu)
-    {
-        // SPS/PPS require the zero_byte before the start code (Annex B)
-        writer.Write(s_startCode4);
-        nalu.CopyTo(writer.GetSpan((int)nalu.Length));
-        writer.Advance((int)nalu.Length);
-    }
-
+    /// <summary>
+    /// Rebuilds one access unit in Annex B form:
+    /// AUD, then (for keyframes) the parameter sets, then the frame's NALUs
+    /// converted from length-prefixed to start-code form.
+    /// </summary>
     private void BuildAccessUnit(ReadOnlySequence<byte> buff, bool isKeyFrame)
     {
-        Debug.Assert(_avcConfig != null);
-
-        int lengthSize = _avcConfig!.Value.LengthSize;
-        var remaining = (int)buff.Length;
-
         _esBuffer.Clear();
-        _esBuffer.Write(s_accessUnitDelimiter);
+        _esBuffer.Write(_videoCodec == VideoCodec.H265 ? s_audH265 : s_audH264);
         if (isKeyFrame && _parameterSets is not null)
         {
             _esBuffer.Write(_parameterSets);
         }
 
+        var remaining = (int)buff.Length;
         while (remaining > 0)
         {
-            var lengthBuff = buff.Slice(0, lengthSize);
+            int length = ReadNaluLength(ref buff);
 
-            int length;
-            switch (lengthSize)
-            {
-                case 1:
-                    length = lengthBuff.FirstSpan[0];
-                    break;
-                case 2:
-                    {
-                        ref readonly var tmp = ref BufferMarshal.AsRefOrCopy<BigEndianUInt16>(lengthBuff);
-                        length = tmp.HostValue;
-                        break;
-                    }
-                case 4:
-                    {
-                        ref readonly var tmp = ref BufferMarshal.AsRefOrCopy<BigEndianUInt32>(lengthBuff);
-                        length = (int)tmp.HostValue;
-                        break;
-                    }
-                default:
-                    // Not to be reached
-                    throw new InvalidDataException();
-            }
-
-            buff = buff.Slice(lengthBuff.End);
-
-            var headerBuff = buff.Slice(0, 1);
-            ref readonly var header = ref BufferMarshal.AsRefOrCopy<NALUnitHeader>(headerBuff);
-
-            remaining -= lengthSize + length;
+            remaining -= _naluLengthSize + length;
             if (remaining < 0)
             {
                 throw new InvalidDataException("Invalid NALU length");
             }
 
-            if (header.Type == NALUnitType.AUD)
+            if (IsAudNalu(PeekByte(buff)))
             {
                 // We prepend our own AUD; drop the source's one
                 buff = buff.Slice(length);
@@ -257,13 +189,51 @@ public sealed class FlvToM2TSSpinner(RtmpReceiverContext context, PipeWriter ano
             }
 
             NALAnnexB.WriteNALUIndicator(_esBuffer);
-            var writeBuff = _esBuffer.GetSpan(length);
-            var readBuff = buff.Slice(0, length);
-            readBuff.CopyTo(writeBuff);
-
+            var naluBuff = buff.Slice(0, length);
+            naluBuff.CopyTo(_esBuffer.GetSpan(length));
             _esBuffer.Advance(length);
-            buff = buff.Slice(readBuff.End);
+            buff = buff.Slice(naluBuff.End);
         }
+    }
+
+    private int ReadNaluLength(ref ReadOnlySequence<byte> buff)
+    {
+        var lengthBuff = buff.Slice(0, _naluLengthSize);
+        int length;
+        switch (_naluLengthSize)
+        {
+            case 1:
+                length = PeekByte(lengthBuff);
+                break;
+            case 2:
+                length = BufferMarshal.AsRefOrCopy<BigEndianUInt16>(lengthBuff).HostValue;
+                break;
+            case 4:
+                length = (int)BufferMarshal.AsRefOrCopy<BigEndianUInt32>(lengthBuff).HostValue;
+                break;
+            default:
+                // Not to be reached
+                throw new InvalidDataException();
+        }
+
+        buff = buff.Slice(lengthBuff.End);
+        return length;
+    }
+
+    private bool IsAudNalu(byte naluFirstByte) => _videoCodec == VideoCodec.H265
+        ? ((naluFirstByte >> 1) & 0x3F) == 35 // HEVC AUD_NUT
+        : (naluFirstByte & 0x1F) == (byte)NALUnitType.AUD;
+
+    private static byte PeekByte(in ReadOnlySequence<byte> buff)
+    {
+        var span = buff.FirstSpan;
+        if (span.Length > 0)
+        {
+            return span[0];
+        }
+        Span<byte> one = stackalloc byte[1];
+        buff.Slice(0, 1).CopyTo(one);
+        return one[0];
     }
 
     #endregion
@@ -274,18 +244,16 @@ public sealed class FlvToM2TSSpinner(RtmpReceiverContext context, PipeWriter ano
 
     private void ProcessAudioFrame(in MediaFrameHeader frameHeader, ReadOnlySequence<byte> payload)
     {
-        var packetType = (FlvAACPacketType)payload.FirstSpan[0];
-        var body = payload.Slice(1);
-
-        switch (packetType)
+        if (frameHeader.AudioCodec != AudioCodec.AAC)
         {
-            case FlvAACPacketType.AACSequenceHeader:
-                ProcessAudioSpecificConfig(body);
-                return;
-            case FlvAACPacketType.AACRaw:
-                break;
-            default:
-                throw new InvalidDataException($"Invalid FlvAACPacketType: {packetType}");
+            s_logger.ZLogWarning($"Unsupported audio codec, dropping: {frameHeader.AudioCodec}");
+            return;
+        }
+
+        if (frameHeader.IsConfig)
+        {
+            ProcessAudioSpecificConfig(payload);
+            return;
         }
 
         if (_adtsTemplate is null)
@@ -294,7 +262,7 @@ public sealed class FlvToM2TSSpinner(RtmpReceiverContext context, PipeWriter ano
             return;
         }
 
-        var aacLength = (int)body.Length;
+        var aacLength = (int)payload.Length;
         int frameLength = AdtsHeaderSize + aacLength;
 
         _esBuffer.Clear();
@@ -305,7 +273,7 @@ public sealed class FlvToM2TSSpinner(RtmpReceiverContext context, PipeWriter ano
         adts[5] = (byte)(((frameLength & 0x07) << 5) | 0x1F);
         _esBuffer.Advance(AdtsHeaderSize);
 
-        body.CopyTo(_esBuffer.GetSpan(aacLength));
+        payload.CopyTo(_esBuffer.GetSpan(aacLength));
         _esBuffer.Advance(aacLength);
 
         ulong pts = frameHeader.Timestamp * 90ul;

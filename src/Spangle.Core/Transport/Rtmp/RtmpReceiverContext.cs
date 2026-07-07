@@ -31,11 +31,6 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     internal BasicHeader   BasicHeaderToSend   = default;
     internal MessageHeader MessageHeaderToSend = default;
 
-    /// <summary>
-    /// Previous message format for next Fmt3
-    /// </summary>
-    internal MessageHeaderFormat PreviousFormat = MessageHeaderFormat.Fmt0;
-
     #endregion
 
     #region Settings & Protocol Info
@@ -116,18 +111,9 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     #endregion
 
-    #region For state loop
+    #region Receive loop
 
     // =======================================================================
-
-    internal IReadStateAction.Action MoveNext { get; private set; }
-        = StateStore<ReadChunkHeader>.Action;
-
-    internal void SetNext<TProcessor>() where TProcessor : IReadStateAction
-    {
-        MoveNext = StateStore<TProcessor>.Action;
-        Logger.ZLogTrace($"State changed: {typeof(TProcessor).Name}");
-    }
 
     public override async ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource)
     {
@@ -136,17 +122,18 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
         s_logger.ZLogDebug($"Handshake done");
         ConnectionState = ReceivingState.WaitingConnect;
 
+        // One iteration = one chunk. Complete messages are dispatched inside.
         while (!IsCompleted)
         {
             if (Timeout > 0)
             {
                 readTimeoutSource.CancelAfter(Timeout);
-                await MoveNext(this);
+                await ReadChunkHeader.Perform(this);
                 readTimeoutSource.TryReset();
             }
             else
             {
-                await MoveNext(this);
+                await ReadChunkHeader.Perform(this);
             }
         }
 
