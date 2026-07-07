@@ -86,12 +86,9 @@ internal abstract class ReadChunkHeader : IReadStateAction
                 context.Timestamp += context.MessageHeader.TimestampOrDeltaInterop;
                 break;
             case MessageHeaderFormat.Fmt3:
-                if (context.PreviousFormat == MessageHeaderFormat.Fmt0)
-                {
-                    // Set delta to zero for following Fmt3 chunks
-                    context.MessageHeader.TimestampOrDeltaInterop = 0;
-                }
-                else
+                // A Fmt3 chunk that starts a new message reuses the previous timestamp (delta).
+                // A Fmt3 chunk that continues the current message carries no timestamp at all.
+                if (!context.IsReadingChunkContinuation)
                 {
                     context.Timestamp += context.MessageHeader.TimestampOrDeltaInterop;
                 }

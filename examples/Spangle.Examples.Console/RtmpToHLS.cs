@@ -56,8 +56,19 @@ public class RtmpToHLS
         ILogger logger, CancellationToken ct)
     {
         var rtmp = RtmpReceiverContext.CreateFromTcpClient(tcpClient, ct);
-        var hls = new HLSSenderContext(ct);
+        var hls = new HLSSenderContext(ct) { OutputDirectory = "hls-out" };
         LiveContext live = new LiveContext(rtmp, hls);
+        var senderTask = Task.Run(async () =>
+        {
+            try
+            {
+                await sender.StartAsync(hls);
+            }
+            catch (Exception e)
+            {
+                logger.ZLogError($"Sender error: {e}");
+            }
+        }, ct);
         try
         {
             logger.ZLogDebug($"Connection opened: {rtmp.ToString()}");
@@ -70,6 +81,9 @@ public class RtmpToHLS
         finally
         {
             tcpClient.Dispose();
+            // Let the sender drain the remaining TS packets and finalize the playlist
+            await hls.VideoIntake.CompleteAsync();
+            await senderTask;
             logger.ZLogDebug($"Connection closed: {rtmp.ToString()}");
         }
     }

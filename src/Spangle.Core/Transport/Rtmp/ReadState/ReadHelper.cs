@@ -41,7 +41,15 @@ internal class ReadHelper
 
             if (shouldConsumeHeader)
             {
-                await ReadChunkHeader.Perform(context);
+                context.IsReadingChunkContinuation = true;
+                try
+                {
+                    await ReadChunkHeader.Perform(context);
+                }
+                finally
+                {
+                    context.IsReadingChunkContinuation = false;
+                }
                 if (context.BasicHeader.Format != MessageHeaderFormat.Fmt3
                     || context.BasicHeader.ChunkStreamId != readingChunkStreamId)
                 {

@@ -92,6 +92,12 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public readonly ConcurrentQueue<VideoReaderContext> VideoReaderContexts = new();
 
     /// <summary>
+    /// True while a continuation (Fmt3) chunk header of the current message is being read.
+    /// Continuation chunks carry no timestamp, unlike Fmt3 chunks that start a new message.
+    /// </summary>
+    internal bool IsReadingChunkContinuation;
+
+    /// <summary>
     /// Returns "Current" stream in receiving context.
     /// Do not call this out of the stream specific command context.
     /// </summary>
@@ -219,4 +225,5 @@ public struct VideoReaderContext
 {
     public int  MessageLength;
     public uint Timestamp;
+    public bool IsKeyFrame;
 }
