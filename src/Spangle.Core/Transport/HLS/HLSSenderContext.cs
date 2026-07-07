@@ -14,6 +14,11 @@ public class HLSSenderContext : ISenderContext<HLSSenderContext>
     public PipeReader VideoReader { get; }
     public PipeReader AudioReader { get; }
 
+    /// <summary>Directory where segments and the playlist are written.</summary>
+    public string OutputDirectory { get; set; } = "hls-out";
+
+    /// <summary>Minimum segment duration in seconds; segments are cut at the first keyframe after this.</summary>
+    public double TargetSegmentDuration { get; set; } = 2.0;
 
     public HLSSenderContext(CancellationToken ct)
     {

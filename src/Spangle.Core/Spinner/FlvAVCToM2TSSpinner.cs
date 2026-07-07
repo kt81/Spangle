@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Diagnostics;
 using System.IO.Pipelines;
 using Microsoft.Extensions.Logging;
@@ -14,22 +14,25 @@ using ZLogger;
 namespace Spangle.Spinner;
 
 /// <summary>
-/// NAL file to Annex B spinner
+/// Converts FLV/AVC video tags into an MPEG-2 TS stream (PAT/PMT + PES with Annex B payload).
 /// </summary>
 public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter anotherIntake, CancellationToken ct)
     : SpinnerBase<FlvAVCToM2TSSpinner>(anotherIntake, ct)
 {
-    // TODO move to another place
-    private const int  PidVideo      = 0x100;
-    private const byte StreamIdVideo = 0xE0;
+    private static readonly byte[] s_accessUnitDelimiter = [0x00, 0x00, 0x00, 0x01, 0x09, 0xF0];
+    private static readonly byte[] s_startCode4 = [0x00, 0x00, 0x00, 0x01];
 
     private ulong? _dts;
     private ulong? _pts;
-    private bool   _hasSentAUD;
+    private bool   _isKeyFrame;
 
     private AVCDecoderConfigurationRecord? _avcConfig;
 
-    private readonly ArrayBufferWriter<byte> _pesBuffer = new(1024);
+    /// <summary>SPS/PPS in Annex B form, re-injected at every keyframe for segment independence.</summary>
+    private byte[]? _parameterSets;
+
+    private readonly ArrayBufferWriter<byte> _esBuffer = new(4096);
+    private readonly M2TSWriter _tsWriter = new();
 
     private static readonly ILogger<FlvAVCToM2TSSpinner> s_logger;
 
@@ -51,27 +54,37 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
             var result = await IntakeReader.ReadAtLeastAsync(readerContext.MessageLength, CancellationToken);
             var buff = result.Buffer;
 
-            ReadAndSendNext(ref buff, readerContext);
+            ReadNext(ref buff, readerContext);
 
             IntakeReader.AdvanceTo(buff.Start);
 
-            SendPES();
+            SendPes();
             await Outlet.FlushAsync(CancellationToken);
         }
     }
 
-    private void ReadAndSendNext(ref ReadOnlySequence<byte> buff, VideoReaderContext readerContext)
+    private void ReadNext(ref ReadOnlySequence<byte> buff, VideoReaderContext readerContext)
     {
         var headerBuff = buff.Slice(0, FlvAVCAdditionalHeader.Size);
         ref readonly var header = ref BufferMarshal.AsRefOrCopy<FlvAVCAdditionalHeader>(headerBuff);
         buff = buff.Slice(headerBuff.End);
 
-        // timestamp is in milliseconds
-        // pts and dts are in 90kHz
-        //  timestamp / 1000 * 90000 = timestamp * 90
-        // round to 33 bits
-        _dts = (readerContext.Timestamp * 90ul) & 0x1FFFFFFFFul;
-        _pts = ((readerContext.Timestamp + header.CompositionTime.HostValue) * 90ul) & 0x1FFFFFFFFul;
+        // CompositionTime is SI24
+        var compositionTime = (int)header.CompositionTime.HostValue;
+        if ((compositionTime & 0x800000) != 0)
+        {
+            compositionTime -= 0x1000000;
+        }
+
+        // timestamp is in milliseconds; pts and dts are in 90kHz units
+        long ptsMs = readerContext.Timestamp + compositionTime;
+        if (ptsMs < 0)
+        {
+            ptsMs = 0;
+        }
+        _dts = readerContext.Timestamp * 90ul;
+        _pts = (ulong)ptsMs * 90ul;
+        _isKeyFrame = readerContext.IsKeyFrame;
 
         switch (header.PacketType)
         {
@@ -80,7 +93,7 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
                 break;
             case FlvAVCPacketType.Nalu:
                 readerContext.MessageLength -= FlvAVCAdditionalHeader.Size;
-                ProcessNALU(ref buff, readerContext);
+                BuildAccessUnit(ref buff, readerContext);
                 break;
             case FlvAVCPacketType.EndOfSequence:
                 break;
@@ -98,6 +111,8 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
         buff = buff.Slice(configBuff.End);
         _avcConfig = config;
 
+        var psBuffer = new ArrayBufferWriter<byte>(256);
+
         int l = config.NumOfSequenceParameterSets;
         s_logger.ZLogTrace($"Number of SPS: {l}");
         const int spsLenSize = 2;
@@ -106,8 +121,7 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
             var spsLenBuff = buff.Slice(0, spsLenSize);
             ushort spsLen = BufferMarshal.AsRefOrCopy<BigEndianUInt16>(spsLenBuff).HostValue;
             var spsBuff = buff.Slice(spsLenSize, spsLen);
-            NALAnnexB.WriteNALU(_pesBuffer, spsBuff);
-            // _hasSentSPS = true;
+            WriteNaluWithStartCode4(psBuffer, spsBuff);
             buff = buff.Slice(spsBuff.End);
         }
 
@@ -121,23 +135,37 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
             var ppsLenBuff = buff.Slice(0, ppsLenSize);
             ushort ppsLen = BufferMarshal.AsRefOrCopy<BigEndianUInt16>(ppsLenBuff).HostValue;
             var ppsBuff = buff.Slice(ppsLenSize, ppsLen);
-            NALAnnexB.WriteNALU(_pesBuffer, ppsBuff);
-            // _hasSentPPS = true;
+            WriteNaluWithStartCode4(psBuffer, ppsBuff);
             buff = buff.Slice(ppsBuff.End);
         }
+
+        _parameterSets = psBuffer.WrittenSpan.ToArray();
     }
 
-    private void ProcessNALU(ref ReadOnlySequence<byte> buff, VideoReaderContext readerContext)
+    private static void WriteNaluWithStartCode4(IBufferWriter<byte> writer, ReadOnlySequence<byte> nalu)
+    {
+        // SPS/PPS require the zero_byte before the start code (Annex B)
+        writer.Write(s_startCode4);
+        nalu.CopyTo(writer.GetSpan((int)nalu.Length));
+        writer.Advance((int)nalu.Length);
+    }
+
+    private void BuildAccessUnit(ref ReadOnlySequence<byte> buff, VideoReaderContext readerContext)
     {
         Debug.Assert(_avcConfig != null);
 
         int lengthSize = _avcConfig!.Value.LengthSize;
-        s_logger.ZLogTrace($"NALU Length Size: {lengthSize}");
         int messageLength = readerContext.MessageLength;
+
+        _esBuffer.Clear();
+        _esBuffer.Write(s_accessUnitDelimiter);
+        if (_isKeyFrame && _parameterSets is not null)
+        {
+            _esBuffer.Write(_parameterSets);
+        }
 
         while (messageLength > 0)
         {
-            s_logger.ZLogTrace($"NALUs remaining: {messageLength}");
             var lengthBuff = buff.Slice(0, lengthSize);
 
             int length;
@@ -165,27 +193,23 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
 
             buff = buff.Slice(lengthBuff.End);
 
-            s_logger.ZLogTrace($"NALU Length: {length}");
-
             var headerBuff = buff.Slice(0, 1);
             ref readonly var header = ref BufferMarshal.AsRefOrCopy<NALUnitHeader>(headerBuff);
 
             if (header.Type == NALUnitType.AUD)
             {
-                _hasSentAUD = true;
-            }
-            else if (!_hasSentAUD)
-            {
-                _pesBuffer.Write(new byte[] { 0x00, 0x00, 0x00, 0x01, 0x09 });
-                _hasSentAUD = true;
+                // We prepend our own AUD; drop the source's one
+                buff = buff.Slice(length);
+                messageLength -= lengthSize + length;
+                continue;
             }
 
-            NALAnnexB.WriteNALUIndicator(_pesBuffer);
-            var writeBuff = _pesBuffer.GetSpan(length);
+            NALAnnexB.WriteNALUIndicator(_esBuffer);
+            var writeBuff = _esBuffer.GetSpan(length);
             var readBuff = buff.Slice(0, length);
             readBuff.CopyTo(writeBuff);
 
-            _pesBuffer.Advance(length);
+            _esBuffer.Advance(length);
             buff = buff.Slice(readBuff.End);
 
             messageLength -= lengthSize + length;
@@ -196,24 +220,23 @@ public sealed class FlvAVCToM2TSSpinner(RtmpReceiverContext context, PipeWriter 
         }
     }
 
-    // private async ValueTask ReadMore(SequencePosition consumed, ref ReadOnlySequence<byte> buff)
-    // {
-    //     IntakeReader.AdvanceTo(consumed);
-    //     var res = await IntakeReader.ReadAsync(CancellationToken);
-    //     buff = res.Buffer;
-    // }
-
-    private void SendPES()
+    private void SendPes()
     {
-        if (_pesBuffer.WrittenCount == 0)
+        if (_esBuffer.WrittenCount == 0)
         {
             return;
         }
 
-        var pesBuff = _pesBuffer.WrittenSpan;
-        // TODO PESWriter is still a stub; pass the raw ES data through until TS packetization is implemented
-        PESWriter.WritePES(pesBuff, PidVideo, 0, true, StreamIdVideo, _pts, _dts, Outlet);
-        Outlet.Write(pesBuff);
-        _pesBuffer.Clear();
+        if (_isKeyFrame)
+        {
+            _tsWriter.WriteProgramTables(Outlet);
+        }
+
+        // Omit DTS when equal to PTS (no B-frames)
+        ulong? dts = _dts == _pts ? null : _dts;
+        _tsWriter.WritePes(Outlet, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo,
+            _esBuffer.WrittenSpan, _pts, dts, _isKeyFrame, withPcr: true);
+
+        _esBuffer.Clear();
     }
 }

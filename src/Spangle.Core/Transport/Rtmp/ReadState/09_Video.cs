@@ -96,6 +96,7 @@ internal abstract class Video : IReadStateAction
         {
             MessageLength = (int)context.MessageHeader.Length.HostValue - headerLength,
             Timestamp = context.Timestamp,
+            IsKeyFrame = ctrl.FrameType is FlvVideoFrameType.Keyframe or FlvVideoFrameType.GeneratedKeyframe,
         });
 
         buff = buff.Slice(endPos);

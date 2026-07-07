@@ -331,4 +331,4 @@ fabric.properties
 
 # etc
 Thumbs.db
-.DS_Store
+.DS_Storehls-out/
