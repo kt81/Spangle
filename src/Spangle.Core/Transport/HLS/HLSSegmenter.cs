@@ -109,7 +109,11 @@ internal sealed class HLSSegmenter
     private void FinalizeSegment(double duration)
     {
         string name = _playlist.NextSegmentName(".ts");
-        File.WriteAllBytes(Path.Combine(_directory, name), _current.ToArray());
+        using (var file = File.Create(Path.Combine(_directory, name)))
+        {
+            // Write straight from the accumulation buffer; no per-segment copy
+            file.Write(_current.GetBuffer(), 0, (int)_current.Length);
+        }
         _current.SetLength(0);
         _playlist.AddSegment(name, duration);
     }

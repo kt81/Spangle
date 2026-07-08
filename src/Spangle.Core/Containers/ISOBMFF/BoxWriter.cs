@@ -15,6 +15,19 @@ internal sealed class BoxWriter
 
     public long Length => _ms.Length;
 
+    /// <summary>Rewinds the writer for reuse; the underlying buffer is kept</summary>
+    public void Reset()
+    {
+        _ms.SetLength(0);
+        _openBoxes.Clear();
+    }
+
+    /// <summary>Writes the accumulated bytes to <paramref name="destination"/> without copying to an intermediate array</summary>
+    public void WriteTo(Stream destination)
+    {
+        destination.Write(_ms.GetBuffer(), 0, (int)_ms.Length);
+    }
+
     public void Begin(string type)
     {
         _openBoxes.Push(_ms.Position);

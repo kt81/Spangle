@@ -27,7 +27,7 @@ internal readonly struct CmafAudioTrack
 
 internal readonly struct CmafSample
 {
-    public required byte[] Data { get; init; }
+    public required ReadOnlyMemory<byte> Data { get; init; }
 
     /// <summary>Sample duration in the track timescale</summary>
     public required uint Duration { get; init; }
@@ -51,6 +51,9 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
     private const uint SampleFlagsNonSync = 0x01010000; // sample_depends_on = 1 + non-sync
 
     private uint _sequenceNumber = 1;
+
+    // Reused for every fragment; its buffer stabilizes at the largest fragment size
+    private readonly BoxWriter _fragmentWriter = new();
 
     public byte[] BuildInitSegment()
     {
@@ -84,13 +87,16 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
     }
 
     /// <summary>
-    /// Builds one media segment. Base times are in the respective track timescales.
+    /// Builds one media segment into <paramref name="output"/>.
+    /// Base times are in the respective track timescales.
     /// </summary>
-    public byte[] BuildFragment(
+    public void BuildFragment(
         ulong videoBaseTime, IReadOnlyList<CmafSample> videoSamples,
-        ulong audioBaseTime, IReadOnlyList<CmafSample> audioSamples)
+        ulong audioBaseTime, IReadOnlyList<CmafSample> audioSamples,
+        Stream output)
     {
-        var w = new BoxWriter();
+        var w = _fragmentWriter;
+        w.Reset();
 
         w.Begin("styp");
         w.WriteFourCc("msdh");
@@ -153,12 +159,12 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
         long videoBytes = 0;
         foreach (var s in videoSamples)
         {
-            w.WriteBytes(s.Data);
+            w.WriteBytes(s.Data.Span);
             videoBytes += s.Data.Length;
         }
         foreach (var s in audioSamples)
         {
-            w.WriteBytes(s.Data);
+            w.WriteBytes(s.Data.Span);
         }
         w.End(); // mdat
 
@@ -170,7 +176,7 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
             w.PatchUInt32(audioOffsetPatch, (uint)(mdatPayloadOffset + videoBytes));
         }
 
-        return w.ToArray();
+        w.WriteTo(output);
     }
 
     // ---- moov internals ----
