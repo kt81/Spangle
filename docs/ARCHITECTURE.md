@@ -9,16 +9,25 @@ this kind of system.
 
 One publisher connection = one pipeline instance. Every arrow below is a
 `System.IO.Pipelines` pipe (backpressure-aware, single writer / single reader),
-and every stage is a single async loop.
+and every stage is a single async loop. There are two output shapes:
 
 ```
+TS output (HLSSegmentFormat.MpegTs):
+
         TCP bytes                MediaFrame stream               MPEG-2 TS stream            files
 publisher ──────► RtmpReceiverContext ──────► FlvToM2TSSpinner ──────► HLSSender ──────► *.ts / *.m3u8
-                  (Transport.Rtmp)            (Spinner)               (Transport.HLS)         │
-                                                                                              ▼
-                                                                                   Kestrel static files
-                                                                                   (Spangle.MediaServer)
+
+CMAF output (HLSSegmentFormat.Fmp4, optionally LL-HLS):
+
+        TCP bytes                MediaFrame stream
+publisher ──────► RtmpReceiverContext ──────► CmafHLSSender ──────► init.mp4 / *.m4s (+parts) / *.m3u8
+                                              (muxes ISO-BMFF itself; no spinner needed because
+                                               FLV codec payloads are already valid fMP4 samples)
 ```
+
+Files land in `<OutputDirectory>/<sanitized stream name>/`, so multiple publishers
+serve concurrently under `/hls/{stream}/...`. Live playlists are additionally published
+to the in-memory `HLSStreamRegistry` for LL-HLS blocking reload.
 
 - **Receiver** (`IReceiverContext`): speaks the ingest protocol and unwraps its envelope
   completely. Emits self-contained *media frames* (see below). All RTMP/FLV knowledge
@@ -123,26 +132,55 @@ belong to the future fMP4/CMAF pipeline.
 
 ## HLS segmentation
 
-`HLSSegmenter` consumes 188-byte TS packets and only ever looks at three things:
+TS mode: `HLSSegmenter` consumes 188-byte TS packets and only ever looks at three things:
 PAT PUSI packets (potential cut points, since the muxer sends PAT right before
 keyframes), PCR values (time), and everything else (opaque payload).
 A segment is cut at the first keyframe whose PCR is at least `TargetSegmentDuration`
-after the segment start; `EXTINF` is the exact PCR difference. The playlist keeps a
-sliding window (live) and gets `#EXT-X-ENDLIST` when the stream completes.
+after the segment start; `EXTINF` is the exact PCR difference.
+
+CMAF mode: `CmafSegmentBuilder` buffers `MediaFrame`s and builds fragments with
+`CmafPackager` (`Containers/ISOBMFF`): the init segment carries the codec configuration
+records verbatim (`avcC`/`hvcC`/`av1C` + `esds`), and each fragment is `styp+moof+mdat`.
+Sample durations come from DTS deltas (video, 90kHz timescale) or are the fixed
+1024 ticks per AAC frame (audio, sample-rate timescale).
+
+Both modes share `HLSPlaylist` (sliding window, file deletion, `#EXT-X-ENDLIST` on
+completion; `EXT-X-MAP`/version 6 for fMP4).
+
+## LL-HLS
+
+In low-latency mode (fMP4 only) each segment is built from ~`PartTargetDuration`-sized
+fragments; every fragment is published immediately as an `#EXT-X-PART` file
+(`segNNNNN.pNN.m4s`, `INDEPENDENT=YES` when it starts with a keyframe), and the segment
+file is simply the concatenation of its parts. The playlist advertises
+`#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES`, `#EXT-X-PART-INF` and a
+`#EXT-X-PRELOAD-HINT` for the next part.
+
+Blocking reload works through `HLSStreamRegistry`: the builder publishes every playlist
+update (text + newest MSN/part) to a per-stream `LivePlaylist`; the HTTP layer awaits
+`_HLS_msn`/`_HLS_part` conditions on it before responding.
 
 ## Hosting (Spangle.MediaServer)
 
 Kestrel listens on two ports from `spanglesettings.yaml`: the RTMP port with a raw
-`ConnectionHandler` that runs the pipeline above, and an HTTP port serving the HLS output
-directory (`/hls/...`) plus a test player at `/`. One publisher at a time writes into the
-configured output directory; per-stream routing is future work.
+`ConnectionHandler` that runs the pipeline above, and an HTTP port. Live playlists are
+served from the registry (with blocking reload); everything else — segments, parts,
+init files, ended playlists, the test player at `/` — is static file serving with HLS
+MIME types. Options select the segment format and LL-HLS per server.
+
+## SRT (status)
+
+The sibling repo `Spangle.Net.Transport.SRT` (managed listener + native libsrt interop)
+loads and accepts SRT callers; MPEG-TS packets arrive intact (verified with
+`ffmpeg -f mpegts srt://...`). What is missing is the ingest-side TS demuxer
+(PAT/PMT parsing, per-PID PES reassembly, Annex B → length-prefixed conversion) that
+would turn the TS stream into `MediaFrame`s — the mirror image of `M2TSWriter`.
+`SRTReceiver` is currently a debug stub that only parses TS headers.
 
 ## Known simplifications (as of now)
 
-- Single program / fixed PIDs; one publisher per output directory
-- PCR equals DTS (no PCR offset); PCR ~every frame instead of a 100ms scheduler
-- Sender contexts still expose separate `VideoIntake`/`AudioIntake`, but the muxed TS
-  actually flows through `VideoIntake` — the interface predates the muxer and should be
-  reshaped (e.g. a single `MediaIntake`) together with the CMAF work
+- Single program / fixed PIDs in TS output; PCR equals DTS (no PCR offset)
+- Concurrent publishers with the same stream name clash in the same directory
 - Extended timestamps (>0xFFFFFF ms ≈ 4.6h) are consumed but not fully exercised by tests
 - Abrupt disconnects may lose the tail frames that were still in flight
+- LL-HLS: no playlist delta updates (`_HLS_skip`), no rendition reports
