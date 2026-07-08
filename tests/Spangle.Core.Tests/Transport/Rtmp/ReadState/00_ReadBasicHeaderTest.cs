@@ -1,67 +1,70 @@
-﻿using Spangle.Transport.Rtmp.Chunk;
-using Spangle.Transport.Rtmp.ReadState;
+using Spangle.Transport.Rtmp.Chunk;
 
 namespace Spangle.Tests.Transport.Rtmp.ReadState;
 
+/// <summary>
+/// Tests for the 1-3 byte chunk basic header encodings of <see cref="BasicHeader"/>.
+/// </summary>
 public class ReadBasicHeaderTest
 {
-    [Fact]
-    public async Task TestType1()
+    private static BasicHeader Parse(params byte[] bytes)
     {
-        byte[] expected = { 0b00_000011 }; // fmt=0, csId=3
-        var context = (await TestContext.WithData(expected)).Context;
-        await ReadChunkHeader.ReadBasicHeader(context);
-        context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt0);
-        context.BasicHeader.ChunkStreamId.Should().Be(3u);
+        var header = new BasicHeader();
+        bytes.CopyTo(header.AsSpan());
+        return header;
     }
 
     [Fact]
-    public async Task TestType1_Max()
+    public void TestType1()
     {
-        byte[] expected = { 0xFF }; // fmt=3, csId=63
-        var context = (await TestContext.WithData(expected)).Context;
-        await ReadChunkHeader.ReadBasicHeader(context);
-        context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt3);
-        context.BasicHeader.ChunkStreamId.Should().Be(63u);
+        var header = Parse(0b00_000011); // fmt=0, csId=3
+        header.Format.Should().Be(MessageHeaderFormat.Fmt0);
+        header.ChunkStreamId.Should().Be(3u);
+        header.RequiredLength.Should().Be(1);
     }
 
     [Fact]
-    public async Task TestType2()
+    public void TestType1_Max()
     {
-        byte[] expected = { 0b01_000000, 0x00 }; // fmt=1, csId=64
-        var context = (await TestContext.WithData(expected)).Context;
-        await ReadChunkHeader.ReadBasicHeader(context);
-        context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt1);
-        context.BasicHeader.ChunkStreamId.Should().Be(64u);
+        var header = Parse(0xFF); // fmt=3, csId=63
+        header.Format.Should().Be(MessageHeaderFormat.Fmt3);
+        header.ChunkStreamId.Should().Be(63u);
+        header.RequiredLength.Should().Be(1);
     }
 
     [Fact]
-    public async Task TestType2_Max()
+    public void TestType2()
     {
-        byte[] expected = { 0b10_000000, 0xFF }; // fmt=2, csId=255+64
-        var context = (await TestContext.WithData(expected)).Context;
-        await ReadChunkHeader.ReadBasicHeader(context);
-        context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt2);
-        context.BasicHeader.ChunkStreamId.Should().Be(319u);
+        var header = Parse(0b01_000000, 0x00); // fmt=1, csId=64
+        header.Format.Should().Be(MessageHeaderFormat.Fmt1);
+        header.ChunkStreamId.Should().Be(64u);
+        header.RequiredLength.Should().Be(2);
     }
 
     [Fact]
-    public async Task TestType3()
+    public void TestType2_Max()
     {
-        byte[] expected = { 0b01_000001, 0x00, 0x00 }; // fmt=1, csId=64
-        var context = (await TestContext.WithData(expected)).Context;
-        await ReadChunkHeader.ReadBasicHeader(context);
-        context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt1);
-        context.BasicHeader.ChunkStreamId.Should().Be(64u);
+        var header = Parse(0b10_000000, 0xFF); // fmt=2, csId=255+64
+        header.Format.Should().Be(MessageHeaderFormat.Fmt2);
+        header.ChunkStreamId.Should().Be(319u);
+        header.RequiredLength.Should().Be(2);
     }
 
     [Fact]
-    public async Task TestType3_Max()
+    public void TestType3()
     {
-        byte[] expected = { 0b11_000001, 0xFF, 0xFF }; // fmt=3, csId=65535+64
-        var context = (await TestContext.WithData(expected)).Context;
-        await ReadChunkHeader.ReadBasicHeader(context);
-        context.BasicHeader.Format.Should().Be(MessageHeaderFormat.Fmt3);
-        context.BasicHeader.ChunkStreamId.Should().Be(65599);
+        var header = Parse(0b01_000001, 0x00, 0x00); // fmt=1, csId=64
+        header.Format.Should().Be(MessageHeaderFormat.Fmt1);
+        header.ChunkStreamId.Should().Be(64u);
+        header.RequiredLength.Should().Be(3);
+    }
+
+    [Fact]
+    public void TestType3_Max()
+    {
+        var header = Parse(0b11_000001, 0xFF, 0xFF); // fmt=3, csId=65535+64
+        header.Format.Should().Be(MessageHeaderFormat.Fmt3);
+        header.ChunkStreamId.Should().Be(65599u);
+        header.RequiredLength.Should().Be(3);
     }
 }
