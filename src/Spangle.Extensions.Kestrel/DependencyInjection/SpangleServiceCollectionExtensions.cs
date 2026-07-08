@@ -1,4 +1,6 @@
-﻿namespace Spangle.Extensions.Kestrel.DependencyInjection;
+using Spangle.Transport.HLS;
+
+namespace Spangle.Extensions.Kestrel.DependencyInjection;
 
 public static class SpangleServiceCollectionExtensions
 {
@@ -11,5 +13,6 @@ public static class SpangleServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddSingleton<RtmpConnectionHandler>();
+        services.AddSingleton<HLSStreamRegistry>();
     }
 }

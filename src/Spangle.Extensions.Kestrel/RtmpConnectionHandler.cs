@@ -12,6 +12,7 @@ namespace Spangle.Extensions.Kestrel;
 public class RtmpConnectionHandler(
     IOptions<SpangleMediaServerOptions> options,
     IHostApplicationLifetime lifetime,
+    HLSStreamRegistry registry,
     ILogger<RtmpConnectionHandler> logger) : ConnectionHandler
 {
     public override async Task OnConnectedAsync(ConnectionContext connection)
@@ -32,6 +33,9 @@ public class RtmpConnectionHandler(
             OutputDirectory = hlsOptions.OutputDirectory,
             TargetSegmentDuration = hlsOptions.TargetSegmentDuration,
             SegmentFormat = segmentFormat,
+            LowLatency = hlsOptions.LowLatency && segmentFormat == HLSSegmentFormat.Fmp4,
+            PartTargetDuration = hlsOptions.PartTargetDuration,
+            Registry = registry,
         };
         using var live = new LiveContext(receiver, hls, ct);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4

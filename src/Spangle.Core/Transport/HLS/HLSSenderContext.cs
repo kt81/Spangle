@@ -28,6 +28,15 @@ public class HLSSenderContext : ISenderContext<HLSSenderContext>
 
     public HLSSegmentFormat SegmentFormat { get; set; } = HLSSegmentFormat.MpegTs;
 
+    /// <summary>Enables LL-HLS partial segments (fMP4 only)</summary>
+    public bool LowLatency { get; set; }
+
+    /// <summary>Target duration of LL-HLS partial segments in seconds</summary>
+    public double PartTargetDuration { get; set; } = 0.5;
+
+    /// <summary>When set, playlist updates are published here for in-memory serving and blocking reload</summary>
+    public HLSStreamRegistry? Registry { get; set; }
+
     public HLSSenderContext(CancellationToken ct)
     {
         CancellationToken = ct;
@@ -37,13 +46,13 @@ public class HLSSenderContext : ISenderContext<HLSSenderContext>
     }
 
     /// <summary>
-    /// Resolves the directory for the current stream, e.g. "hls-out/mystream".
+    /// The sanitized stream name used as the directory name and the registry key.
     /// Must be called after media started flowing (the stream name is known by then).
     /// </summary>
-    internal string ResolveStreamDirectory()
-    {
-        return Path.Combine(OutputDirectory, SanitizeStreamName(SourceInfo?.StreamName));
-    }
+    internal string ResolveStreamKey() => SanitizeStreamName(SourceInfo?.StreamName);
+
+    /// <inheritdoc cref="ResolveStreamKey"/>
+    internal string ResolveStreamDirectory() => Path.Combine(OutputDirectory, ResolveStreamKey());
 
     private static string SanitizeStreamName(string? name)
     {
