@@ -4,8 +4,10 @@
 THIS PROJECT IS WORKING IN PROGRESS
 ====================================
 
-Current status: RTMP (classic + enhanced) ingest of H.264/H.265 + AAC works end-to-end
-into HLS (MPEG-2 TS segments + live playlist), served over HTTP by `Spangle.MediaServer`.
+Current status: RTMP (classic + enhanced) ingest of H.264/H.265/AV1 + AAC works
+end-to-end into HLS — MPEG-2 TS or CMAF/fMP4 segments, optionally LL-HLS (partial
+segments + blocking playlist reload) — served over HTTP by `Spangle.MediaServer`
+with per-stream routing (`/hls/{stream}/playlist.m3u8`).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow, the data formats at
 each boundary, and where state lives.
