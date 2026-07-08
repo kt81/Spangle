@@ -163,7 +163,8 @@ internal class RtmpNetStream
                 // Throws error in dev env
                 throw new NotImplementedException($"The event name {eventName} is not implemented.");
 #else
-                s_logger.ZLogWarning("The event name {0} is not implemented.", eventName);
+                _logger.ZLogWarning($"The event name {eventName} is not implemented.");
+                break;
 #endif
         }
     }

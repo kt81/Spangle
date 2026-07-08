@@ -333,3 +333,5 @@ fabric.properties
 Thumbs.db
 .DS_Store
 hls-out/
+BenchmarkDotNet.Artifacts/
+loadtest-out/

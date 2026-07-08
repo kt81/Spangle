@@ -22,6 +22,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Spangle.Core.Tests" />
     <InternalsVisibleTo Include="Spangle.SourceGenerator.Tests" />
+    <InternalsVisibleTo Include="Spangle.Core.Benchmarks" />
   </ItemGroup>
 
   <ItemGroup>
