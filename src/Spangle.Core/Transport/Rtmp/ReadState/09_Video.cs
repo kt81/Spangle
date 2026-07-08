@@ -61,8 +61,16 @@ internal abstract class Video
                     break;
                 case FlvVideoPacketType.PacketTypeCodedFrames:
                     flags = ToKeyFrameFlag(ctrl.FrameType);
-                    compositionTimeMs = ReadSi24(span[5..8]);
-                    body = payload.Slice(8);
+                    if (codec is VideoCodec.H264 or VideoCodec.H265)
+                    {
+                        // The SI24 composition time is only present for AVC/HEVC
+                        compositionTimeMs = ReadSi24(span[5..8]);
+                        body = payload.Slice(8);
+                    }
+                    else
+                    {
+                        body = payload.Slice(5);
+                    }
                     break;
                 case FlvVideoPacketType.PacketTypeCodedFramesX:
                     // CompositionTime is implied to be zero

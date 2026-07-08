@@ -66,6 +66,9 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public string? App;
     public string? PreparingStreamName;
 
+    /// <inheritdoc/>
+    public override string? StreamName => PreparingStreamName;
+
     public bool IsGoAwayEnabled;
 
     #endregion

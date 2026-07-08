@@ -36,6 +36,11 @@ public abstract class ReceiverContextBase<TSelf>(PipeReader reader, PipeWriter w
 
     public AudioCodec? AudioCodec { get; set; }
 
+    public virtual string? StreamName => null;
+
+    public uint VideoWidth { get; set; }
+    public uint VideoHeight { get; set; }
+
     public PipeReader RemoteReader { get; } = reader;
     public PipeWriter RemoteWriter { get; } = writer;
 

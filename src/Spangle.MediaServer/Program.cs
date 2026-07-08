@@ -19,6 +19,7 @@ Directory.CreateDirectory(hlsDirectory);
 var contentTypes = new FileExtensionContentTypeProvider();
 contentTypes.Mappings[".m3u8"] = "application/vnd.apple.mpegurl";
 contentTypes.Mappings[".ts"] = "video/mp2t";
+contentTypes.Mappings[".m4s"] = "video/iso.segment";
 
 app.UseDefaultFiles();
 app.UseStaticFiles(); // wwwroot (test player)

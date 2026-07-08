@@ -28,6 +28,19 @@ public interface IReceiverContext
     public AudioCodec? AudioCodec { get; }
 
     /// <summary>
+    /// The name of the published stream, once known (e.g. the RTMP publish name)
+    /// </summary>
+    public string? StreamName { get; }
+
+    /// <summary>
+    /// Video dimensions from the source metadata; 0 when unknown
+    /// </summary>
+    public uint VideoWidth { get; }
+
+    /// <inheritdoc cref="VideoWidth"/>
+    public uint VideoHeight { get; }
+
+    /// <summary>
     /// Reader for remote connection
     /// </summary>
     public PipeReader RemoteReader { get; }

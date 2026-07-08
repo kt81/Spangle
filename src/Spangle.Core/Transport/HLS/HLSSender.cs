@@ -6,6 +6,9 @@ using ZLogger;
 
 namespace Spangle.Transport.HLS;
 
+/// <summary>
+/// HLS sender for MPEG-2 TS segments. Consumes a muxed TS stream from the intake pipe.
+/// </summary>
 public class HLSSender : ISender<HLSSenderContext>, IDisposable
 {
     private static readonly ILogger<HLSSender> s_logger = SpangleLogManager.GetLogger<HLSSender>();
@@ -18,9 +21,8 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
     public async ValueTask StartAsync(HLSSenderContext context)
     {
         var ct = context.CancellationToken;
-        var segmenter = new HLSSegmenter(context.OutputDirectory, context.TargetSegmentDuration);
-        var reader = context.VideoReader;
-        s_logger.ZLogInformation($"HLS output to {context.OutputDirectory}");
+        var reader = context.IntakeReader;
+        HLSSegmenter? segmenter = null;
 
         try
         {
@@ -28,7 +30,17 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
             {
                 var result = await reader.ReadAsync(ct);
 
-                var consumed = ProcessBuffer(segmenter, result.Buffer);
+                if (segmenter is null && result.Buffer.Length > 0)
+                {
+                    // Media is flowing, so the stream name is known by now
+                    var directory = context.ResolveStreamDirectory();
+                    segmenter = new HLSSegmenter(directory, context.TargetSegmentDuration);
+                    s_logger.ZLogInformation($"HLS(TS) output to {directory}");
+                }
+
+                var consumed = segmenter is null
+                    ? result.Buffer.Start
+                    : ProcessBuffer(segmenter, result.Buffer);
                 reader.AdvanceTo(consumed, result.Buffer.End);
 
                 if (result.IsCompleted)
@@ -43,7 +55,7 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
         }
         finally
         {
-            segmenter.Complete();
+            segmenter?.Complete();
             s_logger.ZLogInformation($"HLS stream completed");
         }
     }
