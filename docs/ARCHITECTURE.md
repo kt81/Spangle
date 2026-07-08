@@ -32,13 +32,21 @@ to the in-memory `HLSStreamRegistry` for LL-HLS blocking reload.
 - **Receiver** (`IReceiverContext`): speaks the ingest protocol and unwraps its envelope
   completely. Emits self-contained *media frames* (see below). All RTMP/FLV knowledge
   stays here.
-- **Spinner** (`ISpinner`): converts between media formats. `FlvToM2TSSpinner` rebuilds
-  codec payloads (AVC/HEVC length-prefixed NALUs → Annex B, AAC raw → ADTS) and muxes them
-  into MPEG-2 TS. A spinner owns one intake pipe and writes into the next stage's pipe.
+- **Spinner** (`ISpinner`): a processing stage that owns one intake pipe and writes into
+  the next stage's pipe. Spinners play two roles:
+  - *format conversion* as the terminal stage — `FlvToM2TSSpinner` rebuilds codec
+    payloads (AVC/HEVC length-prefixed NALUs → Annex B, AAC raw → ADTS) and muxes them
+    into MPEG-2 TS
+  - *interception (the plugin point)* — `LiveContext` accepts an ordered list of
+    MediaFrame→MediaFrame spinners that are inserted between the receiver and the
+    terminal stage, regardless of the output format. This is where cross-cutting
+    processing plugs in later, e.g. turning AMF data events into timed metadata
+    (ID3 for TS, `emsg` for CMAF), filtering, or on-the-fly transforms.
 - **Sender** (`ISender`): delivers to viewers. `HLSSender` cuts the TS stream into segments
-  and maintains a playlist; HTTP delivery itself is plain static file serving.
-- **`LiveContext`** wires one receiver to one sender by choosing a spinner once the video
-  codec is known (`VideoCodecSet` event).
+  and maintains a playlist; `CmafHLSSender` muxes MediaFrames itself. HTTP delivery is
+  plain static file serving plus the in-memory playlist endpoint.
+- **`LiveContext`** wires receiver → [media spinners…] → terminal once the video codec
+  is known (`VideoCodecSet` event).
 
 Shutdown propagates through pipe completion: receiver completes its outlet → spinner
 drains and completes its outlet → sender finalizes the last segment and writes

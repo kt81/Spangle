@@ -16,66 +16,68 @@ public sealed class LiveContext : IDisposable
 
     private CancellationToken _cancellationToken;
 
-    private LinkedList<ISpinner> VideoSpinnerChain { get; } = new();
-    private LinkedList<ISpinner> AudioSpinnerChain { get; } = new();
+    /// <summary>
+    /// User-provided MediaFrame-to-MediaFrame transforms, inserted between the receiver
+    /// and the terminal stage in order. This is the plugin point of the pipeline:
+    /// e.g. a spinner that turns AMF data events into timed-metadata frames.
+    /// </summary>
+    private readonly IReadOnlyList<ISpinner> _mediaSpinners;
 
-    public LiveContext(IReceiverContext receiverContext, ISenderContext senderContext, CancellationToken cancellationToken = default)
+    public LiveContext(IReceiverContext receiverContext, ISenderContext senderContext,
+        CancellationToken cancellationToken = default, IReadOnlyList<ISpinner>? mediaSpinners = null)
     {
         ReceiverContext = receiverContext;
         SenderContext = senderContext;
         senderContext.SourceInfo = receiverContext;
         _cancellationToken = cancellationToken;
+        _mediaSpinners = mediaSpinners ?? [];
         receiverContext.VideoCodecSet += OnVideoCodecSet;
     }
 
     /// <summary>
-    /// OnVideoCodecSet is an event handler for video codec set event.
+    /// Wires the pipeline once the video codec is known:
+    /// receiver → [media spinners...] → terminal (a format-converting spinner, or
+    /// the sender itself when it consumes MediaFrames directly).
     /// </summary>
-    /// <param name="_"></param>
     private void OnVideoCodecSet(VideoCodec _)
     {
-        if (SenderContext is HLSSenderContext { SegmentFormat: HLSSegmentFormat.Fmp4 })
+        var intake = DetermineTerminalIntake();
+
+        // Wire the interceptor chain back to front
+        for (int i = _mediaSpinners.Count - 1; i >= 0; i--)
         {
-            // The CMAF sender muxes MediaFrames itself; no spinner is needed in between
-            ReceiverContext.MediaOutlet = SenderContext.Intake;
-            return;
+            var spinner = _mediaSpinners[i];
+            spinner.Outlet = intake;
+            spinner.BeginSpin();
+            intake = spinner.Intake;
         }
 
-        AddVideoSpinner(DetermineVideoSpinner());
-    }
-
-    private void AddVideoSpinner(ISpinner spinner)
-    {
-        // TODO Insert video spinners to the chain based on configuration
-        if (VideoSpinnerChain.Count == 0)
-        {
-            ReceiverContext.MediaOutlet = spinner.Intake;
-        }
-        else
-        {
-            VideoSpinnerChain.Last!.Value.Outlet = spinner.Intake;
-        }
-        VideoSpinnerChain.AddLast(spinner);
-        spinner.BeginSpin();
+        ReceiverContext.MediaOutlet = intake;
     }
 
     /// <summary>
-    /// DetermineVideoSpinner determines video spinner based on combination of intake and outlet video format.
+    /// Determines the terminal stage of the MediaFrame chain based on the
+    /// receiver/sender pairing, and returns its intake.
     /// </summary>
-    /// <returns></returns>
-    /// <exception cref="ArgumentOutOfRangeException"></exception>
-    /// <exception cref="IndexOutOfRangeException"></exception>
-    private ISpinner DetermineVideoSpinner()
+    private System.IO.Pipelines.PipeWriter DetermineTerminalIntake()
     {
+        if (SenderContext is HLSSenderContext { SegmentFormat: HLSSegmentFormat.Fmp4 })
+        {
+            // The CMAF sender muxes MediaFrames itself; no converting spinner is needed
+            return SenderContext.Intake;
+        }
+
         if (ReceiverContext is RtmpReceiverContext rtmp && SenderContext is HLSSenderContext)
         {
             // Codec support is the spinner's own concern; it rejects codecs
             // that cannot be carried in its output container.
-            return new FlvToM2TSSpinner(rtmp, SenderContext.Intake, _cancellationToken);
+            var spinner = new FlvToM2TSSpinner(rtmp, SenderContext.Intake, _cancellationToken);
+            spinner.BeginSpin();
+            return spinner.Intake;
         }
 
         throw new NotImplementedException(
-            $"No spinner is available for {ReceiverContext.GetType().Name} -> {SenderContext.GetType().Name}");
+            $"No terminal stage is available for {ReceiverContext.GetType().Name} -> {SenderContext.GetType().Name}");
     }
 
     private bool _disposed;
