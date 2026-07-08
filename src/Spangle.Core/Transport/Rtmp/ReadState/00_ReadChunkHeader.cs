@@ -1,10 +1,7 @@
 using System.Buffers;
 using System.Diagnostics;
 using System.IO.Pipelines;
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
-using Spangle.Interop;
-using Spangle.IO;
 using Spangle.Logging;
 using Spangle.Transport.Rtmp.Chunk;
 using Spangle.Transport.Rtmp.ProtocolControlMessage;
@@ -13,8 +10,10 @@ using ZLogger;
 namespace Spangle.Transport.Rtmp.ReadState;
 
 /// <summary>
-/// Reads one chunk (basic header + message header + payload chunk), assembles it into the
-/// per-chunk-stream state, and dispatches the message once it is complete.
+/// The receive core: reads once from the pipe, then synchronously parses as many complete
+/// chunks as the buffer holds (assembling them into the per-chunk-stream state), dispatching
+/// each completed message. Only one read and one advance happen per iteration, so the
+/// per-chunk cost is plain buffer parsing with no pipe round-trips.
 /// Chunks of different chunk streams may be interleaved.
 /// </summary>
 internal abstract class ReadChunkHeader
@@ -24,44 +23,171 @@ internal abstract class ReadChunkHeader
     public static async ValueTask Perform(RtmpReceiverContext context)
     {
         PipeReader reader = context.RemoteReader;
-        CancellationToken ct = context.CancellationToken;
+        ReadResult result = await reader.ReadAsync(context.CancellationToken);
+        var buffer = result.Buffer;
 
-        await ReadBasicHeader(context);
+        while (TryReadChunk(context, ref buffer, out var completed))
+        {
+            if (completed is null)
+            {
+                continue; // mid-message chunk; keep parsing
+            }
+
+            // Expose the completed message via the context for the handlers
+            context.Timestamp = completed.Timestamp;
+            context.MessageHeader.SetFmt0(completed.Timestamp, completed.MessageLength,
+                completed.TypeId, completed.MessageStreamId);
+            context.BasicHeader.ChunkStreamId = completed.ChunkStreamId;
+
+            // The assembly buffer is our own copy, so dispatching while the read buffer
+            // is still rented is safe: handlers never touch RemoteReader.
+            var payload = new ReadOnlySequence<byte>(completed.Assembly.WrittenMemory);
+            await DispatchMessage(context, completed, payload);
+            completed.Assembly.Clear();
+
+            if (context.IsCompleted)
+            {
+                break;
+            }
+        }
+
+        reader.AdvanceTo(buffer.Start, buffer.End);
+
+        if (result.IsCompleted && !context.IsCompleted)
+        {
+            // The peer closed the connection without deleteStream
+            s_logger.ZLogInformation($"Connection closed by peer");
+            context.ConnectionState = ReceivingState.Terminated;
+        }
+    }
+
+    /// <summary>
+    /// Tries to parse one chunk (basic header + message header + payload chunk) from the
+    /// front of <paramref name="buffer"/>. Consumes it from the buffer and updates the
+    /// chunk stream state only when the whole chunk is available; otherwise leaves
+    /// everything untouched and returns false.
+    /// </summary>
+    /// <param name="context">Connection context</param>
+    /// <param name="buffer">The unconsumed read buffer; advanced past the chunk on success</param>
+    /// <param name="completedMessage">Set when this chunk completed a message</param>
+    internal static bool TryReadChunk(RtmpReceiverContext context, ref ReadOnlySequence<byte> buffer,
+        out ChunkStreamState? completedMessage)
+    {
+        completedMessage = null;
+
+        // ---- Basic header (1-3 bytes) ----
+        if (buffer.Length < 1)
+        {
+            return false;
+        }
+        var bh = context.BasicHeader.AsSpan();
+        buffer.Slice(0, 1).CopyTo(bh);
+        int bhLen = context.BasicHeader.RequiredLength;
+        if (buffer.Length < bhLen)
+        {
+            return false;
+        }
+        buffer.Slice(0, bhLen).CopyTo(bh);
+
         var format = context.BasicHeader.Format;
         var state = context.GetChunkStreamState(context.BasicHeader.ChunkStreamId);
 
-        await ReadMessageHeader(context, state, format);
-
-        if (state.Remaining == 0)
+        // ---- Message header (0/3/7/11 bytes) + extended timestamp ----
+        int mhLen = format.GetMessageHeaderLength();
+        var header = new MessageHeader();
+        if (buffer.Length < bhLen + mhLen)
         {
-            // A new message begins with this chunk
+            return false;
+        }
+        if (mhLen > 0)
+        {
+            buffer.Slice(bhLen, mhLen).CopyTo(header.AsSpan());
+        }
+
+        // Fmt3 chunks carry the extended timestamp if the last Fmt0-2 header on this
+        // chunk stream had one
+        bool hasExtendedTimestamp = mhLen > 0 ? header.HasExtendedTimestamp : state.HasExtendedTimestamp;
+        int extLen = hasExtendedTimestamp ? sizeof(uint) : 0;
+        if (extLen > 0)
+        {
+            if (buffer.Length < bhLen + mhLen + extLen)
+            {
+                return false;
+            }
+            buffer.Slice(bhLen + mhLen, extLen).CopyTo(header.ExtendedTimeStamp.AsSpan());
+        }
+
+        // ---- Payload availability ----
+        bool startsNewMessage = state.Remaining == 0;
+        uint messageLength = format is MessageHeaderFormat.Fmt0 or MessageHeaderFormat.Fmt1
+            ? header.Length.HostValue
+            : state.MessageLength;
+        int remaining = startsNewMessage ? (int)messageLength : state.Remaining;
+        int chunkLength = Math.Min(remaining, (int)context.ChunkSize);
+        int totalLength = bhLen + mhLen + extLen + chunkLength;
+        if (buffer.Length < totalLength)
+        {
+            return false;
+        }
+
+        // ---- The whole chunk is available; commit to the chunk stream state ----
+        switch (format)
+        {
+            case MessageHeaderFormat.Fmt0:
+                state.Timestamp = header.TimestampOrDeltaInterop;
+                // Per spec, a Fmt3 chunk that starts a new message right after a Fmt0 chunk
+                // uses the Fmt0 timestamp as its delta
+                state.TimestampDelta = header.TimestampOrDeltaInterop;
+                state.MessageLength = header.Length.HostValue;
+                state.TypeId = header.TypeId;
+                state.MessageStreamId = header.StreamId;
+                break;
+            case MessageHeaderFormat.Fmt1:
+                state.TimestampDelta = header.TimestampOrDeltaInterop;
+                state.Timestamp += state.TimestampDelta;
+                state.MessageLength = header.Length.HostValue;
+                state.TypeId = header.TypeId;
+                break;
+            case MessageHeaderFormat.Fmt2:
+                state.TimestampDelta = header.TimestampOrDeltaInterop;
+                state.Timestamp += state.TimestampDelta;
+                break;
+            case MessageHeaderFormat.Fmt3:
+                if (startsNewMessage)
+                {
+                    // Starts a new message: re-apply the previous delta
+                    state.Timestamp += state.TimestampDelta;
+                }
+                // A continuation chunk carries no timestamp
+                break;
+            default:
+                throw new InvalidDataException($"Unrecognized message header format {format}");
+        }
+        if (mhLen > 0)
+        {
+            state.HasExtendedTimestamp = header.HasExtendedTimestamp;
+        }
+
+        if (startsNewMessage)
+        {
             state.Remaining = (int)state.MessageLength;
             state.Assembly.Clear();
         }
-
-        // Read one chunk of the payload
-        int chunkLength = Math.Min(state.Remaining, (int)context.ChunkSize);
         if (chunkLength > 0)
         {
-            (ReadOnlySequence<byte> buff, _) = await reader.ReadExactAsync(chunkLength, ct);
-            buff.CopyTo(state.Assembly.GetSpan(chunkLength));
+            buffer.Slice(bhLen + mhLen + extLen, chunkLength).CopyTo(state.Assembly.GetSpan(chunkLength));
             state.Assembly.Advance(chunkLength);
-            reader.AdvanceTo(buff.End);
             state.Remaining -= chunkLength;
         }
 
-        if (state.Remaining > 0)
+        buffer = buffer.Slice(totalLength);
+        DumpChunk(state, format);
+
+        if (state.Remaining == 0)
         {
-            return; // wait for the next chunks (possibly interleaved with other chunk streams)
+            completedMessage = state;
         }
-
-        // Message is complete; expose it via the context for the handlers
-        context.Timestamp = state.Timestamp;
-        context.MessageHeader.SetFmt0(state.Timestamp, state.MessageLength, state.TypeId, state.MessageStreamId);
-
-        var payload = new ReadOnlySequence<byte>(state.Assembly.WrittenMemory);
-        await DispatchMessage(context, state, payload);
-        state.Assembly.Clear();
+        return true;
     }
 
     private static async ValueTask DispatchMessage(RtmpReceiverContext context, ChunkStreamState state,
@@ -97,111 +223,10 @@ internal abstract class ReadChunkHeader
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static async ValueTask ReadBasicHeader(RtmpReceiverContext context)
-    {
-        PipeReader reader = context.RemoteReader;
-        CancellationToken ct = context.CancellationToken;
-
-        // Check the first byte
-        (ReadOnlySequence<byte> firstBuff, _) = await reader.ReadExactAsync(1, ct);
-        firstBuff.CopyTo(context.BasicHeader.AsSpan());
-        var endPos = firstBuff.End;
-
-        // Read the remaining buffer if needed
-        int fullLen = context.BasicHeader.RequiredLength;
-        if (fullLen > 1)
-        {
-            reader.AdvanceTo(firstBuff.Start); // reset reading
-            (ReadOnlySequence<byte> fullBuff, _) = await reader.ReadExactAsync(fullLen, ct);
-            fullBuff.CopyTo(context.BasicHeader.AsSpan());
-            endPos = fullBuff.End;
-        }
-
-        reader.AdvanceTo(endPos);
-
-        DumpBasicHeader(context);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static async ValueTask ReadMessageHeader(RtmpReceiverContext context, ChunkStreamState state,
-        MessageHeaderFormat format)
-    {
-        PipeReader reader = context.RemoteReader;
-        CancellationToken ct = context.CancellationToken;
-        int len = format.GetMessageHeaderLength();
-
-        var header = new MessageHeader();
-        if (len > 0)
-        {
-            (ReadOnlySequence<byte> buff, _) = await reader.ReadExactAsync(len, ct);
-            unsafe
-            {
-                buff.CopyTo(header.AsSpan());
-            }
-            reader.AdvanceTo(buff.End);
-
-            state.HasExtendedTimestamp = header.HasExtendedTimestamp;
-        }
-
-        if (state.HasExtendedTimestamp)
-        {
-            // Fmt3 chunks also carry the extended timestamp if the last Fmt0-2 header had one
-            (ReadOnlySequence<byte> buff, _) = await reader.ReadExactAsync(sizeof(uint), ct);
-            unsafe
-            {
-                buff.CopyTo(header.ExtendedTimeStamp.AsSpan());
-            }
-            reader.AdvanceTo(buff.End);
-        }
-
-        switch (format)
-        {
-            case MessageHeaderFormat.Fmt0:
-                state.Timestamp = header.TimestampOrDeltaInterop;
-                // Per spec, a Fmt3 chunk that starts a new message right after a Fmt0 chunk
-                // uses the Fmt0 timestamp as its delta
-                state.TimestampDelta = header.TimestampOrDeltaInterop;
-                state.MessageLength = header.Length.HostValue;
-                state.TypeId = header.TypeId;
-                state.MessageStreamId = header.StreamId;
-                break;
-            case MessageHeaderFormat.Fmt1:
-                state.TimestampDelta = header.TimestampOrDeltaInterop;
-                state.Timestamp += state.TimestampDelta;
-                state.MessageLength = header.Length.HostValue;
-                state.TypeId = header.TypeId;
-                break;
-            case MessageHeaderFormat.Fmt2:
-                state.TimestampDelta = header.TimestampOrDeltaInterop;
-                state.Timestamp += state.TimestampDelta;
-                break;
-            case MessageHeaderFormat.Fmt3:
-                if (state.Remaining == 0)
-                {
-                    // Starts a new message: re-apply the previous delta
-                    state.Timestamp += state.TimestampDelta;
-                }
-                // A continuation chunk carries no timestamp
-                break;
-            default:
-                throw new InvalidDataException($"Unrecognized message header format {format}");
-        }
-
-        DumpMessageHeader(state, format);
-    }
-
     [Conditional("DEBUG")]
-    private static void DumpBasicHeader(RtmpReceiverContext context)
-    {
-        s_logger.ZLogTrace($"{context.BasicHeader.ToString()}");
-    }
-
-    [Conditional("DEBUG")]
-    private static void DumpMessageHeader(ChunkStreamState state, MessageHeaderFormat format)
+    private static void DumpChunk(ChunkStreamState state, MessageHeaderFormat format)
     {
         s_logger.ZLogTrace(
-            $$"""ChunkStream {csid:{{state.ChunkStreamId}}, fmt:{{format}}, ts:{{state.Timestamp}}, msgLen:{{state.MessageLength}}, msgTypeId:{{state.TypeId}}, streamId:{{state.MessageStreamId}}, remaining:{{state.Remaining}}}""")
-            ;
+            $$"""Chunk {csid:{{state.ChunkStreamId}}, fmt:{{format}}, ts:{{state.Timestamp}}, msgLen:{{state.MessageLength}}, msgTypeId:{{state.TypeId}}, streamId:{{state.MessageStreamId}}, remaining:{{state.Remaining}}}""");
     }
 }
