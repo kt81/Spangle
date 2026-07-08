@@ -38,6 +38,12 @@ public class HlsOptions : MediaProtocolOptions
 
     /// <summary>Minimum segment duration in seconds; segments are cut at the first keyframe after this</summary>
     [Range(0.5, 60.0)] public double TargetSegmentDuration { get; set; } = 2.0;
+
+    /// <summary>Enables LL-HLS partial segments and blocking playlist reload (fMP4 only)</summary>
+    public bool LowLatency { get; set; }
+
+    /// <summary>Target duration of LL-HLS partial segments in seconds</summary>
+    [Range(0.1, 5.0)] public double PartTargetDuration { get; set; } = 0.5;
 }
 
 public abstract class MediaProtocolOptions

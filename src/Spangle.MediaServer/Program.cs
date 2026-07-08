@@ -3,6 +3,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Spangle.Extensions.Kestrel;
 using Spangle.Extensions.Kestrel.DependencyInjection;
+using Spangle.Transport.HLS;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +21,43 @@ var contentTypes = new FileExtensionContentTypeProvider();
 contentTypes.Mappings[".m3u8"] = "application/vnd.apple.mpegurl";
 contentTypes.Mappings[".ts"] = "video/mp2t";
 contentTypes.Mappings[".m4s"] = "video/iso.segment";
+
+// Serve live playlists from memory, implementing LL-HLS blocking reload
+// (?_HLS_msn=&_HLS_part=). Falls through to static files for ended streams.
+var registry = app.Services.GetRequiredService<HLSStreamRegistry>();
+var playlistPathPrefix = options.Hls.RequestPath + "/";
+app.Use(async (ctx, next) =>
+{
+    PathString path = ctx.Request.Path;
+    if (path.Value is { } p
+        && p.StartsWith(playlistPathPrefix, StringComparison.OrdinalIgnoreCase)
+        && p.EndsWith("/playlist.m3u8", StringComparison.OrdinalIgnoreCase))
+    {
+        string streamKey = p[playlistPathPrefix.Length..^"/playlist.m3u8".Length];
+        if (!streamKey.Contains('/') && registry.TryGet(streamKey, out var live))
+        {
+            string text;
+            if (long.TryParse(ctx.Request.Query["_HLS_msn"], out long msn))
+            {
+                _ = int.TryParse(ctx.Request.Query["_HLS_part"], out int part);
+                text = await live.WaitForAsync(msn, part, TimeSpan.FromSeconds(15), ctx.RequestAborted);
+            }
+            else
+            {
+                text = live.Current;
+            }
+
+            if (text.Length > 0)
+            {
+                ctx.Response.ContentType = "application/vnd.apple.mpegurl";
+                ctx.Response.Headers.CacheControl = "no-cache, no-store";
+                await ctx.Response.WriteAsync(text);
+                return;
+            }
+        }
+    }
+    await next();
+});
 
 app.UseDefaultFiles();
 app.UseStaticFiles(); // wwwroot (test player)
