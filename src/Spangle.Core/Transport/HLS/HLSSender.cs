@@ -63,12 +63,20 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
     private static SequencePosition ProcessBuffer(HLSSegmenter segmenter, in ReadOnlySequence<byte> buffer)
     {
         var buff = buffer;
-        Span<byte> packet = stackalloc byte[M2TSWriter.PacketSize];
+        Span<byte> copyBuff = stackalloc byte[M2TSWriter.PacketSize];
         while (buff.Length >= M2TSWriter.PacketSize)
         {
             var packetSeq = buff.Slice(0, M2TSWriter.PacketSize);
-            packetSeq.CopyTo(packet);
-            segmenter.ProcessPacket(packet);
+            if (packetSeq.IsSingleSegment)
+            {
+                segmenter.ProcessPacket(packetSeq.FirstSpan);
+            }
+            else
+            {
+                // The packet straddles a pipe segment boundary; copy is unavoidable
+                packetSeq.CopyTo(copyBuff);
+                segmenter.ProcessPacket(copyBuff);
+            }
             buff = buff.Slice(M2TSWriter.PacketSize);
         }
         return buff.Start;

@@ -23,6 +23,7 @@ internal sealed class HLSPlaylist(
     private readonly List<(string Name, double Duration)> _window = new();
     private readonly List<(string Name, double Duration, bool Independent)> _currentParts = new();
     private List<(string Name, double Duration, bool Independent)> _lastSegmentParts = new();
+    private readonly StringBuilder _sb = new(1024);
     private int _sequence;
 
     /// <summary>The media sequence number of the segment currently being produced</summary>
@@ -94,7 +95,7 @@ internal sealed class HLSPlaylist(
 
         double targetDuration = _window.Count > 0 ? _window.Max(static w => w.Duration) : partTargetDuration ?? 1.0;
 
-        var sb = new StringBuilder();
+        StringBuilder sb = _sb.Clear();
         sb.Append("#EXTM3U\n");
         sb.Append(mapUri is null ? "#EXT-X-VERSION:3\n" : "#EXT-X-VERSION:6\n");
         sb.Append($"#EXT-X-TARGETDURATION:{(int)Math.Ceiling(targetDuration)}\n");
