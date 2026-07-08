@@ -23,6 +23,7 @@ public sealed class LiveContext : IDisposable
     {
         ReceiverContext = receiverContext;
         SenderContext = senderContext;
+        senderContext.SourceInfo = receiverContext;
         _cancellationToken = cancellationToken;
         receiverContext.VideoCodecSet += OnVideoCodecSet;
     }
@@ -33,6 +34,13 @@ public sealed class LiveContext : IDisposable
     /// <param name="_"></param>
     private void OnVideoCodecSet(VideoCodec _)
     {
+        if (SenderContext is HLSSenderContext { SegmentFormat: HLSSegmentFormat.Fmp4 })
+        {
+            // The CMAF sender muxes MediaFrames itself; no spinner is needed in between
+            ReceiverContext.MediaOutlet = SenderContext.Intake;
+            return;
+        }
+
         AddVideoSpinner(DetermineVideoSpinner());
     }
 
@@ -63,7 +71,7 @@ public sealed class LiveContext : IDisposable
         {
             // Codec support is the spinner's own concern; it rejects codecs
             // that cannot be carried in its output container.
-            return new FlvToM2TSSpinner(rtmp, SenderContext.VideoIntake, _cancellationToken);
+            return new FlvToM2TSSpinner(rtmp, SenderContext.Intake, _cancellationToken);
         }
 
         throw new NotImplementedException(

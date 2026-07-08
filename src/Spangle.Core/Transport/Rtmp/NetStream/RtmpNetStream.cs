@@ -178,6 +178,15 @@ internal class RtmpNetStream
         }
         _logger.DumpObject(data);
 
+        if (data.TryGetValue(OnMetaDataKeys.Width, out object? width) && width is not null)
+        {
+            Context.VideoWidth = Convert.ToUInt32(width);
+        }
+        if (data.TryGetValue(OnMetaDataKeys.Height, out object? height) && height is not null)
+        {
+            Context.VideoHeight = Convert.ToUInt32(height);
+        }
+
         if (data.TryGetValue("videocodecid", out object? videoCodecId) && videoCodecId is not null)
         {
             Context.VideoCodec = ((FlvVideoCodec)Convert.ToUInt32(videoCodecId)).ToInternal();

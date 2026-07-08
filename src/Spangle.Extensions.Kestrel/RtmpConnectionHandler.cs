@@ -22,13 +22,21 @@ public class RtmpConnectionHandler(
 
         var receiver = connection.CreateRtmpReceiverContext(ct);
         var hlsOptions = options.Value.Hls;
+        var segmentFormat = hlsOptions.SegmentFormat.ToLowerInvariant() switch
+        {
+            "fmp4" or "cmaf" or "mp4" => HLSSegmentFormat.Fmp4,
+            _ => HLSSegmentFormat.MpegTs,
+        };
         var hls = new HLSSenderContext(ct)
         {
             OutputDirectory = hlsOptions.OutputDirectory,
             TargetSegmentDuration = hlsOptions.TargetSegmentDuration,
+            SegmentFormat = segmentFormat,
         };
         using var live = new LiveContext(receiver, hls, ct);
-        using var sender = new HLSSender();
+        ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
+            ? new CmafHLSSender()
+            : new HLSSender();
 
         var senderTask = Task.Run(async () =>
         {
@@ -59,6 +67,7 @@ public class RtmpConnectionHandler(
         {
             // The completion propagates receiver -> spinner -> sender; wait for the playlist to be finalized
             await senderTask;
+            (sender as IDisposable)?.Dispose();
             logger.ZLogInformation($"RTMP connection closed: {receiver.ToString()}");
         }
     }

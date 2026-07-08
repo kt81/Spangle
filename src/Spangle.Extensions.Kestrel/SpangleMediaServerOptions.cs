@@ -27,6 +27,9 @@ public class HttpOptions
 
 public class HlsOptions : MediaProtocolOptions
 {
+    /// <summary>Segment container: "TS" (MPEG-2 TS) or "fMP4" (CMAF)</summary>
+    public string SegmentFormat { get; set; } = "TS";
+
     /// <summary>Directory where segments and playlists are written</summary>
     public string OutputDirectory { get; set; } = "hls-out";
 
