@@ -121,14 +121,6 @@ public sealed class M2TSWriter
         var offset = 0;
         var first = true;
 
-        // Header template: constant fields are set once, per-packet fields are patched in the loop
-        var header = new TSHeader
-        {
-            SyncByte = 0x47,
-            PayloadUnitStart = 1,
-            PID = pid,
-        };
-
         while (offset < total)
         {
             var pkt = outlet.GetSpan(PacketSize)[..PacketSize];
@@ -149,12 +141,8 @@ public sealed class M2TSWriter
                 capacity = remaining;
             }
 
-            header.AdaptationFieldControl = afLen > 0
-                ? TSHeader.AdaptationFieldControlType.AdaptationField | TSHeader.AdaptationFieldControlType.Payload
-                : TSHeader.AdaptationFieldControlType.Payload;
-            header.ContinuityCounter = cc; // masked to 4 bits by the generated setter
+            WriteTsHeader(pkt, pid, payloadUnitStart: first, hasAdaptationField: afLen > 0, cc);
             cc++;
-            MemoryMarshal.Write(pkt, in header);
 
             var pos = TSHeader.Size;
             if (afLen == 1)
@@ -164,12 +152,16 @@ public sealed class M2TSWriter
             else if (afLen > 1)
             {
                 bool carriesPcr = first && pcr.HasValue;
-                var af = new AdaptationFieldsBasic
-                {
-                    AdaptationFieldLength = (uint)(afLen - 1),
-                    RandomAccessIndicator = (byte)(first && randomAccess ? 1 : 0),
-                    HasPCR = carriesPcr,
-                };
+                var af = AdaptationFieldsBasic.Compose(
+                    adaptationFieldLength: (uint)(afLen - 1),
+                    discontinuityIndicator: 0,
+                    randomAccessIndicator: (byte)(first && randomAccess ? 1 : 0),
+                    eSPriorityIndicator: 0,
+                    hasPCR: carriesPcr,
+                    hasOPCR: false,
+                    hasSplicingPoint: false,
+                    hasTransportPrivateData: false,
+                    hasAdaptationFieldExtension: false);
                 MemoryMarshal.Write(pkt[pos..], in af);
                 pos += AdaptationFieldsBasic.Size;
                 if (carriesPcr)
@@ -187,11 +179,7 @@ public sealed class M2TSWriter
             Debug.Assert(pos + capacity == PacketSize);
             CopyConcatenated(pesHeader, payload, offset, pkt.Slice(pos, capacity));
             offset += capacity;
-            if (first)
-            {
-                first = false;
-                header.PayloadUnitStart = 0;
-            }
+            first = false;
             outlet.Advance(PacketSize);
         }
     }
@@ -285,16 +273,17 @@ public sealed class M2TSWriter
 
     private static void WriteTsHeader(Span<byte> pkt, ushort pid, bool payloadUnitStart, bool hasAdaptationField, byte cc)
     {
-        var header = new TSHeader
-        {
-            SyncByte = 0x47,
-            PayloadUnitStart = (byte)(payloadUnitStart ? 1 : 0),
-            PID = pid,
-            AdaptationFieldControl = hasAdaptationField
+        var header = TSHeader.Compose(
+            syncByte: 0x47,
+            transportError: 0,
+            payloadUnitStart: (byte)(payloadUnitStart ? 1 : 0),
+            transportPriority: 0,
+            pID: pid,
+            transportScrambling: TSHeader.TransportScramblingType.None,
+            adaptationFieldControl: hasAdaptationField
                 ? TSHeader.AdaptationFieldControlType.AdaptationField | TSHeader.AdaptationFieldControlType.Payload
                 : TSHeader.AdaptationFieldControlType.Payload,
-            ContinuityCounter = cc, // masked to 4 bits by the generated setter
-        };
+            continuityCounter: cc); // masked to 4 bits by the generated composition
         MemoryMarshal.Write(pkt, in header);
     }
 
@@ -336,21 +325,16 @@ public sealed class M2TSWriter
 
     private static void WriteTimestamp(Span<byte> b, byte prefix, ulong value)
     {
-        var timestamp = new PESTimestamp();
-        timestamp.InitializeConstants();
-        timestamp.Prefix = prefix;
-        timestamp.Value = value;
+        var timestamp = PESTimestamp.Compose(prefix, value); // marker bits included
         MemoryMarshal.Write(b, in timestamp);
     }
 
     private static void WritePcrValue(Span<byte> b, ulong pcr90kHz)
     {
-        var pcr = new PCR
-        {
-            Base = pcr90kHz & PtsMask,
-            Reserved = 0x3F, // all 1 on the wire
-            Extension = 0,
-        };
+        var pcr = PCR.Compose(
+            @base: pcr90kHz & PtsMask,
+            reserved: 0x3F, // all 1 on the wire
+            extension: 0);
         MemoryMarshal.Write(b, in pcr);
     }
 
