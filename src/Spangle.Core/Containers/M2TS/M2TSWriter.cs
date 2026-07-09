@@ -321,24 +321,26 @@ public sealed class M2TSWriter
         var pos = 9;
         if (pts.HasValue)
         {
-            WriteTimestamp(b[pos..], (byte)(dts.HasValue ? 0x30 : 0x20), pts.Value & PtsMask);
-            pos += 5;
+            WriteTimestamp(b[pos..],
+                dts.HasValue ? PESTimestamp.PrefixPtsOfPair : PESTimestamp.PrefixPtsOnly,
+                pts.Value & PtsMask);
+            pos += PESTimestamp.Size;
         }
         if (dts.HasValue)
         {
-            WriteTimestamp(b[pos..], 0x10, dts.Value & PtsMask);
-            pos += 5;
+            WriteTimestamp(b[pos..], PESTimestamp.PrefixDts, dts.Value & PtsMask);
+            pos += PESTimestamp.Size;
         }
         return pos;
     }
 
     private static void WriteTimestamp(Span<byte> b, byte prefix, ulong value)
     {
-        b[0] = (byte)(prefix | (byte)(((value >> 30) & 0x07) << 1) | 1);
-        b[1] = (byte)(value >> 22);
-        b[2] = (byte)((((value >> 15) & 0x7F) << 1) | 1);
-        b[3] = (byte)(value >> 7);
-        b[4] = (byte)(((value & 0x7F) << 1) | 1);
+        var timestamp = new PESTimestamp();
+        timestamp.InitializeConstants();
+        timestamp.Prefix = prefix;
+        timestamp.Value = value;
+        MemoryMarshal.Write(b, in timestamp);
     }
 
     private static void WritePcrValue(Span<byte> b, ulong pcr90kHz)
