@@ -62,9 +62,9 @@ PID: {header.PID}
 AdaptationFieldControl: {header.AdaptationFieldControl}
 ContinuityCounter: 0x{header.ContinuityCounter:X}
 """);
-        if (header.AdaptationFieldControl.HasAdaptationField())
+        if (ts.HasAdaptationFields)
         {
-            ref readonly var adaptation = ref ts.AdaptationFieldsBasic;
+            ref readonly var adaptation = ref ts.AdaptationFields;
             s_logger.ZLogDebug($"""
 TS Adaptation Header ---
 AdaptationFieldLength: {adaptation.AdaptationFieldLength}
@@ -95,14 +95,6 @@ OriginalBasePCR: {opcr.Base}
 OriginalExtensionPCR: {opcr.Extension}
 """);
             }
-            if (adaptation.HasSplicingPoint)
-            {
-                s_logger.ZLogDebug($"""
-SplicingPoint Data ---
-SpliceCountdown: {ts.SpliceCountdown}
-""");
-            }
-
         }
 
 

@@ -40,7 +40,7 @@ internal sealed class HLSSegmenter
 
         ushort pid = header.PID;
         bool payloadUnitStart = header.PayloadUnitStart != 0;
-        ulong? pcr = TryReadPcr(in header, packet);
+        ulong? pcr = TryReadPcr(packet);
 
         if (_pendingCut)
         {
@@ -120,21 +120,16 @@ internal sealed class HLSSegmenter
         _playlist.AddSegment(name, duration);
     }
 
-    private static ulong? TryReadPcr(in TSHeader header, ReadOnlySpan<byte> packet)
+    private static ulong? TryReadPcr(ReadOnlySpan<byte> packet)
     {
-        if (!header.AdaptationFieldControl.HasAdaptationField())
-        {
-            return null;
-        }
-        ref readonly var af = ref MemoryMarshal.AsRef<AdaptationFieldsBasic>(
-            packet.Slice(TSHeader.Size, AdaptationFieldsBasic.Size));
-        if (af.AdaptationFieldLength < AdaptationFieldsBasic.Size - 1 + PCR.Size || !af.HasPCR)
+        ref readonly var ts = ref MemoryMarshal.AsRef<TSPacket>(packet);
+        if (!ts.HasAdaptationFields || !ts.HasPCR
+            // The flag alone is not proof on foreign streams; the field must be long enough
+            || ts.AdaptationFields.AdaptationFieldLength < AdaptationFieldsBasic.Size - 1 + PCR.Size)
         {
             return null;
         }
 
-        ref readonly var pcr = ref MemoryMarshal.AsRef<PCR>(
-            packet.Slice(TSHeader.Size + AdaptationFieldsBasic.Size, PCR.Size));
-        return pcr.Base;
+        return ts.PCR.Base;
     }
 }
