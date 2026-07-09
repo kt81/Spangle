@@ -28,18 +28,13 @@
   <ItemGroup>
     <PackageReference Include="AsyncAwaitBestPractices" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.9" />
+    <PackageReference Include="Spangle.LusterBits" Version="1.0.0" />
     <PackageReference Include="ValueTaskSupplement" Version="1.1.0" />
     <PackageReference Include="ZLogger" Version="2.5.10" />
     <PackageReference Include="ZString" Version="2.6.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Sibling checkout until Spangle.LusterBits 0.2.0 (bit field setters) is on NuGet -->
-    <ProjectReference Include="..\..\..\Spangle.LusterBits\src\Spangle.LusterBits\Spangle.LusterBits.csproj" />
-    <ProjectReference Include="..\..\..\Spangle.LusterBits\src\Spangle.LusterBits.Generator\Spangle.LusterBits.Generator.csproj">
-      <OutputItemType>Analyzer</OutputItemType>
-      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-    </ProjectReference>
     <ProjectReference Include="..\..\..\Spangle.Net.Transport.SRT\Spangle.Net.Transport.SRT\Spangle.Net.Transport.SRT.csproj" />
     <ProjectReference Include="..\Spangle.SourceGenerator\Spangle.SourceGenerator.csproj">
       <OutputItemType>Analyzer</OutputItemType>
