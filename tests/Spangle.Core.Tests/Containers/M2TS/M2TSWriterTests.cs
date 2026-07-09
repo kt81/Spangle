@@ -1,6 +1,6 @@
 using System.Buffers;
 using System.Text;
-using FluentAssertions;
+using AwesomeAssertions;
 using Spangle.Containers.M2TS;
 
 namespace Spangle.Tests.Containers.M2TS;

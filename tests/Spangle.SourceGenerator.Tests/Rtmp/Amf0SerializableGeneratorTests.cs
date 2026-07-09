@@ -1,7 +1,7 @@
 ﻿#pragma warning disable CS0436 // Type conflicts with imported type
 using System.IO.Pipelines;
 using System.Runtime.InteropServices;
-using FluentAssertions;
+using AwesomeAssertions;
 using Spangle.SourceGenerator.Rtmp;
 using Spangle.Transport.Rtmp.Amf0;
 
