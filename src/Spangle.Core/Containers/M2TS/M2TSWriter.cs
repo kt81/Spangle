@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace Spangle.Containers.M2TS;
 
@@ -120,17 +121,23 @@ public sealed class M2TSWriter
         var offset = 0;
         var first = true;
 
+        // Header template: constant fields are set once, per-packet fields are patched in the loop
+        var header = new TSHeader
+        {
+            SyncByte = 0x47,
+            PayloadUnitStart = 1,
+            PID = pid,
+        };
+
         while (offset < total)
         {
             var pkt = outlet.GetSpan(PacketSize)[..PacketSize];
             int remaining = total - offset;
 
-            byte afFlags = 0;
             var minAfLen = 0; // adaptation field length including its length byte
             if (first && (randomAccess || pcr.HasValue))
             {
-                afFlags = (byte)((randomAccess ? 0x40 : 0) | (pcr.HasValue ? 0x10 : 0));
-                minAfLen = pcr.HasValue ? 8 : 2;
+                minAfLen = pcr.HasValue ? AdaptationFieldsBasic.Size + PCR.Size : AdaptationFieldsBasic.Size;
             }
 
             int afLen = minAfLen;
@@ -142,36 +149,49 @@ public sealed class M2TSWriter
                 capacity = remaining;
             }
 
-            pkt[0] = 0x47;
-            pkt[1] = (byte)((first ? 0x40 : 0x00) | (pid >> 8));
-            pkt[2] = (byte)pid;
-            pkt[3] = (byte)((afLen > 0 ? 0x30 : 0x10) | (cc & 0x0F));
+            header.AdaptationFieldControl = afLen > 0
+                ? TSHeader.AdaptationFieldControlType.AdaptationField | TSHeader.AdaptationFieldControlType.Payload
+                : TSHeader.AdaptationFieldControlType.Payload;
+            header.ContinuityCounter = cc; // masked to 4 bits by the generated setter
             cc++;
+            MemoryMarshal.Write(pkt, in header);
 
-            var pos = 4;
-            if (afLen > 0)
+            var pos = TSHeader.Size;
+            if (afLen == 1)
             {
-                pkt[pos++] = (byte)(afLen - 1);
-                if (afLen > 1)
+                pkt[pos++] = 0; // adaptation_field_length = 0: one stuffing byte in total
+            }
+            else if (afLen > 1)
+            {
+                bool carriesPcr = first && pcr.HasValue;
+                var af = new AdaptationFieldsBasic
                 {
-                    pkt[pos++] = afFlags;
-                    if ((afFlags & 0x10) != 0)
-                    {
-                        WritePcr(pkt.Slice(pos, 6), pcr!.Value);
-                        pos += 6;
-                    }
-                    int afEnd = 4 + afLen;
-                    for (; pos < afEnd; pos++)
-                    {
-                        pkt[pos] = 0xFF; // stuffing
-                    }
+                    AdaptationFieldLength = (uint)(afLen - 1),
+                    RandomAccessIndicator = (byte)(first && randomAccess ? 1 : 0),
+                    HasPCR = carriesPcr,
+                };
+                MemoryMarshal.Write(pkt[pos..], in af);
+                pos += AdaptationFieldsBasic.Size;
+                if (carriesPcr)
+                {
+                    WritePcrValue(pkt.Slice(pos, PCR.Size), pcr!.Value);
+                    pos += PCR.Size;
+                }
+                int afEnd = TSHeader.Size + afLen;
+                for (; pos < afEnd; pos++)
+                {
+                    pkt[pos] = 0xFF; // stuffing
                 }
             }
 
             Debug.Assert(pos + capacity == PacketSize);
             CopyConcatenated(pesHeader, payload, offset, pkt.Slice(pos, capacity));
             offset += capacity;
-            first = false;
+            if (first)
+            {
+                first = false;
+                header.PayloadUnitStart = 0;
+            }
             outlet.Advance(PacketSize);
         }
     }
@@ -255,15 +275,27 @@ public sealed class M2TSWriter
     private static void WritePsiPacket(IBufferWriter<byte> outlet, ushort pid, ReadOnlySpan<byte> section, ref byte cc)
     {
         var pkt = outlet.GetSpan(PacketSize)[..PacketSize];
-        pkt[0] = 0x47;
-        pkt[1] = (byte)(0x40 | (pid >> 8)); // payload_unit_start
-        pkt[2] = (byte)pid;
-        pkt[3] = (byte)(0x10 | (cc & 0x0F));
+        WriteTsHeader(pkt, pid, payloadUnitStart: true, hasAdaptationField: false, cc);
         cc++;
-        pkt[4] = 0x00; // pointer_field
-        section.CopyTo(pkt[5..]);
-        pkt[(5 + section.Length)..].Fill(0xFF);
+        pkt[TSHeader.Size] = 0x00; // pointer_field
+        section.CopyTo(pkt[(TSHeader.Size + 1)..]);
+        pkt[(TSHeader.Size + 1 + section.Length)..].Fill(0xFF);
         outlet.Advance(PacketSize);
+    }
+
+    private static void WriteTsHeader(Span<byte> pkt, ushort pid, bool payloadUnitStart, bool hasAdaptationField, byte cc)
+    {
+        var header = new TSHeader
+        {
+            SyncByte = 0x47,
+            PayloadUnitStart = (byte)(payloadUnitStart ? 1 : 0),
+            PID = pid,
+            AdaptationFieldControl = hasAdaptationField
+                ? TSHeader.AdaptationFieldControlType.AdaptationField | TSHeader.AdaptationFieldControlType.Payload
+                : TSHeader.AdaptationFieldControlType.Payload,
+            ContinuityCounter = cc, // masked to 4 bits by the generated setter
+        };
+        MemoryMarshal.Write(pkt, in header);
     }
 
     private static int BuildPesHeader(Span<byte> b, byte streamId, int payloadLength, ulong? pts, ulong? dts)
@@ -309,15 +341,15 @@ public sealed class M2TSWriter
         b[4] = (byte)(((value & 0x7F) << 1) | 1);
     }
 
-    private static void WritePcr(Span<byte> b, ulong pcr90kHz)
+    private static void WritePcrValue(Span<byte> b, ulong pcr90kHz)
     {
-        ulong pcrBase = pcr90kHz & PtsMask;
-        b[0] = (byte)(pcrBase >> 25);
-        b[1] = (byte)(pcrBase >> 17);
-        b[2] = (byte)(pcrBase >> 9);
-        b[3] = (byte)(pcrBase >> 1);
-        b[4] = (byte)(((pcrBase & 1) << 7) | 0x7E); // 6 reserved bits + extension high bit (0)
-        b[5] = 0x00;                                // extension low (0)
+        var pcr = new PCR
+        {
+            Base = pcr90kHz & PtsMask,
+            Reserved = 0x3F, // all 1 on the wire
+            Extension = 0,
+        };
+        MemoryMarshal.Write(b, in pcr);
     }
 
     /// <summary>

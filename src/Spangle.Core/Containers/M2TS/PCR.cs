@@ -1,28 +1,24 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
+using Spangle.LusterBits;
 
 namespace Spangle.Containers.M2TS;
 
-[StructLayout(LayoutKind.Auto, Pack = 2, Size = Size)]
-internal unsafe struct PCR
+/// <summary>
+/// Program Clock Reference: 33-bit base (90 kHz) + 6 reserved bits + 9-bit extension (27 MHz remainder).
+/// </summary>
+[LusterCharm]
+[StructLayout(LayoutKind.Sequential, Pack = 1, Size = Size)]
+internal unsafe partial struct PCR
 {
     public const int Size = 6;
 
+    [
+        BitField(typeof(ulong), "Base", 33, description: "PCR base in 90 kHz units"),
+        BitField(typeof(byte), "Reserved", 6, description: "Reserved bits; all 1 on the wire"),
+        BitField(typeof(ushort), "Extension", 9, description: "PCR extension in 27 MHz units"),
+    ]
     private fixed byte _value[Size];
 
-    public ulong BasePCR => (ulong)(
-        (_value[0] << 25)
-        + (_value[1] << 17)
-        + (_value[2] << 9)
-        + (_value[3] << 1)
-        + (_value[4] >>> 7)
-    );
-
-    // 6bit reserved: _value[4] & 0b0111_1110
-
-    public ulong ExtensionPCR => (ulong)(
-        ((_value[4] & 0x01) << 8)
-        + _value[5]
-    );
-
-    public ulong Value => BasePCR * 300 + ExtensionPCR;
+    /// <summary>The full 27 MHz clock value</summary>
+    public ulong Value => Base * 300 + Extension;
 }
