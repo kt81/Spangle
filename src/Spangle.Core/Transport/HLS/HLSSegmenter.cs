@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Spangle.Containers.M2TS;
 
 namespace Spangle.Transport.HLS;
@@ -31,14 +32,15 @@ internal sealed class HLSSegmenter
 
     public void ProcessPacket(ReadOnlySpan<byte> packet)
     {
-        if (packet.Length != M2TSWriter.PacketSize || packet[0] != 0x47)
+        ref readonly var header = ref MemoryMarshal.AsRef<TSHeader>(packet[..TSHeader.Size]);
+        if (packet.Length != M2TSWriter.PacketSize || header.SyncByte != 0x47)
         {
             throw new InvalidDataException("Broken TS packet stream");
         }
 
-        var pid = (ushort)(((packet[1] & 0x1F) << 8) | packet[2]);
-        bool payloadUnitStart = (packet[1] & 0x40) != 0;
-        ulong? pcr = TryReadPcr(packet);
+        ushort pid = header.PID;
+        bool payloadUnitStart = header.PayloadUnitStart != 0;
+        ulong? pcr = TryReadPcr(in header, packet);
 
         if (_pendingCut)
         {
@@ -118,23 +120,21 @@ internal sealed class HLSSegmenter
         _playlist.AddSegment(name, duration);
     }
 
-    private static ulong? TryReadPcr(ReadOnlySpan<byte> packet)
+    private static ulong? TryReadPcr(in TSHeader header, ReadOnlySpan<byte> packet)
     {
-        bool hasAdaptationField = (packet[3] & 0x20) != 0;
-        if (!hasAdaptationField || packet[4] < 7)
+        if (!header.AdaptationFieldControl.HasAdaptationField())
         {
             return null;
         }
-        bool hasPcr = (packet[5] & 0x10) != 0;
-        if (!hasPcr)
+        ref readonly var af = ref MemoryMarshal.AsRef<AdaptationFieldsBasic>(
+            packet.Slice(TSHeader.Size, AdaptationFieldsBasic.Size));
+        if (af.AdaptationFieldLength < AdaptationFieldsBasic.Size - 1 + PCR.Size || !af.HasPCR)
         {
             return null;
         }
 
-        return ((ulong)packet[6] << 25)
-               | ((ulong)packet[7] << 17)
-               | ((ulong)packet[8] << 9)
-               | ((ulong)packet[9] << 1)
-               | ((ulong)packet[10] >> 7);
+        ref readonly var pcr = ref MemoryMarshal.AsRef<PCR>(
+            packet.Slice(TSHeader.Size + AdaptationFieldsBasic.Size, PCR.Size));
+        return pcr.Base;
     }
 }

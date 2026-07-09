@@ -82,8 +82,8 @@ AdaptationFieldExtensionFlag: {adaptation.HasAdaptationFieldExtension}
                 ref readonly var pcr = ref ts.PCR;
                 s_logger.ZLogDebug($"""
 PCR ---
-BasePCR: {pcr.BasePCR}
-ExtensionPCR: {pcr.ExtensionPCR}
+BasePCR: {pcr.Base}
+ExtensionPCR: {pcr.Extension}
 """);
             }
             if (adaptation.HasOPCR)
@@ -91,8 +91,8 @@ ExtensionPCR: {pcr.ExtensionPCR}
                 ref readonly var opcr = ref ts.OPCR;
                 s_logger.ZLogDebug($"""
 OPCR ---
-OriginalBasePCR: {opcr.BasePCR}
-OriginalExtensionPCR: {opcr.ExtensionPCR}
+OriginalBasePCR: {opcr.Base}
+OriginalExtensionPCR: {opcr.Extension}
 """);
             }
             if (adaptation.HasSplicingPoint)
