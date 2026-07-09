@@ -42,20 +42,19 @@ Environment: AMD Ryzen 7 7800X3D (8C/16T), Windows 11, .NET 10.0.9, Server GC.
 |---|---|---:|---:|
 | ChunkParsing.ParseSession | ChunkSize=128 (~2.23 MB session) | 693.8 µs (≈3.2 GB/s) | 0 B |
 | ChunkParsing.ParseSession | ChunkSize=4096 | 93.7 µs (≈23.6 GB/s) | 0 B |
-| M2TSWriter.KeyFrame | PAT+PMT+PES, 5KB AU | 919.3 ns | 0 B |
-| M2TSWriter.InterFrame | PES, 5KB AU | 312.0 ns | 0 B |
+| M2TSWriter.KeyFrame | PAT+PMT+PES, 5KB AU | 523.1 ns | 0 B |
+| M2TSWriter.InterFrame | PES, 5KB AU | 186.0 ns | 0 B |
 | CmafPackager.BuildFragment | 30v+43a samples | 6.6 µs | 128 B |
 
 The steady-state media path allocates nothing per frame; the 128 B in `BuildFragment`
 is the `IReadOnlyList` enumerator (twice per part, irrelevant at part cadence).
 
-Note on `M2TSWriter`: the TS header / adaptation field / PCR writes go through
-LusterBits bit-field structs (declaration mirrors the spec tables). The generated
-per-field setters roughly doubled this micro-benchmark versus hand-packed byte writes
-(previously 510.8 / 162.3 ns) while staying allocation-free. This is a deliberate
-clarity-over-nanoseconds trade: at 60 fps the muxer costs ~19 µs of CPU per second,
-and the load test shows the TS path is dominated by parsing/copying, not muxing.
-Revisit only if TS mux ever shows up in a profile.
+Note on `M2TSWriter`: the TS header / adaptation field / PCR / PES timestamp writes go
+through LusterBits bit-field structs (declaration mirrors the spec tables), built with
+the generated `Compose()` factories: one store per byte with generation-time-folded
+masks and constant bits included. This matches hand-packed byte writes within noise
+(hand-packed baseline was 510.8 / 162.3 ns; per-field setters had roughly doubled it
+before Compose existed) while staying allocation-free.
 
 ### Load (4 publishers × 720p30 ≈ 10 Mbps aggregate ingest, 30 s, realtime)
 
