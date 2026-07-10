@@ -67,11 +67,13 @@ public sealed class LiveContext : IDisposable
             return SenderContext.Intake;
         }
 
-        if (ReceiverContext is RtmpReceiverContext rtmp && SenderContext is HLSSenderContext)
+        if (SenderContext is HLSSenderContext)
         {
-            // Codec support is the spinner's own concern; it rejects codecs
-            // that cannot be carried in its output container.
-            var spinner = new FlvToM2TSSpinner(rtmp, SenderContext.Intake, _cancellationToken);
+            // Every receiver emits the same canonical MediaFrame form, so the
+            // TS-converting spinner is receiver-agnostic. Codec support is the
+            // spinner's own concern; it rejects codecs that cannot be carried
+            // in its output container.
+            var spinner = new FlvToM2TSSpinner(ReceiverContext, SenderContext.Intake, _cancellationToken);
             spinner.BeginSpin();
             return spinner.Intake;
         }

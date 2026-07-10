@@ -1,2 +1,12 @@
-﻿namespace Spangle.Containers.M2TS;
+namespace Spangle.Containers.M2TS;
 
+/// <summary>
+/// ISO/IEC 13818-1 stream_type values used by this application,
+/// shared between the muxer and the demuxer.
+/// </summary>
+internal static class M2TSStreamType
+{
+    public const byte H264    = 0x1B;
+    public const byte H265    = 0x24;
+    public const byte AdtsAac = 0x0F;
+}

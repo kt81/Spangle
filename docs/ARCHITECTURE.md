@@ -1,7 +1,7 @@
 # Architecture
 
-Spangle turns live ingest protocols (RTMP today, SRT later) into web-deliverable streams
-(HLS today, LL-HLS/CMAF later). This document describes the data flow, the data formats at
+Spangle turns live ingest protocols (RTMP and SRT) into web-deliverable streams
+(HLS, LL-HLS/CMAF). This document describes the data flow, the data formats at
 each boundary, and where state lives. It is written for someone implementing or modifying
 this kind of system.
 
@@ -14,16 +14,19 @@ and every stage is a single async loop. There are two output shapes:
 ```
 TS output (HLSSegmentFormat.MpegTs):
 
-        TCP bytes                MediaFrame stream               MPEG-2 TS stream            files
-publisher ──────► RtmpReceiverContext ──────► FlvToM2TSSpinner ──────► HLSSender ──────► *.ts / *.m3u8
+     TCP (RTMP) / SRT bytes        MediaFrame stream               MPEG-2 TS stream            files
+publisher ──────► *ReceiverContext ──────► FlvToM2TSSpinner ──────► HLSSender ──────► *.ts / *.m3u8
 
 CMAF output (HLSSegmentFormat.Fmp4, optionally LL-HLS):
 
-        TCP bytes                MediaFrame stream
-publisher ──────► RtmpReceiverContext ──────► CmafHLSSender ──────► init.mp4 / *.m4s (+parts) / *.m3u8
-                                              (muxes ISO-BMFF itself; no spinner needed because
-                                               FLV codec payloads are already valid fMP4 samples)
+     TCP (RTMP) / SRT bytes        MediaFrame stream
+publisher ──────► *ReceiverContext ──────► CmafHLSSender ──────► init.mp4 / *.m4s (+parts) / *.m3u8
+                                           (muxes ISO-BMFF itself; no spinner needed because
+                                            canonical codec payloads are already valid fMP4 samples)
 ```
+
+Both receivers (`RtmpReceiverContext`, `SRTReceiverContext`) emit the *same canonical
+MediaFrame form*, so everything downstream is ingest-agnostic.
 
 Files land in `<OutputDirectory>/<sanitized stream name>/`, so multiple publishers
 serve concurrently under `/hls/{stream}/...`. Live playlists are additionally published
@@ -171,19 +174,40 @@ update (text + newest MSN/part) to a per-stream `LivePlaylist`; the HTTP layer a
 ## Hosting (Spangle.MediaServer)
 
 Kestrel listens on two ports from `spanglesettings.yaml`: the RTMP port with a raw
-`ConnectionHandler` that runs the pipeline above, and an HTTP port. Live playlists are
-served from the registry (with blocking reload); everything else — segments, parts,
-init files, ended playlists, the test player at `/` — is static file serving with HLS
-MIME types. Options select the segment format and LL-HLS per server.
+`ConnectionHandler` that runs the pipeline above, and an HTTP port. SRT ingest runs
+beside Kestrel as a hosted service (`SrtIngestService`) since SRT is UDP-based and
+brings its own listener. Live playlists are served from the registry (with blocking
+reload); everything else — segments, parts, init files, ended playlists, the test
+player at `/` — is static file serving with HLS MIME types. Options select the
+segment format and LL-HLS per server.
 
-## SRT (status)
+## SRT receiver
 
-The sibling repo `Spangle.Net.Transport.SRT` (managed listener + native libsrt interop)
-loads and accepts SRT callers; MPEG-TS packets arrive intact (verified with
-`ffmpeg -f mpegts srt://...`). What is missing is the ingest-side TS demuxer
-(PAT/PMT parsing, per-PID PES reassembly, Annex B → length-prefixed conversion) that
-would turn the TS stream into `MediaFrame`s — the mirror image of `M2TSWriter`.
-`SRTReceiver` is currently a debug stub that only parses TS headers.
+SRT carries MPEG-2 TS, so the ingest side is the mirror image of the TS output side:
+
+```
+SRT bytes ──► SRTReceiverContext ──► M2TSDemuxer ──► M2TSMediaFrameAdapter ──► MediaFrame stream
+              (188-byte alignment,    (PAT/PMT,        (normalization)
+               resync on loss)         per-PID PES
+                                       reassembly)
+```
+
+- `M2TSDemuxer` is container-level only: PAT → PMT → per-PID PES reassembly with
+  continuity checking (a lost packet drops the frame under assembly, not the stream).
+  PES timestamps are read through the same LusterBits `PESTimestamp` struct the muxer
+  composes with.
+- `M2TSMediaFrameAdapter` normalizes elementary streams into the canonical MediaFrame
+  form: H.264 Annex B access units become length-prefixed samples plus an avcC Config
+  frame built from the in-band SPS/PPS; ADTS AAC becomes raw AAC frames plus an
+  AudioSpecificConfig; 33-bit 90 kHz PES timestamps are unwrapped to milliseconds.
+  Because the output matches what the RTMP receiver emits, both HLS output paths work
+  unchanged.
+- Routing and security use the SRT counterparts of the RTMP stream key:
+  `SRTClient.StreamId` (plain, or the `r=` key of Haivision Access Control ids) becomes
+  the stream name; an optional listener passphrase (`Srt.Passphrase`) enforces wire
+  encryption.
+- Not yet supported over TS ingest: H.265 (needs an hvcC builder from in-band
+  VPS/SPS/PPS), audio-only programs, multi-packet PSI sections.
 
 ## Known simplifications (as of now)
 
