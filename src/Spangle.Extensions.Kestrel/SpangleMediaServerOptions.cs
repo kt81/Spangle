@@ -10,6 +10,7 @@ public class SpangleMediaServerOptions
     public const string SectionPath = "Spangle";
 
     public RtmpOptions Rtmp { get; set; } = new();
+    public SrtOptions Srt { get; set; } = new();
     public HlsOptions Hls { get; set; } = new();
     public HttpOptions Http { get; set; } = new();
 }
@@ -17,6 +18,17 @@ public class SpangleMediaServerOptions
 public class RtmpOptions : MediaProtocolOptions
 {
     [Range(1025, 65535)] public int Port { get; set; } = 1935;
+}
+
+public class SrtOptions : MediaProtocolOptions
+{
+    [Range(1025, 65535)] public int Port { get; set; } = 9998;
+
+    /// <summary>
+    /// Pre-shared passphrase (10-79 bytes) for SRT encryption; senders presenting a
+    /// different passphrase are rejected. Null accepts unencrypted connections only.
+    /// </summary>
+    public string? Passphrase { get; set; }
 }
 
 public class HttpOptions

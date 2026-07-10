@@ -1,6 +1,7 @@
-﻿using System.Net;
+using System.Net;
 using Microsoft.Extensions.Logging;
 using Spangle.Net.Transport.SRT;
+using Spangle.Transport.HLS;
 using Spangle.Transport.SRT;
 using ZLogger;
 
@@ -20,7 +21,7 @@ public class SRTToHLS
     {
         var listenEndPoint = new IPEndPoint(IPAddress.Parse("0.0.0.0"), 2000);
         var listener = new SRTListener(listenEndPoint);
-        using SRTReceiver receiver = new SRTReceiver();
+        var registry = new HLSStreamRegistry();
         var cts = new CancellationTokenSource();
         System.Console.CancelKeyPress += (_, _) =>
         {
@@ -29,19 +30,19 @@ public class SRTToHLS
         var ct = cts.Token;
 
         listener.Start();
-        _logger.ZLogInformation($"Starting to accept connections.");
+        _logger.ZLogInformation($"Starting to accept SRT connections on {listenEndPoint}");
+        _logger.ZLogInformation($"Try: ffmpeg -re -f lavfi -i testsrc2 -c:v libx264 -g 30 -f mpegts \"srt://127.0.0.1:2000?streamid=live/test\"");
 
-        while (true)
+        while (!ct.IsCancellationRequested)
         {
-            if (cts.IsCancellationRequested)
-            {
-                break;
-            }
             try
             {
                 var srtClient = await listener.AcceptSRTClientAsync(ct);
-                // ReSharper disable once AccessToDisposedClosure
-                _ = Task.Run(() => ProcessConnection(receiver, srtClient, _logger, ct), ct);
+                _ = Task.Run(() => ProcessConnection(srtClient, registry, _logger, ct), ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
             catch (Exception e)
             {
@@ -50,13 +51,34 @@ public class SRTToHLS
         }
     }
 
-    private static async Task ProcessConnection(SRTReceiver receiver, SRTClient srtClient, ILogger logger, CancellationToken ct)
+    private static async Task ProcessConnection(SRTClient srtClient, HLSStreamRegistry registry, ILogger logger,
+        CancellationToken ct)
     {
-        var context = new SRTReceiverContext(srtClient, ct);
+        var receiver = new SRTReceiverContext(srtClient, ct);
+        var hls = new HLSSenderContext(ct)
+        {
+            OutputDirectory = "hls-out",
+            Registry = registry,
+        };
+        using var live = new LiveContext(receiver, hls, ct);
+        var sender = new HLSSender();
+
+        var senderTask = Task.Run(async () =>
+        {
+            try
+            {
+                await sender.StartAsync(hls);
+            }
+            catch (Exception e)
+            {
+                logger.ZLogError($"HLS sender error: {e}");
+            }
+        }, CancellationToken.None);
+
         try
         {
-            logger.ZLogDebug($"Connection opened: {context.ToString()}");
-            await receiver.StartAsync(context);
+            logger.ZLogInformation($"SRT connection opened: {receiver.ToString()}");
+            await live.StartAsync();
         }
         catch (Exception e)
         {
@@ -64,8 +86,9 @@ public class SRTToHLS
         }
         finally
         {
+            await senderTask;
             srtClient.Dispose();
-            logger.ZLogDebug($"Connection closed: {context.ToString()}");
+            logger.ZLogInformation($"SRT connection closed: {receiver.ToString()}");
         }
     }
 }

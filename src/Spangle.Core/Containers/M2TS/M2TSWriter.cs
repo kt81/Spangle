@@ -23,9 +23,9 @@ public sealed class M2TSWriter
     public const byte StreamIdVideo = 0xE0;
     public const byte StreamIdAudio = 0xC0;
 
-    private const byte StreamTypeH264    = 0x1B;
-    private const byte StreamTypeH265    = 0x24;
-    private const byte StreamTypeAdtsAac = 0x0F;
+    private const byte StreamTypeH264    = M2TSStreamType.H264;
+    private const byte StreamTypeH265    = M2TSStreamType.H265;
+    private const byte StreamTypeAdtsAac = M2TSStreamType.AdtsAac;
 
     private const ulong PtsMask = (1ul << 33) - 1;
 

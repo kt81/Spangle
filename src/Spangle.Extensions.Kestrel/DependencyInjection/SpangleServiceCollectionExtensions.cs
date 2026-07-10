@@ -14,5 +14,6 @@ public static class SpangleServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<RtmpConnectionHandler>();
         services.AddSingleton<HLSStreamRegistry>();
+        services.AddHostedService<SrtIngestService>();
     }
 }

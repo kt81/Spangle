@@ -2,6 +2,10 @@ Spangle:
   Rtmp:
     Enabled: true
     Port: 1935
+  Srt:
+    Enabled: true
+    Port: 9998
+    # Passphrase: "correct horse battery staple"  # optional wire encryption (10-79 bytes)
   Http:
     Port: 8080
   Hls:

@@ -3,7 +3,8 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../Spangle.Net.Transport.SRT" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/../Spangle.Net.Transport.SRT/interop/deps/boringssl" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Spangle.Net.Transport.SRT/interop/deps/mbedtls" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Spangle.Net.Transport.SRT/interop/deps/mbedtls/framework" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../Spangle.Net.Transport.SRT/interop/deps/srt" vcs="Git" />
   </component>
 </project>
