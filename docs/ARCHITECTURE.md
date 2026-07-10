@@ -197,17 +197,17 @@ SRT bytes ──► SRTReceiverContext ──► M2TSDemuxer ──► M2TSMedia
   PES timestamps are read through the same LusterBits `PESTimestamp` struct the muxer
   composes with.
 - `M2TSMediaFrameAdapter` normalizes elementary streams into the canonical MediaFrame
-  form: H.264 Annex B access units become length-prefixed samples plus an avcC Config
-  frame built from the in-band SPS/PPS; ADTS AAC becomes raw AAC frames plus an
-  AudioSpecificConfig; 33-bit 90 kHz PES timestamps are unwrapped to milliseconds.
-  Because the output matches what the RTMP receiver emits, both HLS output paths work
-  unchanged.
+  form: H.264/H.265 Annex B access units become length-prefixed samples plus a Config
+  frame built from the in-band parameter sets (avcC from SPS/PPS; hvcC from
+  VPS/SPS/PPS via `HvcCBuilder`, which also extracts width/height from the SPS);
+  ADTS AAC becomes raw AAC frames plus an AudioSpecificConfig; 33-bit 90 kHz PES
+  timestamps are unwrapped to milliseconds. Because the output matches what the RTMP
+  receiver emits, both HLS output paths work unchanged.
 - Routing and security use the SRT counterparts of the RTMP stream key:
   `SRTClient.StreamId` (plain, or the `r=` key of Haivision Access Control ids) becomes
   the stream name; an optional listener passphrase (`Srt.Passphrase`) enforces wire
   encryption.
-- Not yet supported over TS ingest: H.265 (needs an hvcC builder from in-band
-  VPS/SPS/PPS), audio-only programs, multi-packet PSI sections.
+- Not yet supported over TS ingest: audio-only programs, multi-packet PSI sections.
 
 ## Publish authorization & takeover
 

@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using Microsoft.Extensions.Logging;
 using Spangle.Codecs;
 using Spangle.Codecs.AAC;
+using Spangle.Codecs.HEVC;
 using Spangle.Logging;
 using Spangle.Spinner;
 using ZLogger;
@@ -28,7 +29,8 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
 
     private const ulong PtsMask = (1UL << 33) - 1;
 
-    // ---- video (H.264) state ----
+    // ---- video state (H.264: SPS/PPS; H.265: VPS/SPS/PPS) ----
+    private byte[]? _vps;
     private byte[]? _sps;
     private byte[]? _pps;
     private bool    _videoConfigSent;
@@ -53,13 +55,16 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
             case M2TSStreamType.H264:
                 context.VideoCodec = VideoCodec.H264; // triggers the pipeline wiring
                 break;
+            case M2TSStreamType.H265:
+                context.VideoCodec = VideoCodec.H265;
+                break;
             case 0:
                 s_logger.ZLogError($"The TS program has no video track; audio-only ingest is not supported yet");
                 break;
             default:
                 if (!_videoUnsupportedLogged)
                 {
-                    s_logger.ZLogError($"Unsupported TS video stream_type 0x{videoStreamType:X2} (H.265 over TS ingest is not supported yet)");
+                    s_logger.ZLogError($"Unsupported TS video stream_type 0x{videoStreamType:X2}");
                     _videoUnsupportedLogged = true;
                 }
                 break;
@@ -83,6 +88,9 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
             case M2TSStreamType.H264:
                 OnH264AccessUnit(pts90k, dts90k, es);
                 break;
+            case M2TSStreamType.H265:
+                OnH265AccessUnit(pts90k, dts90k, es);
+                break;
             case M2TSStreamType.AdtsAac:
                 OnAdtsFrames(pts90k, es);
                 break;
@@ -94,15 +102,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
 
     private void OnH264AccessUnit(ulong? pts90k, ulong? dts90k, ReadOnlySpan<byte> es)
     {
-        ulong rawDts = dts90k ?? pts90k ?? 0;
-        ulong rawPts = pts90k ?? rawDts;
-        ulong dts = _videoTs.Unwrap(rawDts);
-        // PTS relative to DTS as a signed 33-bit distance, robust across the wrap
-        long ct90 = (long)((rawPts - rawDts) & PtsMask);
-        if (ct90 > (long)(PtsMask >> 1))
-        {
-            ct90 -= (long)(PtsMask + 1);
-        }
+        (uint tsMs, int ctMs) = ResolveVideoTimestamps(pts90k, dts90k);
 
         _sample.ResetWrittenCount();
         var isKeyFrame = false;
@@ -125,16 +125,8 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
                     isKeyFrame = true;
                     break;
             }
-
-            // canonical sample form: 4-byte big-endian length prefix per NALU
-            Span<byte> dest = _sample.GetSpan(4 + nalu.Length);
-            BinaryPrimitives.WriteUInt32BigEndian(dest, (uint)nalu.Length);
-            nalu.CopyTo(dest[4..]);
-            _sample.Advance(4 + nalu.Length);
+            AppendSampleNalu(nalu);
         }
-
-        var tsMs = (uint)(dts / 90);
-        var ctMs = (int)(ct90 / 90);
 
         if ((parameterSetsChanged || !_videoConfigSent) && _sps is not null && _pps is not null)
         {
@@ -149,6 +141,84 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
                 isKeyFrame ? MediaFrameFlags.KeyFrame : MediaFrameFlags.None,
                 (uint)VideoCodec.H264, ctMs, _sample.WrittenSpan, tsMs);
         }
+    }
+
+    // =======================================================================
+    // H.265
+
+    private void OnH265AccessUnit(ulong? pts90k, ulong? dts90k, ReadOnlySpan<byte> es)
+    {
+        (uint tsMs, int ctMs) = ResolveVideoTimestamps(pts90k, dts90k);
+
+        _sample.ResetWrittenCount();
+        var isKeyFrame = false;
+        var parameterSetsChanged = false;
+
+        foreach (ReadOnlySpan<byte> nalu in NALAnnexB.EnumerateNALUs(es))
+        {
+            var naluType = (byte)((nalu[0] >> 1) & 0x3F); // 2-byte NAL header in HEVC
+            switch (naluType)
+            {
+                case 32: // VPS
+                    parameterSetsChanged |= Capture(ref _vps, nalu);
+                    continue;
+                case 33: // SPS
+                    parameterSetsChanged |= Capture(ref _sps, nalu);
+                    continue;
+                case 34: // PPS
+                    parameterSetsChanged |= Capture(ref _pps, nalu);
+                    continue;
+                case 35: // access unit delimiter
+                    continue;
+                case >= 16 and <= 23: // IRAP (BLA/IDR/CRA and reserved IRAP)
+                    isKeyFrame = true;
+                    break;
+            }
+            AppendSampleNalu(nalu);
+        }
+
+        if ((parameterSetsChanged || !_videoConfigSent)
+            && _vps is not null && _sps is not null && _pps is not null)
+        {
+            byte[] hvcc = HvcCBuilder.Build(_vps, _sps, _pps, out HvcCBuilder.SpsSummary sps);
+            context.VideoWidth = sps.Width;
+            context.VideoHeight = sps.Height;
+            WriteFrame(MediaFrameKind.Video, MediaFrameFlags.Config, (uint)VideoCodec.H265, 0, hvcc, tsMs);
+            _videoConfigSent = true;
+        }
+
+        if (_sample.WrittenCount > 0 && _videoConfigSent)
+        {
+            WriteFrame(MediaFrameKind.Video,
+                isKeyFrame ? MediaFrameFlags.KeyFrame : MediaFrameFlags.None,
+                (uint)VideoCodec.H265, ctMs, _sample.WrittenSpan, tsMs);
+        }
+    }
+
+    // =======================================================================
+    // shared video helpers
+
+    private (uint TsMs, int CtMs) ResolveVideoTimestamps(ulong? pts90k, ulong? dts90k)
+    {
+        ulong rawDts = dts90k ?? pts90k ?? 0;
+        ulong rawPts = pts90k ?? rawDts;
+        ulong dts = _videoTs.Unwrap(rawDts);
+        // PTS relative to DTS as a signed 33-bit distance, robust across the wrap
+        long ct90 = (long)((rawPts - rawDts) & PtsMask);
+        if (ct90 > (long)(PtsMask >> 1))
+        {
+            ct90 -= (long)(PtsMask + 1);
+        }
+        return ((uint)(dts / 90), (int)(ct90 / 90));
+    }
+
+    /// <summary>Canonical sample form: 4-byte big-endian length prefix per NALU.</summary>
+    private void AppendSampleNalu(ReadOnlySpan<byte> nalu)
+    {
+        Span<byte> dest = _sample.GetSpan(4 + nalu.Length);
+        BinaryPrimitives.WriteUInt32BigEndian(dest, (uint)nalu.Length);
+        nalu.CopyTo(dest[4..]);
+        _sample.Advance(4 + nalu.Length);
     }
 
     private static bool Capture(ref byte[]? slot, ReadOnlySpan<byte> nalu)

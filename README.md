@@ -13,7 +13,7 @@ Current status
 Two first-class ingest protocols, one canonical internal form, two output shapes:
 
 - **Ingest**: RTMP (classic + enhanced; H.264/H.265/AV1 + AAC) and
-  **SRT** (MPEG-TS; H.264 + AAC, streamid routing, optional passphrase encryption)
+  **SRT** (MPEG-TS; H.264/H.265 + AAC, streamid routing, optional passphrase encryption)
 - **Output**: HLS with MPEG-2 TS segments, or CMAF/fMP4 — optionally **LL-HLS**
   (partial segments + blocking playlist reload), served over HTTP with per-stream
   routing (`/hls/{stream}/playlist.m3u8`)
@@ -68,7 +68,8 @@ Roadmap
       policies are one authorizer away
 - [ ] Tail frames can be lost on abrupt publisher disconnect
 - [ ] CI for this repository (build + test on push, like the sibling repos)
-- [ ] H.265 over SRT/TS ingest (needs an hvcC builder from in-band VPS/SPS/PPS)
+- [x] H.265 over SRT/TS ingest (hvcC built from in-band VPS/SPS/PPS, dimensions
+      parsed from the SPS; both TS and CMAF outputs verified)
 - [ ] SRT→TS-HLS currently demuxes and re-muxes TS; a passthrough/re-segment
       path would halve that cost
 
