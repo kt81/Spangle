@@ -107,12 +107,13 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
             }
         }
 
-        // emit whatever was still being assembled
+        // Emit whatever was still being assembled. The flush must not observe the
+        // (possibly already canceled) session token, or the tail frames are lost.
         demuxer.Flush(adapter);
         if (adapter.HasPendingFrames && MediaOutlet is not null)
         {
             adapter.HasPendingFrames = false;
-            await MediaOutlet.FlushAsync(CancellationToken);
+            await MediaOutlet.FlushAsync(CancellationToken.None);
         }
 
         Logger.ZLogInformation($"SRT stream ended: {Id}");

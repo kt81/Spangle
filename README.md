@@ -66,8 +66,9 @@ Roadmap
       so a reconnect after a crash just works); the output continues under the
       same playlist with an `EXT-X-DISCONTINUITY`. First-wins or liveness-aware
       policies are one authorizer away
-- [ ] Tail frames can be lost on abrupt publisher disconnect
-- [ ] CI for this repository (build + test on push, like the sibling repos)
+- [x] Tail frames survive an abrupt publisher disconnect (the pipeline drains
+      into a final fractional segment before the playlist is finalized)
+- [x] CI for this repository (build + test on push, like the sibling repos)
 - [x] H.265 over SRT/TS ingest (hvcC built from in-band VPS/SPS/PPS, dimensions
       parsed from the SPS; both TS and CMAF outputs verified)
 - [ ] SRT→TS-HLS currently demuxes and re-muxes TS; a passthrough/re-segment

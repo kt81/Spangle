@@ -66,6 +66,12 @@ public class RtmpConnectionHandler(
         {
             // Normal at client disconnect or server shutdown
         }
+        catch (ConnectionResetException)
+        {
+            // A publisher crashing or losing its network is routine for a media server;
+            // the tail of the stream has already been drained into the HLS output.
+            logger.ZLogInformation($"RTMP publisher disconnected abruptly: {receiver.ToString()}");
+        }
         catch (Exception e)
         {
             logger.ZLogError($"RTMP receiver error: {e}");
