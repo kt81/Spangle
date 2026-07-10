@@ -33,6 +33,7 @@ internal partial struct OnStatusResult
         Play = 1,
         Publish,
         Send,
+        PublishBadName,
     }
 
     public OnStatusResult(Level level, Code code, string description, string details)
@@ -54,9 +55,10 @@ internal static class CodeExtension
     {
         return code switch
         {
-            OnStatusResult.Code.Play    => "NetStream.Play.Start",
-            OnStatusResult.Code.Publish => "NetStream.Publish.Start",
-            OnStatusResult.Code.Send    => "NetStream.Send.Start",
+            OnStatusResult.Code.Play           => "NetStream.Play.Start",
+            OnStatusResult.Code.Publish        => "NetStream.Publish.Start",
+            OnStatusResult.Code.Send           => "NetStream.Send.Start",
+            OnStatusResult.Code.PublishBadName => "NetStream.Publish.BadName",
 
             _ => throw new InvalidEnumArgumentException(nameof(code), (int)code, code.GetType())
         };

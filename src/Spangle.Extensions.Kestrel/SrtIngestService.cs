@@ -16,6 +16,8 @@ namespace Spangle.Extensions.Kestrel;
 public sealed class SrtIngestService(
     IOptions<SpangleMediaServerOptions> options,
     HLSStreamRegistry registry,
+    PublishSessionRegistry publishSessions,
+    IPublishAuthorizer publishAuthorizer,
     ILogger<SrtIngestService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -72,7 +74,8 @@ public sealed class SrtIngestService(
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
-        using var live = new LiveContext(receiver, hls, ct);
+        using var live = new LiveContext(receiver, hls, ct,
+            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
             : new HLSSender();

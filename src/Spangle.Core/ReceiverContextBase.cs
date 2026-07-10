@@ -46,6 +46,8 @@ public abstract class ReceiverContextBase<TSelf>(PipeReader reader, PipeWriter w
 
     public PipeWriter? MediaOutlet { get; set; }
 
+    public IPublishGate? PublishGate { get; set; }
+
     public CancellationToken CancellationToken { get; set; } = ct;
 
     public abstract bool IsCompleted { get; }

@@ -22,6 +22,7 @@ public class SRTToHLS
         var listenEndPoint = new IPEndPoint(IPAddress.Parse("0.0.0.0"), 2000);
         var listener = new SRTListener(listenEndPoint);
         var registry = new HLSStreamRegistry();
+        var sessions = new PublishSessionRegistry();
         var cts = new CancellationTokenSource();
         System.Console.CancelKeyPress += (_, _) =>
         {
@@ -38,7 +39,7 @@ public class SRTToHLS
             try
             {
                 var srtClient = await listener.AcceptSRTClientAsync(ct);
-                _ = Task.Run(() => ProcessConnection(srtClient, registry, _logger, ct), ct);
+                _ = Task.Run(() => ProcessConnection(srtClient, registry, sessions, _logger, ct), ct);
             }
             catch (OperationCanceledException)
             {
@@ -51,8 +52,8 @@ public class SRTToHLS
         }
     }
 
-    private static async Task ProcessConnection(SRTClient srtClient, HLSStreamRegistry registry, ILogger logger,
-        CancellationToken ct)
+    private static async Task ProcessConnection(SRTClient srtClient, HLSStreamRegistry registry,
+        PublishSessionRegistry sessions, ILogger logger, CancellationToken ct)
     {
         var receiver = new SRTReceiverContext(srtClient, ct);
         var hls = new HLSSenderContext(ct)
@@ -60,7 +61,7 @@ public class SRTToHLS
             OutputDirectory = "hls-out",
             Registry = registry,
         };
-        using var live = new LiveContext(receiver, hls, ct);
+        using var live = new LiveContext(receiver, hls, ct, publishSessions: sessions);
         var sender = new HLSSender();
 
         var senderTask = Task.Run(async () =>

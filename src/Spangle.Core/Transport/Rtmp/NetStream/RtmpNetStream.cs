@@ -98,7 +98,7 @@ internal class RtmpNetStream
     /// The client sends the publish command to publish a named stream to the server. Using this name,
     /// any client can play this stream and receive the published audio, video, and data messages.
     /// </summary>
-    public void OnPublish(
+    public async ValueTask OnPublish(
         double transactionId,
         AmfObject? commandObject,
         string publishingName,
@@ -115,9 +115,24 @@ internal class RtmpNetStream
         {
             throw new InvalidDataException($"Inconsistent stream name: {Name} => {publishingName}");
         }
-        context.PreparingStreamName = publishingName;
+
         uint csId = context.BasicHeader.ChunkStreamId;
         const uint publishingStreamId = Protocol.ControlStreamId + 1;
+
+        // publish authorization (and same-name takeover) at the protocol's rejection point
+        if (context.PublishGate is { } gate
+            && !await gate.TryOpenAsync(publishingName, context.CancellationToken))
+        {
+            _logger.ZLogInformation($"Publish rejected: '{publishingName}'");
+            var denied = new OnStatusResult(OnStatusResult.Level.Error, OnStatusResult.Code.PublishBadName,
+                $"Publish of '{publishingName}' is not allowed.", publishingName);
+            RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
+                csId, publishingStreamId, denied);
+            context.ConnectionState = ReceivingState.Terminated;
+            return;
+        }
+
+        context.PreparingStreamName = publishingName;
 
         _logger.ZLogTrace($"Send UserControlMessage (4) StreamBegin (0) : 1");
         var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin,

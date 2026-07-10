@@ -57,6 +57,12 @@ public interface IReceiverContext
     public PipeWriter? MediaOutlet { get; set; }
 
     /// <summary>
+    /// Publish authorization for this session; the receiver calls it at its protocol's
+    /// natural rejection point. Null when no session registry is configured (allow all).
+    /// </summary>
+    public IPublishGate? PublishGate { get; set; }
+
+    /// <summary>
     /// Cancellation token for the connection
     /// </summary>
     public CancellationToken CancellationToken { get; set; }
