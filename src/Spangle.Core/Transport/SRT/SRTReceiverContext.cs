@@ -39,6 +39,13 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
 
     public override async ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource)
     {
+        // publish authorization (and same-name takeover) before any media is consumed
+        if (PublishGate is { } gate && !await gate.TryOpenAsync(StreamName ?? Id, CancellationToken))
+        {
+            Logger.ZLogInformation($"SRT publish rejected: {Id}");
+            return;
+        }
+
         var demuxer = new M2TSDemuxer();
         var adapter = new M2TSMediaFrameAdapter<SRTReceiverContext>(this);
         var packetCopy = new byte[M2TSWriter.PacketSize];

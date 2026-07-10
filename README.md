@@ -60,9 +60,12 @@ Roadmap
 
 ### Near term — correctness & operations
 
-- [ ] Publish authorization hook (validate RTMP stream keys / SRT streamids;
-      today anyone who can reach the port can publish)
-- [ ] Same-name concurrent publishers currently clash in one output directory
+- [x] Publish authorization hook (`IPublishAuthorizer` in DI; default allows all —
+      register your own to validate RTMP stream keys / SRT streamids)
+- [x] Same-name publishers: the newest session takes over by default (last-wins,
+      so a reconnect after a crash just works); the output continues under the
+      same playlist with an `EXT-X-DISCONTINUITY`. First-wins or liveness-aware
+      policies are one authorizer away
 - [ ] Tail frames can be lost on abrupt publisher disconnect
 - [ ] CI for this repository (build + test on push, like the sibling repos)
 - [ ] H.265 over SRT/TS ingest (needs an hvcC builder from in-band VPS/SPS/PPS)

@@ -11,12 +11,12 @@ internal abstract class CommandAmf0
 {
     public static async ValueTask Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
-        DispatchRpc(context, ref payload);
+        await DispatchRpc(context, payload);
         await context.RemoteWriter.FlushAsync(context.CancellationToken);
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void DispatchRpc(RtmpReceiverContext context, ref ReadOnlySequence<byte> buff)
+    // The buffer is consumed in place; nothing needs the remainder back.
+    private static async ValueTask DispatchRpc(RtmpReceiverContext context, ReadOnlySequence<byte> buff)
     {
         // Parse command
         string command = ParseString(ref buff); // If too long, still leave it to an error to occur
@@ -60,7 +60,7 @@ internal abstract class CommandAmf0
             // NetStream Commands
             // -------------------------------------------------------------------
             case RtmpNetStream.Commands.Publish:
-                context.GetStreamOrError().OnPublish(transactionId, commandObject,
+                await context.GetStreamOrError().OnPublish(transactionId, commandObject,
                     ParseString(ref buff), ParseString(ref buff));
                 break;
             case RtmpNetStream.Commands.DeleteStream:

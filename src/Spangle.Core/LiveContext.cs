@@ -23,8 +23,11 @@ public sealed class LiveContext : IDisposable
     /// </summary>
     private readonly IReadOnlyList<ISpinner> _mediaSpinners;
 
+    private readonly PublishGate? _publishGate;
+
     public LiveContext(IReceiverContext receiverContext, ISenderContext senderContext,
-        CancellationToken cancellationToken = default, IReadOnlyList<ISpinner>? mediaSpinners = null)
+        CancellationToken cancellationToken = default, IReadOnlyList<ISpinner>? mediaSpinners = null,
+        PublishSessionRegistry? publishSessions = null, IPublishAuthorizer? publishAuthorizer = null)
     {
         ReceiverContext = receiverContext;
         SenderContext = senderContext;
@@ -32,6 +35,39 @@ public sealed class LiveContext : IDisposable
         _cancellationToken = cancellationToken;
         _mediaSpinners = mediaSpinners ?? [];
         receiverContext.VideoCodecSet += OnVideoCodecSet;
+
+        if (publishSessions is not null)
+        {
+            string protocol = receiverContext switch
+            {
+                Transport.Rtmp.RtmpReceiverContext => "RTMP",
+                Transport.SRT.SRTReceiverContext => "SRT",
+                _ => receiverContext.GetType().Name,
+            };
+            _publishGate = new PublishGate(publishSessions,
+                publishAuthorizer ?? new DefaultPublishAuthorizer(),
+                protocol, receiverContext.Id, receiverContext.EndPoint,
+                kick: () => Shutdown(handover: true));
+            receiverContext.PublishGate = _publishGate;
+        }
+    }
+
+    /// <summary>
+    /// Ends this session from outside the receive loop. With <paramref name="handover"/>,
+    /// the HLS output is not finalized (no ENDLIST): the successor session continues the
+    /// same playlist with an EXT-X-DISCONTINUITY.
+    /// </summary>
+    public void Shutdown(bool handover = false)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        if (handover && SenderContext is HLSSenderContext hls)
+        {
+            hls.EndBehavior = HLSEndBehavior.Handover;
+        }
+        _lifetimeCancellationTokenSource.Cancel();
     }
 
     /// <summary>
@@ -141,6 +177,9 @@ public sealed class LiveContext : IDisposable
         {
             _lifetimeCancellationTokenSource.Cancel();
             _lifetimeCancellationTokenSource.Dispose();
+            // the hosts dispose after the sender finished, so the successor session
+            // (waiting in its gate) only proceeds once any handover state is stashed
+            _publishGate?.Release();
         }
 
         _disposed = true;

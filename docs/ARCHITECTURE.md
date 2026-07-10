@@ -209,6 +209,24 @@ SRT bytes ──► SRTReceiverContext ──► M2TSDemuxer ──► M2TSMedia
 - Not yet supported over TS ingest: H.265 (needs an hvcC builder from in-band
   VPS/SPS/PPS), audio-only programs, multi-packet PSI sections.
 
+## Publish authorization & takeover
+
+Authorization is first-class: the mechanism lives in the library, the policy in the
+host's DI. `LiveContext` wires an `IPublishGate` into the receiver, and each protocol
+consults it at its natural rejection point — RTMP inside the `publish` command
+(rejection = `NetStream.Publish.BadName`), SRT before any media is consumed.
+The registered `IPublishAuthorizer` sees the request (protocol, raw name, sanitized
+key, endpoint, and the existing same-name session if any) and answers
+Allow / Deny / Takeover.
+
+The default policy is allow-all with **last-wins** on contested names: a zombie
+session blocking a publisher's reconnect is a worse failure than a takeover by a
+holder of the same key. On takeover the previous session is shut down without
+finalizing its output (no `EXT-X-ENDLIST`); its live playlist state (media sequence,
+window) is stashed in the `HLSStreamRegistry` and the successor resumes it, marking
+the boundary with `EXT-X-DISCONTINUITY`. Takeovers work across protocols — an SRT
+publisher can take over an RTMP session of the same name.
+
 ## Known simplifications (as of now)
 
 - Single program / fixed PIDs in TS output; PCR equals DTS (no PCR offset)

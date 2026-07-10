@@ -66,9 +66,19 @@ public class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
         }
         finally
         {
-            builder.Complete();
+            if (context.EndBehavior == HLSEndBehavior.Handover && context.Registry is { } registry
+                && builder.ExportHandover() is { } handover)
+            {
+                // taken over: leave the playlist live for the successor session
+                registry.StashHandover(context.ResolveStreamKey(), handover);
+                s_logger.ZLogInformation($"HLS(CMAF) stream handed over");
+            }
+            else
+            {
+                builder.Complete();
+                s_logger.ZLogInformation($"HLS(CMAF) stream completed");
+            }
             await reader.CompleteAsync();
-            s_logger.ZLogInformation($"HLS(CMAF) stream completed");
         }
     }
 }
@@ -351,13 +361,31 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             var live = registry.GetOrAdd(context.ResolveStreamKey());
             onUpdated = live.Publish;
         }
-        _playlist = new HLSPlaylist(_directory, "init.mp4", _partTarget, onUpdated);
+        HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
+        _playlist = new HLSPlaylist(_directory, "init.mp4", _partTarget, onUpdated, resume);
         s_logger.ZLogInformation(
             $"HLS(CMAF) output to {_directory} (video={_videoCodec}, audio={(audioTrack is null ? "none" : "AAC")}, lowLatency={_partTarget is not null})");
     }
 
     /// <summary>Flushes the remaining samples and finalizes the playlist</summary>
     public void Complete()
+    {
+        FlushRemainder();
+        _playlist?.Complete();
+    }
+
+    /// <summary>
+    /// Flushes the remaining samples and exports the live playlist state for a
+    /// successor session (takeover): no EXT-X-ENDLIST is written. Null when no
+    /// output was produced yet.
+    /// </summary>
+    public HLSPlaylistHandover? ExportHandover()
+    {
+        FlushRemainder();
+        return _playlist?.ExportHandover();
+    }
+
+    private void FlushRemainder()
     {
         if (_videoConfig is not null && _videoMeta.Count > 0)
         {
@@ -367,6 +395,5 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         {
             FinalizeSegment(_partStartMs);
         }
-        _playlist?.Complete();
     }
 }

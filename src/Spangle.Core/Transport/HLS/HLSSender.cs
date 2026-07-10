@@ -34,7 +34,8 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
                 {
                     // Media is flowing, so the stream name is known by now
                     var directory = context.ResolveStreamDirectory();
-                    segmenter = new HLSSegmenter(directory, context.TargetSegmentDuration);
+                    HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
+                    segmenter = new HLSSegmenter(directory, context.TargetSegmentDuration, resume);
                     s_logger.ZLogInformation($"HLS(TS) output to {directory}");
                 }
 
@@ -55,8 +56,20 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
         }
         finally
         {
-            segmenter?.Complete();
-            s_logger.ZLogInformation($"HLS stream completed");
+            if (segmenter is not null)
+            {
+                if (context.EndBehavior == HLSEndBehavior.Handover && context.Registry is { } registry)
+                {
+                    // taken over: leave the playlist live for the successor session
+                    registry.StashHandover(context.ResolveStreamKey(), segmenter.ExportHandover());
+                    s_logger.ZLogInformation($"HLS stream handed over");
+                }
+                else
+                {
+                    segmenter.Complete();
+                    s_logger.ZLogInformation($"HLS stream completed");
+                }
+            }
         }
     }
 

@@ -13,6 +13,8 @@ public class RtmpConnectionHandler(
     IOptions<SpangleMediaServerOptions> options,
     IHostApplicationLifetime lifetime,
     HLSStreamRegistry registry,
+    PublishSessionRegistry publishSessions,
+    IPublishAuthorizer publishAuthorizer,
     ILogger<RtmpConnectionHandler> logger) : ConnectionHandler
 {
     public override async Task OnConnectedAsync(ConnectionContext connection)
@@ -37,7 +39,8 @@ public class RtmpConnectionHandler(
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
-        using var live = new LiveContext(receiver, hls, ct);
+        using var live = new LiveContext(receiver, hls, ct,
+            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
             : new HLSSender();

@@ -10,6 +10,14 @@ namespace Spangle.Transport.HLS;
 public sealed class HLSStreamRegistry
 {
     private readonly ConcurrentDictionary<string, LivePlaylist> _streams = new();
+    private readonly ConcurrentDictionary<string, HLSPlaylistHandover> _handovers = new();
+
+    /// <summary>Stashes the live-playlist state of a kicked session for its successor.</summary>
+    internal void StashHandover(string streamKey, HLSPlaylistHandover state) => _handovers[streamKey] = state;
+
+    /// <summary>Takes (and removes) the handover state left by a kicked predecessor, if any.</summary>
+    internal HLSPlaylistHandover? TakeHandover(string streamKey) =>
+        _handovers.TryRemove(streamKey, out HLSPlaylistHandover? state) ? state : null;
 
     public LivePlaylist GetOrAdd(string streamKey) =>
         _streams.GetOrAdd(streamKey, static _ => new LivePlaylist());

@@ -22,12 +22,22 @@ internal sealed class HLSSegmenter
     private ulong _segmentStartPcr;
     private ulong _lastPcr;
 
-    public HLSSegmenter(string directory, double targetDuration)
+    public HLSSegmenter(string directory, double targetDuration, HLSPlaylistHandover? resume = null)
     {
         _directory = directory;
         _targetDuration = targetDuration;
         Directory.CreateDirectory(directory);
-        _playlist = new HLSPlaylist(directory);
+        _playlist = new HLSPlaylist(directory, resume: resume);
+    }
+
+    /// <summary>
+    /// Flushes the remaining data as a segment and exports the live playlist state
+    /// for a successor session (takeover): no EXT-X-ENDLIST is written.
+    /// </summary>
+    public HLSPlaylistHandover ExportHandover()
+    {
+        FlushRemainder();
+        return _playlist.ExportHandover();
     }
 
     public void ProcessPacket(ReadOnlySpan<byte> packet)
@@ -95,6 +105,12 @@ internal sealed class HLSSegmenter
     /// </summary>
     public void Complete()
     {
+        FlushRemainder();
+        _playlist.Complete();
+    }
+
+    private void FlushRemainder()
+    {
         foreach (byte[] held in _held)
         {
             _current.Write(held);
@@ -105,7 +121,6 @@ internal sealed class HLSSegmenter
         {
             FinalizeSegment((_lastPcr - _segmentStartPcr) / 90000.0);
         }
-        _playlist.Complete();
     }
 
     private void FinalizeSegment(double duration)
