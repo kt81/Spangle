@@ -121,10 +121,11 @@ public sealed class LiveContext : IDisposable
     private bool _disposed;
 
     private readonly CancellationTokenSource _lifetimeCancellationTokenSource = new();
+    private CancellationTokenSource? _readTimeoutSource;
 
     public async ValueTask StartAsync()
     {
-        CancellationTokenSource readTimeoutSource = new CancellationTokenSource();
+        CancellationTokenSource readTimeoutSource = _readTimeoutSource = new CancellationTokenSource();
         CancellationTokenRegistration contextCancellationRegistration = default;
         CancellationTokenRegistration lifetimeCancellationRegistration = default;
 
@@ -145,10 +146,18 @@ public sealed class LiveContext : IDisposable
         }
 
         _cancellationToken = readTimeoutSource.Token;
+        // The receiver reads with this token, so host shutdown, a read timeout, and a
+        // takeover kick (Shutdown) all interrupt a blocked read instead of waiting for
+        // the peer to send more data.
+        ReceiverContext.CancellationToken = readTimeoutSource.Token;
 
         try
         {
             await ReceiverContext.BeginReceiveAsync(readTimeoutSource);
+        }
+        catch (OperationCanceledException)
+        {
+            // orderly abort: host shutdown, read timeout, or a takeover kick
         }
         finally
         {
@@ -158,12 +167,11 @@ public sealed class LiveContext : IDisposable
                 await ReceiverContext.MediaOutlet.CompleteAsync();
             }
 
-            // ReSharper disable MethodHasAsyncOverload
             contextCancellationRegistration.Dispose();
             lifetimeCancellationRegistration.Dispose();
-            readTimeoutSource.Cancel();
-            // ReSharper restore MethodHasAsyncOverload
-            readTimeoutSource.Dispose();
+            // No Cancel() here: the spinner chain must be left running to drain the
+            // frames the receiver already emitted, or the tail of the stream is lost.
+            // The CTS is disposed with the context, after the host awaited the sender.
         }
     }
 
@@ -177,6 +185,7 @@ public sealed class LiveContext : IDisposable
         {
             _lifetimeCancellationTokenSource.Cancel();
             _lifetimeCancellationTokenSource.Dispose();
+            _readTimeoutSource?.Dispose();
             // the hosts dispose after the sender finished, so the successor session
             // (waiting in its gate) only proceeds once any handover state is stashed
             _publishGate?.Release();
