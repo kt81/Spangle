@@ -152,7 +152,7 @@ public sealed class M2TSWriter
             else if (afLen > 1)
             {
                 bool carriesPcr = first && pcr.HasValue;
-                var af = AdaptationFieldsBasic.Compose(
+                pos += AdaptationFieldsBasic.ComposeTo(pkt[pos..],
                     adaptationFieldLength: (uint)(afLen - 1),
                     discontinuityIndicator: 0,
                     randomAccessIndicator: (byte)(first && randomAccess ? 1 : 0),
@@ -162,8 +162,6 @@ public sealed class M2TSWriter
                     hasSplicingPoint: false,
                     hasTransportPrivateData: false,
                     hasAdaptationFieldExtension: false);
-                MemoryMarshal.Write(pkt[pos..], in af);
-                pos += AdaptationFieldsBasic.Size;
                 if (carriesPcr)
                 {
                     WritePcrValue(pkt.Slice(pos, PCR.Size), pcr!.Value);
@@ -273,7 +271,7 @@ public sealed class M2TSWriter
 
     private static void WriteTsHeader(Span<byte> pkt, ushort pid, bool payloadUnitStart, bool hasAdaptationField, byte cc)
     {
-        var header = TSHeader.Compose(
+        TSHeader.ComposeTo(pkt,
             syncByte: 0x47,
             transportError: 0,
             payloadUnitStart: (byte)(payloadUnitStart ? 1 : 0),
@@ -284,7 +282,6 @@ public sealed class M2TSWriter
                 ? TSHeader.AdaptationFieldControlType.AdaptationField | TSHeader.AdaptationFieldControlType.Payload
                 : TSHeader.AdaptationFieldControlType.Payload,
             continuityCounter: cc); // masked to 4 bits by the generated composition
-        MemoryMarshal.Write(pkt, in header);
     }
 
     private static int BuildPesHeader(Span<byte> b, byte streamId, int payloadLength, ulong? pts, ulong? dts)
@@ -325,17 +322,15 @@ public sealed class M2TSWriter
 
     private static void WriteTimestamp(Span<byte> b, byte prefix, ulong value)
     {
-        var timestamp = PESTimestamp.Compose(prefix, value); // marker bits included
-        MemoryMarshal.Write(b, in timestamp);
+        PESTimestamp.ComposeTo(b, prefix, value); // marker bits included
     }
 
     private static void WritePcrValue(Span<byte> b, ulong pcr90kHz)
     {
-        var pcr = PCR.Compose(
+        PCR.ComposeTo(b,
             @base: pcr90kHz & PtsMask,
             reserved: 0x3F, // all 1 on the wire
             extension: 0);
-        MemoryMarshal.Write(b, in pcr);
     }
 
     /// <summary>

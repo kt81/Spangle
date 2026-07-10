@@ -42,19 +42,21 @@ Environment: AMD Ryzen 7 7800X3D (8C/16T), Windows 11, .NET 10.0.9, Server GC.
 |---|---|---:|---:|
 | ChunkParsing.ParseSession | ChunkSize=128 (~2.23 MB session) | 693.8 µs (≈3.2 GB/s) | 0 B |
 | ChunkParsing.ParseSession | ChunkSize=4096 | 93.7 µs (≈23.6 GB/s) | 0 B |
-| M2TSWriter.KeyFrame | PAT+PMT+PES, 5KB AU | 523.1 ns | 0 B |
-| M2TSWriter.InterFrame | PES, 5KB AU | 186.0 ns | 0 B |
+| M2TSWriter.KeyFrame | PAT+PMT+PES, 5KB AU | 463.5 ns | 0 B |
+| M2TSWriter.InterFrame | PES, 5KB AU | 187.0 ns | 0 B |
 | CmafPackager.BuildFragment | 30v+43a samples | 6.6 µs | 128 B |
 
 The steady-state media path allocates nothing per frame; the 128 B in `BuildFragment`
 is the `IReadOnlyList` enumerator (twice per part, irrelevant at part cadence).
 
 Note on `M2TSWriter`: the TS header / adaptation field / PCR / PES timestamp writes go
-through LusterBits bit-field structs (declaration mirrors the spec tables), built with
-the generated `Compose()` factories: one store per byte with generation-time-folded
-masks and constant bits included. This matches hand-packed byte writes within noise
-(hand-packed baseline was 510.8 / 162.3 ns; per-field setters had roughly doubled it
-before Compose existed) while staying allocation-free.
+through LusterBits bit-field structs (declaration mirrors the spec tables), composed
+with the generated `ComposeTo()` factories straight into the packet span: one store
+per byte with generation-time-folded masks and constant bits included, and no
+intermediate struct. History of this path: per-field setters roughly doubled the
+hand-packed baseline (510.8 / 162.3 ns), `Compose()` + `MemoryMarshal.Write` restored
+parity (523.1 / 186.0 ns), and `ComposeTo()` now beats the hand-packed baseline on the
+compose-heavy keyframe path (463.5 ns) by eliminating the stack struct and the copy.
 
 ### Load (4 publishers × 720p30 ≈ 10 Mbps aggregate ingest, 30 s, realtime)
 
