@@ -1,63 +1,100 @@
-﻿Spangle Media Server (WIP)
-===================
+Spangle Media Server
+====================
 
-THIS PROJECT IS WORKING IN PROGRESS
-====================================
+Media server for those who want to sparkle✨ — a live streaming server in almost
+pure C#, aiming for clarity of data models / data flow / state, minimal
+allocations on modern IO, and top-tier .NET performance.
 
-Current status: RTMP (classic + enhanced) ingest of H.264/H.265/AV1 + AAC works
-end-to-end into HLS — MPEG-2 TS or CMAF/fMP4 segments, optionally LL-HLS (partial
-segments + blocking playlist reload) — served over HTTP by `Spangle.MediaServer`
-with per-stream routing (`/hls/{stream}/playlist.m3u8`).
+> Pre-1.0 / under active development. Interfaces may change without notice.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow, the data formats at
-each boundary, and where state lives.
+Current status
+--------------
 
-Quick try:
+Two first-class ingest protocols, one canonical internal form, two output shapes:
+
+- **Ingest**: RTMP (classic + enhanced; H.264/H.265/AV1 + AAC) and
+  **SRT** (MPEG-TS; H.264 + AAC, streamid routing, optional passphrase encryption)
+- **Output**: HLS with MPEG-2 TS segments, or CMAF/fMP4 — optionally **LL-HLS**
+  (partial segments + blocking playlist reload), served over HTTP with per-stream
+  routing (`/hls/{stream}/playlist.m3u8`)
+- **Performance** (see [docs/PERFORMANCE.md](docs/PERFORMANCE.md)): zero allocations
+  on the steady-state media path; RTMP chunk parsing at ≈3.2 GB/s; TS keyframe
+  packetization at ~464 ns — faster than our hand-packed baseline, through the
+  declarative bit fields of
+  [Spangle.LusterBits](https://github.com/kt81/Spangle.LusterBits)
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow, the data formats
+at each boundary, and where state lives.
+
+Quick try
+---------
 
 ```console
 $ dotnet run --project src/Spangle.MediaServer
-$ ffmpeg -re -f lavfi -i testsrc=size=640x360:rate=30 -f lavfi -i sine=frequency=440 \
+
+# publish via RTMP:
+$ ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440 \
     -c:v libx264 -g 60 -pix_fmt yuv420p -c:a aac -f flv rtmp://localhost:1935/live/test
-# then open http://localhost:8080/ (test player) or http://localhost:8080/hls/playlist.m3u8
+
+# ...or via SRT:
+$ ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440 \
+    -c:v libx264 -g 60 -pix_fmt yuv420p -c:a aac -f mpegts "srt://localhost:9998?streamid=test"
+
+# then open http://localhost:8080/ (test player) or http://localhost:8080/hls/test/playlist.m3u8
 ```
 
-Planning Goal
+Configuration lives in `src/Spangle.MediaServer/spanglesettings.yaml`
+(ports, segment format TS/fMP4, LL-HLS, SRT passphrase), overridable with
+`SMS_`-prefixed environment variables.
+
+Family
 ------
 
-### Media Streaming
+| Package | What |
+|---|---|
+| [Spangle.LusterBits](https://www.nuget.org/packages/Spangle.LusterBits) | Declarative bit fields for binary protocols (C# source generator); every TS/RTMP wire structure here is declared with it — the muxer composes and the demuxer reads through the same structs |
+| [Spangle.Net.Transport.SRT](https://www.nuget.org/packages/Spangle.Net.Transport.SRT) | Self-contained SRT transport (native libsrt + mbedTLS bundled for 5 RIDs) |
 
-- Ingest
-  - RTMP (+ Enhanced)
-  - RTSP (very low priority)
-  - SRT
-- Web Origin
-  - HLS
-  - LL-HLS
-  - DASH (low priority)
-  - LL-DASH (CMAF Chunked-Transfer) (low priority)
-- Codecs
-  - H.264
-  - H.265
-  - AV1
-  - AAC
-  - Opus
+Roadmap
+-------
 
-### Web Console (Goal of Effort)
+### Near term — correctness & operations
 
-- Control multiple servers
-- Easy monitoring
-- Setting editor
+- [ ] Publish authorization hook (validate RTMP stream keys / SRT streamids;
+      today anyone who can reach the port can publish)
+- [ ] Same-name concurrent publishers currently clash in one output directory
+- [ ] Tail frames can be lost on abrupt publisher disconnect
+- [ ] CI for this repository (build + test on push, like the sibling repos)
+- [ ] H.265 over SRT/TS ingest (needs an hvcC builder from in-band VPS/SPS/PPS)
+- [ ] SRT→TS-HLS currently demuxes and re-muxes TS; a passthrough/re-segment
+      path would halve that cost
 
-### Advanced Features (I don't know if I'm going to do it)
+### Mid term — features
 
-- DRM
-- Transcoder integration (Hardware, x26X)
+- [ ] Timed metadata end-to-end: AMF events → data frames → ID3 (TS) / emsg (CMAF);
+      the Spinner plugin point exists for exactly this
+- [ ] Opus audio (CMAF path), audio-only streams
+- [ ] LL-HLS playlist delta updates (`_HLS_skip`)
+- [ ] DASH / LL-DASH (low priority)
+- [ ] RTSP ingest (very low priority)
 
-### Others
+### Long term — goals of effort
+
+- Web console (multi-server control, monitoring, settings)
+- Failover with very little gap
+- DRM / transcoder integration (undecided)
+
+### Guiding constraints
 
 - Target mainly UGC content
-- Almost pure C#
-- High performance
-- Highly customizable (plugin, fork, etc...)
-- Fail over with very little gap (Goal of Effort)
-- Out-of-the-box support for timed metadata 
+- Almost pure C# (native only where a protocol demands it, e.g. libsrt)
+- Clarity first: an implementer should be able to read the declarations like
+  the protocol specs they mirror
+- Highly customizable (plugins via Spinners, forks welcome)
+
+License
+-------
+
+The server is licensed under **AGPL-3.0** (see [LICENSE](./LICENSE)).
+The reusable building blocks — LusterBits and the SRT transport — are published
+separately under MIT, so embedding them in your own software carries no copyleft.
