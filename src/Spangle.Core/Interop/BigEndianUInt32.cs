@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Spangle.Interop;
@@ -7,11 +9,11 @@ namespace Spangle.Interop;
 /// Struct mapping for 4 bytes number of Big Endian
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = Length, Size = Length)]
-public unsafe struct BigEndianUInt32 : IInteropType<uint, BigEndianUInt32>
+public struct BigEndianUInt32 : IInteropType<uint, BigEndianUInt32>
 {
     private const int Length = sizeof(uint);
 
-    private fixed byte _val[Length];
+    private InlineArray4<byte> _val;
 
     public static BigEndianUInt32 FromHost(uint value)
     {
@@ -22,31 +24,15 @@ public unsafe struct BigEndianUInt32 : IInteropType<uint, BigEndianUInt32>
         return self;
     }
 
-    public readonly uint HostValue
+    public uint HostValue
     {
-        get
-        {
-            fixed (byte* p = _val)
-            {
-                return BinaryPrimitives.ReadUInt32BigEndian(new Span<byte>(p, Length));
-            }
-        }
-        init
-        {
-            fixed (byte* p = _val)
-            {
-                BinaryPrimitives.WriteUInt32BigEndian(new Span<byte>(p, Length), value);
-            }
-        }
+        readonly get => BinaryPrimitives.ReadUInt32BigEndian(_val);
+        init => BinaryPrimitives.WriteUInt32BigEndian(_val, value);
     }
 
-    public readonly Span<byte> AsSpan()
-    {
-        fixed (byte* p = _val)
-        {
-            return new Span<byte>(p, Length);
-        }
-    }
+    /// <summary>The raw big-endian bytes; the span aliases this instance.</summary>
+    [UnscopedRef]
+    public Span<byte> AsSpan() => _val;
 
     public static void Clear()
     {

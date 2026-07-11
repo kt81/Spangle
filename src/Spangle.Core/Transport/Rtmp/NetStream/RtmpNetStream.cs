@@ -135,8 +135,8 @@ internal class RtmpNetStream
         context.PreparingStreamName = publishingName;
 
         _logger.ZLogTrace($"Send UserControlMessage (4) StreamBegin (0) : 1");
-        var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin,
-            BigEndianUInt32.FromHost(publishingStreamId).AsSpan());
+        BigEndianUInt32 streamIdData = BigEndianUInt32.FromHost(publishingStreamId);
+        var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin, streamIdData.AsSpan());
         RtmpWriter.Write(context, 0, MessageType.UserControl,
             csId, Protocol.ControlStreamId, ref streamBegin);
 

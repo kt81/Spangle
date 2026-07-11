@@ -1,4 +1,6 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Spangle.Transport.Rtmp.Chunk;
 
@@ -33,8 +35,8 @@ namespace Spangle.Transport.Rtmp.Chunk;
 
  Chunk basic header 3
  */
-[StructLayout(LayoutKind.Explicit, Pack = 1, Size = MaxSize)]
-internal unsafe struct BasicHeader
+[StructLayout(LayoutKind.Sequential, Pack = 1, Size = MaxSize)]
+internal struct BasicHeader
 {
     public const  int  MaxSize = 3;
     private const byte MaxIdH1 = 0b0011_1111; // 63
@@ -48,7 +50,7 @@ internal unsafe struct BasicHeader
 
     private const byte MultiByteIdBias = 64;
 
-    [FieldOffset(0)] private fixed byte _value[MaxSize];
+    private InlineArray3<byte> _value;
 
     public MessageHeaderFormat Format
     {
@@ -99,17 +101,15 @@ internal unsafe struct BasicHeader
         _      => 1,
     };
 
-    public readonly Span<byte> AsSpan()
-    {
-        fixed (void* p = &this)
-        {
-            return new Span<byte>(p, MaxSize);
-        }
-    }
+    [UnscopedRef]
+    public Span<byte> AsSpan() => _value;
+
+    [UnscopedRef]
+    private readonly ReadOnlySpan<byte> Bytes => _value;
 
     public override readonly string ToString()
     {
         return
-            $$"""BasicHeader {fmt:{{Format}}, csId:{{ChunkStreamId}}} {{string.Join(' ', AsSpan().ToArray().Select(x => $"{x:X02}"))}}""";
+            $$"""BasicHeader {fmt:{{Format}}, csId:{{ChunkStreamId}}} {{string.Join(' ', Bytes.ToArray().Select(x => $"{x:X02}"))}}""";
     }
 }

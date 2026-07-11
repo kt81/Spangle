@@ -66,8 +66,8 @@ internal abstract class NetConnectionHandler
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref peerBw);
 
         s_logger.ZLogTrace($"Send UseControlMessage (4) StreamBegin (0) : 0");
-        var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin,
-            BigEndianUInt32.FromHost(Protocol.ControlStreamId).AsSpan());
+        BigEndianUInt32 streamIdData = BigEndianUInt32.FromHost(Protocol.ControlStreamId);
+        var streamBegin = UserControlMessage.Create(UserControlMessageEvents.StreamBegin, streamIdData.AsSpan());
         RtmpWriter.Write(context, 0, MessageType.UserControl,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref streamBegin);
 
