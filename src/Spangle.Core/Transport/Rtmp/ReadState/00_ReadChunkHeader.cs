@@ -20,10 +20,10 @@ internal abstract class ReadChunkHeader
 {
     private static readonly ILogger<ReadChunkHeader> s_logger = SpangleLogManager.GetLogger<ReadChunkHeader>();
 
-    public static async ValueTask Perform(RtmpReceiverContext context)
+    public static async ValueTask PerformAsync(RtmpReceiverContext context)
     {
         PipeReader reader = context.RemoteReader;
-        ReadResult result = await reader.ReadAsync(context.CancellationToken);
+        ReadResult result = await reader.ReadAsync(context.CancellationToken).ConfigureAwait(false);
         var buffer = result.Buffer;
 
         while (TryReadChunk(context, ref buffer, out var completed))
@@ -42,7 +42,7 @@ internal abstract class ReadChunkHeader
             // The assembly buffer is our own copy, so dispatching while the read buffer
             // is still rented is safe: handlers never touch RemoteReader.
             var payload = new ReadOnlySequence<byte>(completed.Assembly.WrittenMemory);
-            await DispatchMessage(context, completed, payload);
+            await DispatchMessageAsync(context, completed, payload).ConfigureAwait(false);
             // ResetWrittenCount, not Clear: Clear would memset the written area on
             // every message, a pointless cost on the hot path
             completed.Assembly.ResetWrittenCount();
@@ -199,7 +199,7 @@ internal abstract class ReadChunkHeader
         return true;
     }
 
-    private static async ValueTask DispatchMessage(RtmpReceiverContext context, ChunkStreamState state,
+    private static async ValueTask DispatchMessageAsync(RtmpReceiverContext context, ChunkStreamState state,
         ReadOnlySequence<byte> payload)
     {
         switch (state.TypeId)
@@ -215,20 +215,20 @@ internal abstract class ReadChunkHeader
                 s_logger.ZLogTrace($"Ignoring control message: {state.TypeId}");
                 break;
             case MessageType.Audio:
-                await Audio.Handle(context, payload);
+                await Audio.HandleAsync(context, payload).ConfigureAwait(false);
                 break;
             case MessageType.Video:
-                await Video.Handle(context, payload);
+                await Video.HandleAsync(context, payload).ConfigureAwait(false);
                 break;
             case MessageType.DataAmf0:
                 DataAmf0.Handle(context, payload);
                 break;
             case MessageType.CommandAmf0:
-                await CommandAmf0.Handle(context, payload);
+                await CommandAmf0.HandleAsync(context, payload).ConfigureAwait(false);
                 break;
             default:
-                throw new NotImplementedException(
-                    $"The processor of [{state.TypeId}] is not implemented.");
+                throw new NotSupportedException(
+                    $"The processor of [{state.TypeId}] is not supported.");
         }
     }
 

@@ -24,7 +24,7 @@ public class AudioConfigStashTest
         context.MediaOutlet.Should().BeNull("precondition: the pipeline is not wired yet");
 
         // AAC sequence header while unwired: must be kept, not dropped
-        await Audio.Handle(context, new ReadOnlySequence<byte>([0xAF, 0x00, .. s_asc]));
+        await Audio.HandleAsync(context, new ReadOnlySequence<byte>([0xAF, 0x00, .. s_asc]));
         context.PendingAudioConfig.Should().Equal(s_asc);
         context.AudioCodec.Should().Be(AudioCodec.AAC, "the codec is known regardless of wiring");
 
@@ -33,7 +33,7 @@ public class AudioConfigStashTest
         context.MediaOutlet = media.Writer;
 
         // the next audio frame must be preceded by the replayed config
-        await Audio.Handle(context, new ReadOnlySequence<byte>([0xAF, 0x01, .. s_aac]));
+        await Audio.HandleAsync(context, new ReadOnlySequence<byte>([0xAF, 0x01, .. s_aac]));
         await media.Writer.CompleteAsync();
 
         var frames = await ReadAllFrames(media.Reader);

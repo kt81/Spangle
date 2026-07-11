@@ -3,7 +3,7 @@ using ZLogger;
 
 namespace Spangle.Examples.Console;
 
-public static class LoggerExtensions
+internal static class LoggerExtensions
 {
     public static void AddColorizedZLoggerConsole(this ILoggingBuilder builder, string concernedTarget)
     {
@@ -21,7 +21,7 @@ public static class LoggerExtensions
                     {
                         escapeSequence = "\u001b[31m";
                     }
-                    else if (!info.Category.Name.Contains(concernedTarget))
+                    else if (!info.Category.Name.Contains(concernedTarget, StringComparison.Ordinal))
                     {
                         escapeSequence = "\u001b[38;5;08m";
                     }
@@ -31,7 +31,7 @@ public static class LoggerExtensions
 
                 formatter.SetSuffixFormatter($"{0}", (in MessageTemplate writer, in LogInfo info) =>
                 {
-                    if (info.LogLevel == LogLevel.Error || !info.Category.Name.Contains(concernedTarget))
+                    if (info.LogLevel == LogLevel.Error || !info.Category.Name.Contains(concernedTarget, StringComparison.Ordinal))
                     {
                         writer.Format("\u001b[0m");
                     }

@@ -1,6 +1,4 @@
 ﻿using System.Buffers;
-using System.IO.Pipelines;
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Spangle.Logging;
 using Spangle.Transport.Rtmp.NetConnection;
@@ -14,14 +12,14 @@ internal abstract class CommandAmf0
 {
     private static readonly ILogger<CommandAmf0> s_logger = SpangleLogManager.GetLogger<CommandAmf0>();
 
-    public static async ValueTask Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
+    public static async ValueTask HandleAsync(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
-        await DispatchRpc(context, payload);
-        await context.RemoteWriter.FlushAsync(context.CancellationToken);
+        await DispatchRpcAsync(context, payload).ConfigureAwait(false);
+        await context.RemoteWriter.FlushAsync(context.CancellationToken).ConfigureAwait(false);
     }
 
     // The buffer is consumed in place; nothing needs the remainder back.
-    private static async ValueTask DispatchRpc(RtmpReceiverContext context, ReadOnlySequence<byte> buff)
+    private static async ValueTask DispatchRpcAsync(RtmpReceiverContext context, ReadOnlySequence<byte> buff)
     {
         // Parse command
         string command = ParseString(ref buff); // If too long, still leave it to an error to occur
@@ -33,8 +31,11 @@ internal abstract class CommandAmf0
             // NetConnection Commands
             // -------------------------------------------------------------------
             case NetConnectionHandler.Commands.Connect:
-                // null is not allowed for connect
-                ArgumentNullException.ThrowIfNull(commandObject);
+                // null is not allowed for connect; this is wire input, not an argument contract
+                if (commandObject is null)
+                {
+                    throw new InvalidDataException("connect requires a command object");
+                }
                 Protocol.EnsureValidProtocolControlMessage(context);
                 AmfObject? optionalArguments = null;
                 if (0 < buff.Length)
@@ -65,8 +66,8 @@ internal abstract class CommandAmf0
             // NetStream Commands
             // -------------------------------------------------------------------
             case RtmpNetStream.Commands.Publish:
-                await context.GetStreamOrError().OnPublish(transactionId, commandObject,
-                    ParseString(ref buff), ParseString(ref buff));
+                await context.GetStreamOrError().OnPublishAsync(transactionId, commandObject,
+                    ParseString(ref buff), ParseString(ref buff)).ConfigureAwait(false);
                 break;
             case RtmpNetStream.Commands.DeleteStream:
                 context.GetStreamOrError().OnDeleteStream(transactionId, commandObject,

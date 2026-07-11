@@ -1,6 +1,4 @@
 ﻿using System.Buffers;
-using Spangle.Interop;
-using Spangle.IO;
 
 namespace Spangle.Codecs;
 
@@ -33,6 +31,8 @@ public static unsafe class NALAnnexB
     /// </summary>
     public static NaluEnumerator EnumerateNALUs(ReadOnlySpan<byte> annexB) => new(annexB);
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1034:Nested types should not be visible",
+        Justification = "allocation-free foreach requires the ref-struct enumerator to be visible; nesting scopes it to its factory")]
     public ref struct NaluEnumerator(ReadOnlySpan<byte> data)
     {
         private ReadOnlySpan<byte> _rest = data;

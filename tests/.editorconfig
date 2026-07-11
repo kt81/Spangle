@@ -1,0 +1,14 @@
+# Test-project relaxations on top of the root policy. Reasons:
+# - xUnit discovers public classes only, so CA1515 does not apply
+# - Test_Method_Names use underscores by convention (CA1707)
+# - xUnit has no synchronization context; ConfigureAwait adds noise (CA2007, MA0004)
+# - [Fact] names read better without an Async suffix (VSTHRD200)
+# - Theory data properties may return arrays (CA1819)
+
+[*.cs]
+dotnet_diagnostic.CA1515.severity = none
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.MA0004.severity = none
+dotnet_diagnostic.VSTHRD200.severity = none
+dotnet_diagnostic.CA1819.severity = none

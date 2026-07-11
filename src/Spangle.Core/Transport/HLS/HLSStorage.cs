@@ -68,7 +68,7 @@ public sealed class LiveBlobReader
             {
                 return null;
             }
-            await wait.WaitAsync(ct);
+            await wait.WaitAsync(ct).ConfigureAwait(false);
         }
     }
 }
@@ -98,7 +98,7 @@ public interface IHLSStreamStorage
 /// </summary>
 public sealed class MemoryHLSStorage : IHLSStorage
 {
-    private readonly ConcurrentDictionary<string, IHLSStreamStorage> _streams = new();
+    private readonly ConcurrentDictionary<string, IHLSStreamStorage> _streams = new(StringComparer.Ordinal);
 
     public IHLSStreamStorage GetStream(string streamKey) =>
         _streams.GetOrAdd(streamKey, static _ => new StreamStorage());
@@ -110,8 +110,8 @@ public sealed class MemoryHLSStorage : IHLSStorage
 
     private sealed class StreamStorage : IHLSStreamStorage, ILiveBlobStreamStorage
     {
-        private readonly ConcurrentDictionary<string, byte[]> _blobs = new();
-        private readonly ConcurrentDictionary<string, GrowingBlob> _growing = new();
+        private readonly ConcurrentDictionary<string, byte[]> _blobs = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, GrowingBlob> _growing = new(StringComparer.Ordinal);
         private volatile string? _playlist;
 
         public void WriteBlob(string name, ReadOnlySpan<byte> content) => _blobs[name] = content.ToArray();
@@ -241,7 +241,7 @@ public sealed class MemoryHLSStorage : IHLSStorage
 /// </summary>
 public sealed class FileHLSStorage(string rootDirectory) : IHLSStorage
 {
-    private readonly ConcurrentDictionary<string, IHLSStreamStorage> _streams = new();
+    private readonly ConcurrentDictionary<string, IHLSStreamStorage> _streams = new(StringComparer.Ordinal);
 
     public IHLSStreamStorage GetStream(string streamKey) =>
         _streams.GetOrAdd(streamKey, key =>

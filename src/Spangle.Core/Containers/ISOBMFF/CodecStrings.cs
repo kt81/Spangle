@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Text;
 
 namespace Spangle.Containers.ISOBMFF;
@@ -32,7 +33,7 @@ internal static class CodecStrings
             sb.Append((char)('A' + profileSpace - 1));
         }
         sb.Append(profileIdc);
-        sb.Append('.').Append(compat.ToString("X"));
+        sb.Append('.').Append(compat.ToString("X", CultureInfo.InvariantCulture));
         sb.Append('.').Append(highTier ? 'H' : 'L').Append(levelIdc);
 
         int lastNonZero = -1;
@@ -45,7 +46,7 @@ internal static class CodecStrings
         }
         for (var i = 0; i <= lastNonZero; i++)
         {
-            sb.Append('.').Append(hvcc[6 + i].ToString("X2"));
+            sb.Append('.').Append(hvcc[6 + i].ToString("X2", CultureInfo.InvariantCulture));
         }
         return sb.ToString();
     }

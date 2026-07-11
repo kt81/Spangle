@@ -7,7 +7,7 @@ using ZLogger;
 
 namespace Spangle.Examples.Console;
 
-public class SRTToHLS
+internal sealed class SRTToHLS
 {
     private readonly ILogger<SRTToHLS> _logger;
 
@@ -17,13 +17,13 @@ public class SRTToHLS
     }
 
     // Do NOT use this code in production!
-    public async ValueTask Start()
+    public async ValueTask StartAsync()
     {
         var listenEndPoint = new IPEndPoint(IPAddress.Parse("0.0.0.0"), 2000);
-        var listener = new SRTListener(listenEndPoint);
+        using var listener = new SRTListener(listenEndPoint);
         var registry = new HLSStreamRegistry();
         var sessions = new PublishSessionRegistry();
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         System.Console.CancelKeyPress += (_, _) =>
         {
             cts.Cancel();
@@ -39,7 +39,10 @@ public class SRTToHLS
             try
             {
                 var srtClient = await listener.AcceptSRTClientAsync(ct);
-                _ = Task.Run(() => ProcessConnection(srtClient, registry, sessions, _logger, ct), ct);
+                // ownership of the client transfers to the connection task
+#pragma warning disable CA2025
+                _ = Task.Run(() => ProcessConnectionAsync(srtClient, registry, sessions, _logger, ct), ct);
+#pragma warning restore CA2025
             }
             catch (OperationCanceledException)
             {
@@ -52,7 +55,7 @@ public class SRTToHLS
         }
     }
 
-    private static async Task ProcessConnection(SRTClient srtClient, HLSStreamRegistry registry,
+    private static async Task ProcessConnectionAsync(SRTClient srtClient, HLSStreamRegistry registry,
         PublishSessionRegistry sessions, ILogger logger, CancellationToken ct)
     {
         var receiver = new SRTReceiverContext(srtClient, ct);
@@ -61,8 +64,8 @@ public class SRTToHLS
             OutputDirectory = "hls-out",
             Registry = registry,
         };
-        using var live = new LiveContext(receiver, hls, ct, publishSessions: sessions);
-        var sender = new HLSSender();
+        using var live = new LiveContext(receiver, hls, publishSessions: sessions, cancellationToken: ct);
+        using var sender = new HLSSender();
 
         var senderTask = Task.Run(async () =>
         {

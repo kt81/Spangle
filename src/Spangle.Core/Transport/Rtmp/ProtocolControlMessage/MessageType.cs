@@ -1,5 +1,9 @@
-﻿namespace Spangle.Transport.Rtmp.ProtocolControlMessage;
+﻿using System.Diagnostics.CodeAnalysis;
 
+namespace Spangle.Transport.Rtmp.ProtocolControlMessage;
+
+[SuppressMessage("Design", "CA1027:Mark enums with FlagsAttribute",
+    Justification = "RTMP message type IDs are discrete protocol values, not flags")]
 public enum MessageType : byte
 {
     #region Protocol Control Messages

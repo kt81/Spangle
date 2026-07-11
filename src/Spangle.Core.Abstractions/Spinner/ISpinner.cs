@@ -1,5 +1,4 @@
-﻿using System.Buffers;
-using System.IO.Pipelines;
+﻿using System.IO.Pipelines;
 
 namespace Spangle.Spinner;
 
@@ -13,7 +12,7 @@ public interface ISpinner
     /// <summary>
     /// Writer that is given by the downstream
     /// </summary>
-    PipeWriter Outlet { set; }
+    PipeWriter Outlet { get; set; }
 
     /// <summary>
     /// Spin the spinner

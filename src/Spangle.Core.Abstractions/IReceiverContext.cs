@@ -1,7 +1,5 @@
-﻿using System.Buffers;
-using System.IO.Pipelines;
+﻿using System.IO.Pipelines;
 using System.Net;
-using Spangle.Spinner;
 
 namespace Spangle;
 

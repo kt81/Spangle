@@ -42,7 +42,7 @@ public sealed class SrtIngestService(
             SRTClient client;
             try
             {
-                client = await listener.AcceptSRTClientAsync(stoppingToken);
+                client = await listener.AcceptSRTClientAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -54,7 +54,11 @@ public sealed class SrtIngestService(
                 continue;
             }
 
+            // Ownership of the accepted client transfers to the handler task, which
+            // disposes it in its finally; the accept loop must not wait for it.
+#pragma warning disable CA2025
             _ = Task.Run(() => HandleClientAsync(client, stoppingToken), CancellationToken.None);
+#pragma warning restore CA2025
         }
     }
 
@@ -86,8 +90,9 @@ public sealed class SrtIngestService(
             !passthrough && options.Value.Http.MetadataInjection
                 ? [new Spangle.Spinner.TimedMetadataInjector(receiver, metadataHub, ct)]
                 : null;
-        using var live = new LiveContext(receiver, hls, ct, mediaSpinners: spinners,
-            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer);
+        using var live = new LiveContext(receiver, hls, mediaSpinners: spinners,
+            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
+            cancellationToken: ct);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
             : passthrough
@@ -103,7 +108,7 @@ public sealed class SrtIngestService(
         {
             try
             {
-                await sender.StartAsync(hls);
+                await sender.StartAsync(hls).ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -114,7 +119,7 @@ public sealed class SrtIngestService(
         try
         {
             logger.ZLogInformation($"SRT connection opened: {receiver.ToString()}");
-            await live.StartAsync();
+            await live.StartAsync().ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -127,7 +132,7 @@ public sealed class SrtIngestService(
         finally
         {
             // completion propagates receiver -> spinner -> sender; wait for the playlist to finalize
-            await senderTask;
+            await senderTask.ConfigureAwait(false);
             (sender as IDisposable)?.Dispose();
             client.Dispose();
             logger.ZLogInformation($"SRT connection closed: {receiver.ToString()}");

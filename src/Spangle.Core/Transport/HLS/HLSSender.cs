@@ -9,7 +9,7 @@ namespace Spangle.Transport.HLS;
 /// <summary>
 /// HLS sender for MPEG-2 TS segments. Consumes a muxed TS stream from the intake pipe.
 /// </summary>
-public class HLSSender : ISender<HLSSenderContext>, IDisposable
+public sealed class HLSSender : ISender<HLSSenderContext>, IDisposable
 {
     private static readonly ILogger<HLSSender> s_logger = SpangleLogManager.GetLogger<HLSSender>();
 
@@ -28,7 +28,7 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                var result = await reader.ReadAsync(ct);
+                var result = await reader.ReadAsync(ct).ConfigureAwait(false);
 
                 if (segmenter is null && result.Buffer.Length > 0)
                 {

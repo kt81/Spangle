@@ -38,7 +38,7 @@ public class TestContext
         return self;
     }
 
-    private static EndPoint GetDummyEP()
+    private static IPEndPoint GetDummyEP()
     {
         return IPEndPoint.Parse("127.0.0.1:52345");
     }

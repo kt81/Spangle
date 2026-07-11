@@ -32,7 +32,7 @@ public sealed class AmfDataToId3Spinner : SpinnerBase<AmfDataToId3Spinner>
         {
             while (!CancellationToken.IsCancellationRequested)
             {
-                var result = await IntakeReader.ReadAtLeastAsync(MediaFrameHeader.Size, CancellationToken);
+                var result = await IntakeReader.ReadAtLeastAsync(MediaFrameHeader.Size, CancellationToken).ConfigureAwait(false);
                 if (result.Buffer.Length < MediaFrameHeader.Size)
                 {
                     break; // intake completed
@@ -46,7 +46,7 @@ public sealed class AmfDataToId3Spinner : SpinnerBase<AmfDataToId3Spinner>
                     throw new InvalidDataException($"Broken media frame length: {header.Length}");
                 }
 
-                result = await IntakeReader.ReadAtLeastAsync(header.Length, CancellationToken);
+                result = await IntakeReader.ReadAtLeastAsync(header.Length, CancellationToken).ConfigureAwait(false);
                 if (result.Buffer.Length < header.Length)
                 {
                     break; // intake completed halfway; drop the partial frame
@@ -63,7 +63,7 @@ public sealed class AmfDataToId3Spinner : SpinnerBase<AmfDataToId3Spinner>
                 }
 
                 IntakeReader.AdvanceTo(payload.End);
-                await Outlet.FlushAsync(CancellationToken);
+                await Outlet.FlushAsync(CancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -72,8 +72,8 @@ public sealed class AmfDataToId3Spinner : SpinnerBase<AmfDataToId3Spinner>
         }
         finally
         {
-            await IntakeReader.CompleteAsync();
-            await Outlet.CompleteAsync();
+            await IntakeReader.CompleteAsync().ConfigureAwait(false);
+            await Outlet.CompleteAsync().ConfigureAwait(false);
         }
     }
 

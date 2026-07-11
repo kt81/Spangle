@@ -1,0 +1,7 @@
+# Example-project relaxations on top of the root policy. Reasons:
+# - Console samples have no synchronization context, and ConfigureAwait noise
+#   would obscure what the samples demonstrate (CA2007, MA0004)
+
+[*.cs]
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.MA0004.severity = none

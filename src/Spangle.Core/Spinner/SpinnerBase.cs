@@ -1,5 +1,4 @@
-﻿using System.Buffers;
-using System.IO.Pipelines;
+﻿using System.IO.Pipelines;
 using AsyncAwaitBestPractices;
 using Microsoft.Extensions.Logging;
 using Spangle.Logging;
@@ -12,7 +11,7 @@ public abstract class SpinnerBase<T> : ISpinner
 {
     protected CancellationToken CancellationToken { get; private init; }
     public PipeWriter Intake { get; }
-    public PipeWriter Outlet { protected get; set; }
+    public PipeWriter Outlet { get; set; }
     protected PipeReader IntakeReader { get; }
     public abstract ValueTask SpinAsync();
 
@@ -21,14 +20,14 @@ public abstract class SpinnerBase<T> : ISpinner
         SpinAsync().SafeFireAndForget(LogException);
     }
 
-    protected static ILogger<T> Logger = SpangleLogManager.GetLogger<T>();
+    protected static readonly ILogger<T> Logger = SpangleLogManager.GetLogger<T>();
 
     protected static void LogException(Exception e)
     {
         Logger.ZLogError($"{e.Message}: {e.StackTrace}");
     }
 
-    public SpinnerBase(PipeWriter anotherIntake, CancellationToken ct) : this(ct)
+    protected SpinnerBase(PipeWriter anotherIntake, CancellationToken ct) : this(ct)
     {
         Outlet = anotherIntake;
     }

@@ -56,7 +56,7 @@ public class PipeReaderExtensionsTest
         reader.AdvanceTo(byteSeq.Start);
     }
 
-    private class TestSegment : ReadOnlySequenceSegment<byte>
+    private sealed class TestSegment : ReadOnlySequenceSegment<byte>
     {
         public TestSegment(ReadOnlyMemory<byte> memory) => Memory = memory;
         public TestSegment Append(ReadOnlyMemory<byte> memory)

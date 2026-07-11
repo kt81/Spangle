@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 
 namespace Spangle.Interop;
 
@@ -54,7 +54,7 @@ public unsafe struct BigEndianUInt24 : IInteropType<uint, BigEndianUInt24>
 
     public override readonly string ToString()
     {
-        return HostValue.ToString();
+        return HostValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     public override int GetHashCode()

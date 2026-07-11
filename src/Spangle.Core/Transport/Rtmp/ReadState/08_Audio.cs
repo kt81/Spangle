@@ -16,7 +16,7 @@ internal abstract class Audio
 {
     private static readonly ILogger<Audio> s_logger = SpangleLogManager.GetLogger<Audio>();
 
-    public static async ValueTask Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
+    public static async ValueTask HandleAsync(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
         // The assembled message is always a single segment
         var span = payload.FirstSpan;
@@ -130,7 +130,7 @@ internal abstract class Audio
         body.CopyTo(writeBuff);
         context.MediaOutlet.Advance((int)body.Length);
 
-        await context.MediaOutlet.FlushAsync(context.CancellationToken);
+        await context.MediaOutlet.FlushAsync(context.CancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Replays an audio config that arrived before the pipeline was wired.</summary>

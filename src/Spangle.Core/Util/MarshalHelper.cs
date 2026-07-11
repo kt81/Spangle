@@ -6,10 +6,5 @@ namespace Spangle.Util;
 [SuppressMessage("ReSharper", "StaticMemberInGenericType")]
 public static class MarshalHelper<T> where T : struct
 {
-    public static readonly int Size;
-
-    static MarshalHelper()
-    {
-        Size = Marshal.SizeOf<T>();
-    }
+    public static readonly int Size = Marshal.SizeOf<T>();
 }

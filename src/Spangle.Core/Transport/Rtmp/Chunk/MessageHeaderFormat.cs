@@ -35,7 +35,7 @@ internal static class MessageHeaderFormatExtensions
             MessageHeaderFormat.Fmt1 => 7,
             MessageHeaderFormat.Fmt2 => 3,
             MessageHeaderFormat.Fmt3 => 0,
-            _ => throw new InvalidEnumArgumentException()
+            _ => throw new InvalidEnumArgumentException(nameof(fmt), (int)fmt, typeof(MessageHeaderFormat))
         };
     }
 }

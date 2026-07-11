@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Collections.Concurrent;
-using System.IO.Pipelines;
 using System.Threading.Channels;
 using Spangle.Codecs.Id3;
 using Spangle.Interop;
@@ -15,7 +14,7 @@ namespace Spangle.Spinner;
 /// </summary>
 public sealed class TimedMetadataHub
 {
-    private readonly ConcurrentDictionary<string, TimedMetadataInjector> _injectors = new();
+    private readonly ConcurrentDictionary<string, TimedMetadataInjector> _injectors = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Queues one metadata event onto the live session publishing under
@@ -66,7 +65,7 @@ public sealed class TimedMetadataInjector : SpinnerBase<TimedMetadataInjector>
         {
             while (!CancellationToken.IsCancellationRequested)
             {
-                var result = await IntakeReader.ReadAtLeastAsync(MediaFrameHeader.Size, CancellationToken);
+                var result = await IntakeReader.ReadAtLeastAsync(MediaFrameHeader.Size, CancellationToken).ConfigureAwait(false);
                 if (result.Buffer.Length < MediaFrameHeader.Size)
                 {
                     break; // intake completed
@@ -80,7 +79,7 @@ public sealed class TimedMetadataInjector : SpinnerBase<TimedMetadataInjector>
                     throw new InvalidDataException($"Broken media frame length: {header.Length}");
                 }
 
-                result = await IntakeReader.ReadAtLeastAsync(header.Length, CancellationToken);
+                result = await IntakeReader.ReadAtLeastAsync(header.Length, CancellationToken).ConfigureAwait(false);
                 if (result.Buffer.Length < header.Length)
                 {
                     break;
@@ -114,7 +113,7 @@ public sealed class TimedMetadataInjector : SpinnerBase<TimedMetadataInjector>
                     Logger.ZLogDebug($"Injected metadata `{e.Name}` at {header.Timestamp}ms");
                 }
 
-                await Outlet.FlushAsync(CancellationToken);
+                await Outlet.FlushAsync(CancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -128,8 +127,8 @@ public sealed class TimedMetadataInjector : SpinnerBase<TimedMetadataInjector>
             {
                 _hub.Unregister(registeredKey, this);
             }
-            await IntakeReader.CompleteAsync();
-            await Outlet.CompleteAsync();
+            await IntakeReader.CompleteAsync().ConfigureAwait(false);
+            await Outlet.CompleteAsync().ConfigureAwait(false);
         }
     }
 }

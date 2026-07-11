@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Spangle.Logging;
@@ -219,21 +220,21 @@ internal sealed class HLSPlaylist
         sb.Append("#EXTM3U\n");
         // EXT-X-SKIP requires protocol version 9
         sb.Append(skipCount > 0 ? "#EXT-X-VERSION:9\n" : _mapUri is null ? "#EXT-X-VERSION:3\n" : "#EXT-X-VERSION:6\n");
-        sb.Append($"#EXT-X-TARGETDURATION:{_targetDurationCeil}\n");
+        sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-TARGETDURATION:{_targetDurationCeil}\n");
         if (_partTargetDuration is { } partTarget)
         {
-            sb.Append($"#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={partTarget * 3:F3}");
-            sb.Append($",CAN-SKIP-UNTIL={SkipUntilTargetDurations * (double)_targetDurationCeil:F1}\n");
-            sb.Append($"#EXT-X-PART-INF:PART-TARGET={partTarget:F3}\n");
+            sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={partTarget * 3:F3}");
+            sb.Append(CultureInfo.InvariantCulture, $",CAN-SKIP-UNTIL={SkipUntilTargetDurations * (double)_targetDurationCeil:F1}\n");
+            sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-PART-INF:PART-TARGET={partTarget:F3}\n");
         }
-        sb.Append($"#EXT-X-MEDIA-SEQUENCE:{_sequence - _window.Count}\n");
+        sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-MEDIA-SEQUENCE:{_sequence - _window.Count}\n");
         if (_mapUri is not null)
         {
-            sb.Append($"#EXT-X-MAP:URI=\"{_mapUri}\"\n");
+            sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-MAP:URI=\"{_mapUri}\"\n");
         }
         if (skipCount > 0)
         {
-            sb.Append($"#EXT-X-SKIP:SKIPPED-SEGMENTS={skipCount}\n");
+            sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-SKIP:SKIPPED-SEGMENTS={skipCount}\n");
         }
 
         for (int i = skipCount; i < _window.Count; i++)
@@ -248,7 +249,7 @@ internal sealed class HLSPlaylist
                 // Keep the parts of the most recent completed segment available
                 AppendParts(sb, _lastSegmentParts);
             }
-            sb.Append($"#EXTINF:{entry.Duration:F3},\n");
+            sb.Append(CultureInfo.InvariantCulture, $"#EXTINF:{entry.Duration:F3},\n");
             sb.Append(entry.Name).Append('\n');
         }
 
@@ -257,7 +258,7 @@ internal sealed class HLSPlaylist
             AppendParts(sb, _currentParts);
             if (!ended)
             {
-                sb.Append($"#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"{NextPartName()}\"\n");
+                sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"{NextPartName()}\"\n");
             }
         }
 
@@ -273,7 +274,7 @@ internal sealed class HLSPlaylist
     {
         foreach ((string name, double duration, bool independent) in parts)
         {
-            sb.Append($"#EXT-X-PART:DURATION={duration:F3},URI=\"{name}\"");
+            sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-PART:DURATION={duration:F3},URI=\"{name}\"");
             if (independent)
             {
                 sb.Append(",INDEPENDENT=YES");

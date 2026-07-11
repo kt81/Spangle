@@ -1,8 +1,6 @@
 ﻿using System.Buffers;
-using System.Collections;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace Spangle.IO;
 
@@ -16,7 +14,7 @@ public static class PipeReaderExtensions
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static async ValueTask<(ReadOnlySequence<byte>, ReadResult)> ReadExactAsync(this PipeReader reader, int length, int offset, CancellationToken ct = default)
     {
-        var result = await reader.ReadAtLeastAsync(length + offset, ct);
+        var result = await reader.ReadAtLeastAsync(length + offset, ct).ConfigureAwait(false);
         if (result.IsCanceled)
         {
             throw new OperationCanceledException();
@@ -30,7 +28,7 @@ public static class PipeReaderExtensions
         var buff = result.Buffer;
         if (buff.Length < expectedLength)
         {
-            throw new ArgumentOutOfRangeException(nameof(result.Buffer), "ReadResult must be retrieved using the method that kind of ReadAtLeast*.");
+            throw new ArgumentOutOfRangeException(nameof(result), "ReadResult must be retrieved using the method that kind of ReadAtLeast*.");
         }
         return buff.Slice(start, expectedLength);
     }

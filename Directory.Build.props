@@ -1,8 +1,27 @@
-﻿<Project>
+<Project>
 
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
+
+  <!-- Analyzers at full power: every CA rule on, code style enforced in build,
+       and any warning fails the build. Rules that do not fit this codebase are
+       tuned in .editorconfig with a written rationale, never silently. -->
+  <PropertyGroup>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Doc-file generation turns on full IDE* analysis (IDE0005 unused usings);
+         CS1591 (missing XML docs) stays off - docs are not mandatory pre-1.0. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Meziantou.Analyzer" Version="3.0.122" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.7.23" PrivateAssets="all" />
+  </ItemGroup>
 
 </Project>

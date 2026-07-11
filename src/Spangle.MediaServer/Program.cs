@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
@@ -30,7 +31,7 @@ app.Use(async (ctx, next) =>
         // registry entries are keyed {stream}/{playlist}: demuxed CMAF sessions
         // publish several live playlists per stream (video.m3u8 / audio.m3u8)
         string rest = p[hlsPathPrefix.Length..];
-        int slashAt = rest.IndexOf('/');
+        int slashAt = rest.IndexOf('/', StringComparison.Ordinal);
         string registryKey = rest;
         if (slashAt > 0 && rest.IndexOf('/', slashAt + 1) < 0 && registry.TryGet(registryKey, out var live))
         {
@@ -40,7 +41,8 @@ app.Use(async (ctx, next) =>
                         || "v2".Equals(skipValue, StringComparison.OrdinalIgnoreCase);
 
             string text;
-            if (long.TryParse(ctx.Request.Query["_HLS_msn"], out long msn))
+            if (long.TryParse(ctx.Request.Query["_HLS_msn"], NumberStyles.Integer, CultureInfo.InvariantCulture,
+                    out long msn))
             {
                 // RFC 8216bis 6.2.5.2: a request beyond the next two segments is a
                 // client error, not something to block 15 seconds on
@@ -49,8 +51,9 @@ app.Use(async (ctx, next) =>
                     ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
                     return;
                 }
-                _ = int.TryParse(ctx.Request.Query["_HLS_part"], out int part);
-                text = await live.WaitForAsync(msn, part, skip, TimeSpan.FromSeconds(15), ctx.RequestAborted);
+                _ = int.TryParse(ctx.Request.Query["_HLS_part"], NumberStyles.Integer, CultureInfo.InvariantCulture,
+                    out int part);
+                text = await live.WaitForAsync(msn, part, skip, TimeSpan.FromSeconds(15), ctx.RequestAborted).ConfigureAwait(false);
             }
             else
             {
@@ -61,12 +64,12 @@ app.Use(async (ctx, next) =>
             {
                 ctx.Response.ContentType = "application/vnd.apple.mpegurl";
                 ctx.Response.Headers.CacheControl = "no-cache, no-store";
-                await ctx.Response.WriteAsync(text);
+                await ctx.Response.WriteAsync(text).ConfigureAwait(false);
                 return;
             }
         }
     }
-    await next();
+    await next().ConfigureAwait(false);
 });
 
 // Inject timed metadata into a live session: {"name":"...","value":<string or JSON>}
@@ -76,7 +79,7 @@ if (options.Http.MetadataInjection)
     app.MapPost("/api/streams/{streamKey}/metadata",
         async (string streamKey, HttpRequest request) =>
         {
-            using var body = await JsonDocument.ParseAsync(request.Body, cancellationToken: request.HttpContext.RequestAborted);
+            using var body = await JsonDocument.ParseAsync(request.Body, cancellationToken: request.HttpContext.RequestAborted).ConfigureAwait(false);
             if (!body.RootElement.TryGetProperty("name", out JsonElement nameElement)
                 || nameElement.GetString() is not { Length: > 0 } name)
             {
@@ -94,7 +97,8 @@ if (options.Http.MetadataInjection)
 
 // Clock endpoint for DASH UTCTiming (LL players compute the live edge from it)
 app.MapGet("/api/time", () =>
-    Results.Text(DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"), "text/plain"));
+    Results.Text(DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
+        "text/plain"));
 
 app.UseDefaultFiles();
 app.UseStaticFiles(); // wwwroot (test player)
@@ -134,7 +138,7 @@ else
         if (path.Value is { } p && p.StartsWith(hlsPathPrefix, StringComparison.OrdinalIgnoreCase))
         {
             string rest = p[hlsPathPrefix.Length..];
-            int slash = rest.IndexOf('/');
+            int slash = rest.IndexOf('/', StringComparison.Ordinal);
             if (slash > 0 && rest.IndexOf('/', slash + 1) < 0)
             {
                 string streamKey = rest[..slash];
@@ -146,7 +150,7 @@ else
                     {
                         ctx.Response.ContentType = "application/vnd.apple.mpegurl";
                         ctx.Response.Headers.CacheControl = "no-cache, no-store";
-                        await ctx.Response.WriteAsync(playlist);
+                        await ctx.Response.WriteAsync(playlist).ConfigureAwait(false);
                         return;
                     }
 
@@ -166,10 +170,10 @@ else
                     if (stream is ILiveBlobStreamStorage live && live.TryOpenLiveBlob(name, out var reader))
                     {
                         ctx.Response.ContentType = contentType;
-                        while (await reader.ReadNextAsync(ctx.RequestAborted) is { } chunk)
+                        while (await reader.ReadNextAsync(ctx.RequestAborted).ConfigureAwait(false) is { } chunk)
                         {
-                            await ctx.Response.Body.WriteAsync(chunk, ctx.RequestAborted);
-                            await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+                            await ctx.Response.Body.WriteAsync(chunk, ctx.RequestAborted).ConfigureAwait(false);
+                            await ctx.Response.Body.FlushAsync(ctx.RequestAborted).ConfigureAwait(false);
                         }
                         return;
                     }
@@ -181,13 +185,13 @@ else
                         {
                             ctx.Response.Headers.CacheControl = "no-cache, no-store";
                         }
-                        await ctx.Response.Body.WriteAsync(blob, ctx.RequestAborted);
+                        await ctx.Response.Body.WriteAsync(blob, ctx.RequestAborted).ConfigureAwait(false);
                         return;
                     }
                 }
             }
         }
-        await next();
+        await next().ConfigureAwait(false);
     });
 }
 

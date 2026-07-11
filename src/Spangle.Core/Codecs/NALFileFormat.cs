@@ -1,7 +1,5 @@
 ﻿using System.Buffers;
-using System.Runtime.InteropServices;
 using Spangle.Interop;
-using Spangle.IO;
 
 namespace Spangle.Codecs;
 

@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Spangle.Codecs.AAC;
@@ -18,7 +20,7 @@ namespace Spangle.Transport.HLS;
 /// FLV codec payloads (length-prefixed NALUs / raw AAC) are already in the form
 /// ISO-BMFF samples expect.
 /// </summary>
-public class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
+public sealed class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
 {
     private static readonly ILogger<CmafHLSSender> s_logger = SpangleLogManager.GetLogger<CmafHLSSender>();
 
@@ -37,7 +39,7 @@ public class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                var result = await reader.ReadAtLeastAsync(MediaFrameHeader.Size, ct);
+                var result = await reader.ReadAtLeastAsync(MediaFrameHeader.Size, ct).ConfigureAwait(false);
                 if (result.Buffer.Length < MediaFrameHeader.Size)
                 {
                     break; // intake completed
@@ -51,7 +53,7 @@ public class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
                     continue;
                 }
 
-                result = await reader.ReadAtLeastAsync(header.Length, ct);
+                result = await reader.ReadAtLeastAsync(header.Length, ct).ConfigureAwait(false);
                 if (result.Buffer.Length < header.Length)
                 {
                     break; // intake completed halfway; drop the partial frame
@@ -90,7 +92,7 @@ public class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
                 }
                 s_logger.ZLogInformation($"HLS(CMAF) stream completed");
             }
-            await reader.CompleteAsync();
+            await reader.CompleteAsync().ConfigureAwait(false);
         }
     }
 }
@@ -115,6 +117,8 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
     private readonly double? _partTarget = context.LowLatency ? context.PartTargetDuration : null;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable",
+        Justification = "the MemoryStream is a reusable growable buffer over managed memory; Dispose would release nothing")]
     private sealed class TrackOutput
     {
         public required CmafPackager Packager { get; init; }
@@ -155,6 +159,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     private uint _lastVideoDurationMs = 33;
     private bool _forcedCutWarned;
 
+    [StructLayout(LayoutKind.Auto)]
     private struct VideoSampleMeta
     {
         public int  Offset;
@@ -164,6 +169,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         public bool Sync;
     }
 
+    [StructLayout(LayoutKind.Auto)]
     private struct AudioSampleMeta
     {
         public int  Offset;
@@ -660,15 +666,15 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
                 sb.Append("AUTOSELECT=YES,URI=\"audio.m3u8\"\n");
             }
             long bandwidth = _videoOut.Dash.Bandwidth + (_audioOut?.Dash.Bandwidth ?? 0);
-            sb.Append($"#EXT-X-STREAM-INF:BANDWIDTH={bandwidth},CODECS=\"{_videoOut.Dash.Codecs}");
+            sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-STREAM-INF:BANDWIDTH={bandwidth},CODECS=\"{_videoOut.Dash.Codecs}");
             if (_audioOut is not null)
             {
-                sb.Append($",{_audioOut.Dash.Codecs}");
+                sb.Append(CultureInfo.InvariantCulture, $",{_audioOut.Dash.Codecs}");
             }
             sb.Append('"');
             if (_videoOut.Dash.Width > 0)
             {
-                sb.Append($",RESOLUTION={_videoOut.Dash.Width}x{_videoOut.Dash.Height}");
+                sb.Append(CultureInfo.InvariantCulture, $",RESOLUTION={_videoOut.Dash.Width}x{_videoOut.Dash.Height}");
             }
             if (_audioOut is not null)
             {
@@ -678,7 +684,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         }
         else if (_audioOut is not null)
         {
-            sb.Append($"#EXT-X-STREAM-INF:BANDWIDTH={_audioOut.Dash.Bandwidth},CODECS=\"{_audioOut.Dash.Codecs}\"\n");
+            sb.Append(CultureInfo.InvariantCulture, $"#EXT-X-STREAM-INF:BANDWIDTH={_audioOut.Dash.Bandwidth},CODECS=\"{_audioOut.Dash.Codecs}\"\n");
             sb.Append("audio.m3u8\n");
         }
 

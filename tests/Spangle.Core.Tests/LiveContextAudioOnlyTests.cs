@@ -54,7 +54,8 @@ public class LiveContextAudioOnlyTests
         await live.StartAsync(); // the fake receiver returns immediately; nothing wired
 
         // the sender must not be left waiting forever on its intake
-        ReadResult result = await hls.IntakeReader.ReadAsync(new CancellationTokenSource(3000).Token);
+        using var timeout = new CancellationTokenSource(3000);
+        ReadResult result = await hls.IntakeReader.ReadAsync(timeout.Token);
         result.IsCompleted.Should().BeTrue();
     }
 

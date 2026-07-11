@@ -35,8 +35,9 @@ internal unsafe struct C1S1
     public C1S1(uint time)
     {
         Timestamp = BigEndianUInt32.FromHost(time);
-        // qualified: `Random` alone is the fixed buffer field
-        System.Random.Shared.NextBytes(RandomSpan);
+        // The spec only asks for "any values"; the crypto RNG costs nothing here
+        // (once per connection) and keeps the analyzer's security bar (CA5394).
+        System.Security.Cryptography.RandomNumberGenerator.Fill(RandomSpan);
     }
     
     public C1S1(uint time, byte[] random)

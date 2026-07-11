@@ -1,4 +1,4 @@
-﻿using System.Buffers.Binary;
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 
 namespace Spangle.Interop;
@@ -48,13 +48,13 @@ public unsafe struct BigEndianUInt32 : IInteropType<uint, BigEndianUInt32>
         }
     }
 
-    public void Clear()
+    public static void Clear()
     {
     }
 
     public override readonly string ToString()
     {
-        return HostValue.ToString();
+        return HostValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     public override int GetHashCode()

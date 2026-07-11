@@ -25,9 +25,9 @@ public class EnhancedAudioTest
         context.MediaOutlet = media.Writer;
 
         byte[] opusHead = OpusPacket.BuildOpusHead(2);
-        await Audio.Handle(context, new ReadOnlySequence<byte>([0x90, .. s_fourCc, .. opusHead]));
-        await Audio.Handle(context, new ReadOnlySequence<byte>([0x94, .. s_fourCc, 0x01, 0x02, 0, 0, 0, 3]));
-        await Audio.Handle(context, new ReadOnlySequence<byte>([0x91, .. s_fourCc, .. s_packet]));
+        await Audio.HandleAsync(context, new ReadOnlySequence<byte>([0x90, .. s_fourCc, .. opusHead]));
+        await Audio.HandleAsync(context, new ReadOnlySequence<byte>([0x94, .. s_fourCc, 0x01, 0x02, 0, 0, 0, 3]));
+        await Audio.HandleAsync(context, new ReadOnlySequence<byte>([0x91, .. s_fourCc, .. s_packet]));
         await media.Writer.CompleteAsync();
 
         context.AudioCodec.Should().Be(AudioCodec.Opus);
@@ -55,13 +55,13 @@ public class EnhancedAudioTest
         context.MediaOutlet.Should().BeNull();
 
         byte[] opusHead = OpusPacket.BuildOpusHead(1);
-        await Audio.Handle(context, new ReadOnlySequence<byte>([0x90, .. s_fourCc, .. opusHead]));
+        await Audio.HandleAsync(context, new ReadOnlySequence<byte>([0x90, .. s_fourCc, .. opusHead]));
         context.PendingAudioConfig.Should().Equal(opusHead);
         context.PendingAudioConfigCodec.Should().Be(AudioCodec.Opus);
 
         var media = new Pipe(new PipeOptions(pauseWriterThreshold: 0, useSynchronizationContext: false));
         context.MediaOutlet = media.Writer;
-        await Audio.Handle(context, new ReadOnlySequence<byte>([0x91, .. s_fourCc, .. s_packet]));
+        await Audio.HandleAsync(context, new ReadOnlySequence<byte>([0x91, .. s_fourCc, .. s_packet]));
         await media.Writer.CompleteAsync();
 
         var frames = await ReadAllFrames(media.Reader);

@@ -7,6 +7,8 @@ namespace Spangle.Containers.ISOBMFF;
 /// Sequential ISO-BMFF box writer. <see cref="Begin"/>/<see cref="End"/> nest boxes and
 /// backpatch the 32-bit size field automatically.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "the MemoryStream is a reusable growable buffer over managed memory; Dispose would release nothing")]
 internal sealed class BoxWriter
 {
     private readonly MemoryStream _ms = new();

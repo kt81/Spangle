@@ -48,7 +48,7 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
     public override async ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource)
     {
         // publish authorization (and same-name takeover) before any media is consumed
-        if (PublishGate is { } gate && !await gate.TryOpenAsync(StreamName ?? Id, CancellationToken))
+        if (PublishGate is { } gate && !await gate.TryOpenAsync(StreamName ?? Id, CancellationToken).ConfigureAwait(false))
         {
             Logger.ZLogInformation($"SRT publish rejected: {Id}");
             return;
@@ -66,7 +66,7 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
             ReadResult result;
             try
             {
-                result = await reader.ReadAsync(CancellationToken);
+                result = await reader.ReadAsync(CancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -123,7 +123,7 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
                 {
                     adapter.HasPendingFrames = false;
                 }
-                await MediaOutlet.FlushAsync(CancellationToken);
+                await MediaOutlet.FlushAsync(CancellationToken).ConfigureAwait(false);
             }
 
             if (result.IsCompleted)
@@ -138,7 +138,7 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
         if (adapter is { HasPendingFrames: true } && MediaOutlet is not null)
         {
             adapter.HasPendingFrames = false;
-            await MediaOutlet.FlushAsync(CancellationToken.None);
+            await MediaOutlet.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
         Logger.ZLogInformation($"SRT stream ended: {Id}");
@@ -165,6 +165,7 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
     private static bool TryResync(ref ReadOnlySequence<byte> buff, out bool needMoreData)
     {
         ReadOnlySequence<byte> search = buff.Slice(1);
+        Span<byte> next = stackalloc byte[1]; // hoisted: stackalloc in a loop grows the stack per iteration
         while (search.PositionOf((byte)0x47) is { } sync)
         {
             ReadOnlySequence<byte> candidate = buff.Slice(sync);
@@ -174,7 +175,6 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
                 needMoreData = true;
                 return false;
             }
-            Span<byte> next = stackalloc byte[1];
             candidate.Slice(M2TSWriter.PacketSize, 1).CopyTo(next);
             if (next[0] == 0x47)
             {

@@ -87,7 +87,7 @@ internal sealed class {{FieldAttributeName}} : Attribute
                     .ConstructorArguments
                     .First().Value!);
 
-        IList<(string, string)> serializerMethods = new List<(string, string)>();
+        List<(string, string)> serializerMethods = new List<(string, string)>();
         foreach (ISymbol fieldOrProp in publicMembers)
         {
             (string name, string? serializerMethod) = GetFieldSerializerMethodString(fieldOrProp);
@@ -146,7 +146,8 @@ using Spangle.Transport.Rtmp.Amf0;
         {
             SymbolKind.Field    => ((IFieldSymbol)fieldOrProp).Type.Name,
             SymbolKind.Property => ((IPropertySymbol)fieldOrProp).Type.Name,
-            _                   => throw new ArgumentException($"Not a suitable kind of symbol : {fieldOrProp.Kind}")
+            _                   => throw new ArgumentException($"Not a suitable kind of symbol : {fieldOrProp.Kind}",
+                nameof(fieldOrProp))
         };
     }
 
