@@ -47,9 +47,12 @@ blocking reload.
   - *interception (the plugin point)* — `LiveContext` accepts an ordered list of
     MediaFrame→MediaFrame spinners that are inserted between the receiver and the
     terminal stage, regardless of the output format. This is where cross-cutting
-    processing plugs in: `AmfDataToId3Spinner` (the first such plugin) turns AMF data
-    events into timed ID3 metadata; filtering or on-the-fly transforms follow the
-    same shape.
+    processing plugs in: `AmfDataToId3Spinner` turns AMF data events into timed ID3
+    metadata, and `TimedMetadataInjector` is a pass-through with a side door — events
+    injected from outside (the HTTP API) become ID3 frames stamped with the media
+    timeline position the stream has just reached. Injection needs no pipeline
+    API: the spinner observes every frame anyway, so it knows both the current
+    timestamp and the stream key it registers under.
 - **Sender** (`ISender`): delivers to viewers. `HLSSender` cuts the TS stream into segments
   and maintains a playlist; `CmafHLSSender` muxes MediaFrames itself. HTTP delivery is
   plain static file serving plus the in-memory playlist endpoint.

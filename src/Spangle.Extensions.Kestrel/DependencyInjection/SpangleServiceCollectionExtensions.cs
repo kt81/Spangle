@@ -17,6 +17,7 @@ public static class SpangleServiceCollectionExtensions
         services.AddSingleton<RtmpConnectionHandler>();
         services.AddSingleton<HLSStreamRegistry>();
         services.AddSingleton<PublishSessionRegistry>();
+        services.AddSingleton<Spangle.Spinner.TimedMetadataHub>();
         // apps replace this to implement their own publish policy (deny lists,
         // key validation, first-wins, ...); the default is allow-all + last-wins
         services.TryAddSingleton<IPublishAuthorizer, DefaultPublishAuthorizer>();

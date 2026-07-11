@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
@@ -63,6 +64,29 @@ app.Use(async (ctx, next) =>
     }
     await next();
 });
+
+// Inject timed metadata into a live session: {"name":"...","value":<string or JSON>}
+if (options.Http.MetadataInjection)
+{
+    var metadataHub = app.Services.GetRequiredService<Spangle.Spinner.TimedMetadataHub>();
+    app.MapPost("/api/streams/{streamKey}/metadata",
+        async (string streamKey, HttpRequest request) =>
+        {
+            using var body = await JsonDocument.ParseAsync(request.Body, cancellationToken: request.HttpContext.RequestAborted);
+            if (!body.RootElement.TryGetProperty("name", out JsonElement nameElement)
+                || nameElement.GetString() is not { Length: > 0 } name)
+            {
+                return Results.BadRequest("A non-empty `name` is required");
+            }
+            string value = body.RootElement.TryGetProperty("value", out JsonElement valueElement)
+                ? valueElement.ValueKind == JsonValueKind.String ? valueElement.GetString()! : valueElement.GetRawText()
+                : "";
+
+            return metadataHub.TryInject(streamKey, name, value)
+                ? Results.NoContent()
+                : Results.NotFound($"No live session under `{streamKey}`");
+        });
+}
 
 app.UseDefaultFiles();
 app.UseStaticFiles(); // wwwroot (test player)

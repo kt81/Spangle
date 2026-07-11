@@ -46,6 +46,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
     private TimestampUnwrapper _audioTs;
 
     private bool _videoUnsupportedLogged;
+    private TimestampUnwrapper _dataTs;
 
     /// <summary>Set when frames were written since the last flush; the receiver flushes and clears it.</summary>
     public bool HasPendingFrames { get; set; }
@@ -111,7 +112,17 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
             case M2TSStreamType.PrivatePes:
                 OnOpusPes(pts90k, es);
                 break;
+            case M2TSStreamType.PesMetadata:
+                OnId3Pes(pts90k, es);
+                break;
         }
+    }
+
+    /// <summary>Timed ID3 from the source passes through verbatim as a Data frame.</summary>
+    private void OnId3Pes(ulong? pts90k, ReadOnlySpan<byte> es)
+    {
+        ulong ts = _dataTs.Unwrap(pts90k ?? 0);
+        WriteFrame(MediaFrameKind.Data, MediaFrameFlags.None, (uint)DataCodec.Id3, 0, es, (uint)(ts / 90));
     }
 
     // =======================================================================

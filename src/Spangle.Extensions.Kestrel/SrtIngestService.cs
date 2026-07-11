@@ -19,6 +19,7 @@ public sealed class SrtIngestService(
     PublishSessionRegistry publishSessions,
     IPublishAuthorizer publishAuthorizer,
     IHLSStorage storage,
+    Spangle.Spinner.TimedMetadataHub metadataHub,
     ILogger<SrtIngestService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -79,7 +80,13 @@ public sealed class SrtIngestService(
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
-        using var live = new LiveContext(receiver, hls, ct,
+        // Metadata injection needs the MediaFrame pipeline; the raw TS passthrough
+        // has none (a documented trade-off of that path)
+        IReadOnlyList<Spangle.Spinner.ISpinner>? spinners =
+            !passthrough && options.Value.Http.MetadataInjection
+                ? [new Spangle.Spinner.TimedMetadataInjector(receiver, metadataHub, ct)]
+                : null;
+        using var live = new LiveContext(receiver, hls, ct, mediaSpinners: spinners,
             publishSessions: publishSessions, publishAuthorizer: publishAuthorizer);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
