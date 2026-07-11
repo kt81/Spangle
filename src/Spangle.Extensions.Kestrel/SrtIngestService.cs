@@ -58,13 +58,15 @@ public sealed class SrtIngestService(
 
     private async Task HandleClientAsync(SRTClient client, CancellationToken ct)
     {
-        var receiver = new SRTReceiverContext(client, ct);
         HlsOptions hlsOptions = options.Value.Hls;
         var segmentFormat = hlsOptions.SegmentFormat.ToLowerInvariant() switch
         {
             "fmp4" or "cmaf" or "mp4" => HLSSegmentFormat.Fmp4,
             _ => HLSSegmentFormat.MpegTs,
         };
+        // TS in, TS out: re-segment the source packets instead of demux+remux
+        bool passthrough = segmentFormat == HLSSegmentFormat.MpegTs && hlsOptions.TsPassthrough;
+        var receiver = new SRTReceiverContext(client, ct) { RawTsPassthrough = passthrough };
         var hls = new HLSSenderContext(ct)
         {
             OutputDirectory = hlsOptions.OutputDirectory,
@@ -78,7 +80,14 @@ public sealed class SrtIngestService(
             publishSessions: publishSessions, publishAuthorizer: publishAuthorizer);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
-            : new HLSSender();
+            : passthrough
+                ? new TSPassthroughHLSSender()
+                : new HLSSender();
+        if (passthrough)
+        {
+            // No codec event fires in raw mode; the receiver feeds the sender directly
+            receiver.MediaOutlet = hls.Intake;
+        }
 
         var senderTask = Task.Run(async () =>
         {

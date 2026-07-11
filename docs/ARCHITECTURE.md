@@ -207,6 +207,16 @@ SRT bytes ──► SRTReceiverContext ──► M2TSDemuxer ──► M2TSMedia
   `SRTClient.StreamId` (plain, or the `r=` key of Haivision Access Control ids) becomes
   the stream name; an optional listener passphrase (`Srt.Passphrase`) enforces wire
   encryption.
+- **TS passthrough** (default for SRT→TS-HLS, `Hls.TsPassthrough`): since the source
+  is already MPEG-2 TS, the demux→MediaFrame→remux round trip is skipped entirely.
+  The receiver forwards the aligned packets raw (`RawTsPassthrough`), and
+  `TSPassthroughSegmenter` re-segments them: a PSI-only `M2TSDemuxer` learns the
+  program layout, cuts happen at random-access video PES starts (any audio PES start
+  for audio-only programs) with durations from the PES DTS/PTS, and each segment
+  begins with the latest cached PAT+PMT (their continuity counters are locally owned,
+  since table packets are dropped from the flow and re-injected). Takeover handover
+  works the same as the other senders. The MediaFrame spinner plugin point does not
+  exist on this path — disable the option when spinners must run on SRT sessions.
 - PSI sections spanning multiple TS packets are reassembled (per-PSI-PID section
   buffers with continuity checking), and audio-only programs are first-class: the
   adapter declares the source audio-only (PMT maps no video), the pipeline wires on

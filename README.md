@@ -71,8 +71,9 @@ Roadmap
 - [x] CI for this repository (build + test on push, like the sibling repos)
 - [x] H.265 over SRT/TS ingest (hvcC built from in-band VPS/SPS/PPS, dimensions
       parsed from the SPS; both TS and CMAF outputs verified)
-- [ ] SRT→TS-HLS currently demuxes and re-muxes TS; a passthrough/re-segment
-      path would halve that cost
+- [x] SRT→TS-HLS passthrough: source TS packets are re-segmented as-is (cuts at
+      random-access PES starts, cached PAT/PMT injected per segment) instead of
+      demux+remux; on by default, `Hls.TsPassthrough: false` restores the old path
 
 ### Mid term — features
 

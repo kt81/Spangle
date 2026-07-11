@@ -48,7 +48,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
     /// <summary>Set when frames were written since the last flush; the receiver flushes and clears it.</summary>
     public bool HasPendingFrames { get; set; }
 
-    public void OnProgramMapped(byte videoStreamType, byte audioStreamType)
+    public void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid)
     {
         switch (videoStreamType)
         {

@@ -29,6 +29,14 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
     /// </summary>
     public override string? StreamName { get; }
 
+    /// <summary>
+    /// Forwards the aligned 188-byte packets to <see cref="IReceiverContext.MediaOutlet"/>
+    /// as-is instead of demuxing to MediaFrames — for a TS-passthrough output path.
+    /// The host must wire MediaOutlet before the session starts (no codec event fires
+    /// in this mode) and pair it with a sender that consumes raw TS.
+    /// </summary>
+    public bool RawTsPassthrough { get; init; }
+
     public SRTReceiverContext(SRTClient client, CancellationToken ct)
         : base(client.Pipe.Input, client.Pipe.Output, ct)
     {
@@ -46,8 +54,10 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
             return;
         }
 
-        var demuxer = new M2TSDemuxer();
-        var adapter = new M2TSMediaFrameAdapter<SRTReceiverContext>(this);
+        bool raw = RawTsPassthrough && MediaOutlet is not null;
+        M2TSDemuxer? demuxer = raw ? null : new M2TSDemuxer();
+        M2TSMediaFrameAdapter<SRTReceiverContext>? adapter =
+            raw ? null : new M2TSMediaFrameAdapter<SRTReceiverContext>(this);
         var packetCopy = new byte[M2TSWriter.PacketSize];
         var reader = RemoteReader;
 
@@ -63,6 +73,7 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
                 break;
             }
 
+            var wrotePackets = false;
             ReadOnlySequence<byte> buff = result.Buffer;
             while (buff.Length >= M2TSWriter.PacketSize)
             {
@@ -81,23 +92,34 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
                 }
 
                 ReadOnlySequence<byte> pktSeq = buff.Slice(0, M2TSWriter.PacketSize);
-                if (pktSeq.IsSingleSegment)
+                if (raw)
                 {
-                    demuxer.ProcessPacket(pktSeq.FirstSpan, adapter);
+                    foreach (ReadOnlyMemory<byte> segment in pktSeq)
+                    {
+                        MediaOutlet!.Write(segment.Span);
+                    }
+                    wrotePackets = true;
+                }
+                else if (pktSeq.IsSingleSegment)
+                {
+                    demuxer!.ProcessPacket(pktSeq.FirstSpan, adapter!);
                 }
                 else
                 {
                     pktSeq.CopyTo(packetCopy);
-                    demuxer.ProcessPacket(packetCopy, adapter);
+                    demuxer!.ProcessPacket(packetCopy, adapter!);
                 }
                 buff = buff.Slice(M2TSWriter.PacketSize);
             }
 
             reader.AdvanceTo(buff.Start, result.Buffer.End);
 
-            if (adapter.HasPendingFrames && MediaOutlet is not null)
+            if ((wrotePackets || adapter is { HasPendingFrames: true }) && MediaOutlet is not null)
             {
-                adapter.HasPendingFrames = false;
+                if (adapter is not null)
+                {
+                    adapter.HasPendingFrames = false;
+                }
                 await MediaOutlet.FlushAsync(CancellationToken);
             }
 
@@ -109,8 +131,8 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
 
         // Emit whatever was still being assembled. The flush must not observe the
         // (possibly already canceled) session token, or the tail frames are lost.
-        demuxer.Flush(adapter);
-        if (adapter.HasPendingFrames && MediaOutlet is not null)
+        demuxer?.Flush(adapter!);
+        if (adapter is { HasPendingFrames: true } && MediaOutlet is not null)
         {
             adapter.HasPendingFrames = false;
             await MediaOutlet.FlushAsync(CancellationToken.None);
