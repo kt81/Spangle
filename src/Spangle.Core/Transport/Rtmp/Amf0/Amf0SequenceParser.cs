@@ -7,8 +7,22 @@ namespace Spangle.Transport.Rtmp.Amf0;
 
 internal static class Amf0SequenceParser
 {
-    public static object? Parse(ref ReadOnlySequence<byte> buff)
+    /// <summary>
+    /// Nesting bound for objects/arrays. AMF0 needs ~4 bytes per nesting level, so an
+    /// unauthenticated connect message could otherwise drive the mutual recursion of
+    /// <see cref="Parse"/>/<see cref="ParseObject"/> into a StackOverflowException —
+    /// which is uncatchable and kills the whole process, not just the session.
+    /// </summary>
+    private const int MaxDepth = 32;
+
+    public static object? Parse(ref ReadOnlySequence<byte> buff) => Parse(ref buff, 0);
+
+    private static object? Parse(ref ReadOnlySequence<byte> buff, int depth)
     {
+        if (buff.IsEmpty)
+        {
+            throw new InvalidDataException("Truncated AMF0 sequence");
+        }
         var type = (Amf0TypeMarker)buff.FirstSpan[0];
         switch (type)
         {
@@ -19,11 +33,11 @@ internal static class Amf0SequenceParser
             case Amf0TypeMarker.String:
                 return ParseString(ref buff);
             case Amf0TypeMarker.Object:
-                return ParseObject(ref buff);
+                return ParseObject(ref buff, depth);
             case Amf0TypeMarker.Null:
                 return ParseNull(ref buff);
             case Amf0TypeMarker.EcmaArray:
-                return ParseEcmaArray(ref buff);
+                return ParseEcmaArray(ref buff, depth);
             case Amf0TypeMarker.ObjectEnd:
                 return ParseObjectEnd(ref buff);
             default:
@@ -77,14 +91,17 @@ internal static class Amf0SequenceParser
         return BufferMarshal.Utf8ToManagedString(strBuf);
     }
 
-    public static AmfObject ParseObject(ref ReadOnlySequence<byte> buff)
+    public static AmfObject ParseObject(ref ReadOnlySequence<byte> buff) => ParseObject(ref buff, 0);
+
+    private static AmfObject ParseObject(ref ReadOnlySequence<byte> buff, int depth)
     {
+        EnsureDepth(depth);
         buff = buff.Slice(1);
         var dic = new Dictionary<string, object?>();
         while (!buff.IsEmpty)
         {
             string key = ParseString(ref buff, false);
-            object? val = Parse(ref buff);
+            object? val = Parse(ref buff, depth + 1);
             if (key == string.Empty && val is Amf0TypeMarker.ObjectEnd)
             {
                 break;
@@ -94,6 +111,14 @@ internal static class Amf0SequenceParser
         }
 
         return dic;
+    }
+
+    private static void EnsureDepth(int depth)
+    {
+        if (depth >= MaxDepth)
+        {
+            throw new InvalidDataException($"AMF0 nesting exceeds the limit of {MaxDepth}");
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -110,8 +135,11 @@ internal static class Amf0SequenceParser
         return null;
     }
 
-    public static AmfObject ParseEcmaArray(ref ReadOnlySequence<byte> buff)
+    public static AmfObject ParseEcmaArray(ref ReadOnlySequence<byte> buff) => ParseEcmaArray(ref buff, 0);
+
+    private static AmfObject ParseEcmaArray(ref ReadOnlySequence<byte> buff, int depth)
     {
+        EnsureDepth(depth);
         var s = buff.Slice(1, sizeof(uint));
         buff = buff.Slice(s.End);
         uint count = BufferMarshal.AsRefOrCopy<BigEndianUInt32>(s).HostValue;
@@ -120,7 +148,7 @@ internal static class Amf0SequenceParser
         for (uint i = 0; i < count; i++)
         {
             string key = ParseString(ref buff, false);
-            object? val = Parse(ref buff);
+            object? val = Parse(ref buff, depth + 1);
             dic[key] = val;
         }
         if (buff.IsEmpty)

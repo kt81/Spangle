@@ -218,6 +218,7 @@ public sealed class M2TSWriter
         }
     }
 
+    // Program association section: ISO/IEC 13818-1 Table 2-30
     private static int BuildPat(Span<byte> s)
     {
         s[0] = 0x00;                          // table_id: PAT
@@ -234,6 +235,7 @@ public sealed class M2TSWriter
         return 16;
     }
 
+    // TS program map section: ISO/IEC 13818-1 Table 2-33
     private int BuildPmt(Span<byte> s)
     {
         int streamCount = (_hasVideo ? 1 : 0) + (_hasAudio ? 1 : 0);

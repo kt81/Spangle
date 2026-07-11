@@ -32,6 +32,13 @@ app.Use(async (ctx, next) =>
             string text;
             if (long.TryParse(ctx.Request.Query["_HLS_msn"], out long msn))
             {
+                // RFC 8216bis 6.2.5.2: a request beyond the next two segments is a
+                // client error, not something to block 15 seconds on
+                if (msn > live.CurrentMsn + 2)
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+                    return;
+                }
                 _ = int.TryParse(ctx.Request.Query["_HLS_part"], out int part);
                 text = await live.WaitForAsync(msn, part, TimeSpan.FromSeconds(15), ctx.RequestAborted);
             }

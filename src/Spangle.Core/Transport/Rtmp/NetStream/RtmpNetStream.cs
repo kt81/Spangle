@@ -86,7 +86,7 @@ internal class RtmpNetStream
         public const string VideoDataRate   = "videodatarate";
         public const string FrameRate       = "framerate";
         public const string AudioCodecId    = "audiocodecid";
-        public const string AudioDataRate   = "audiocdatarate";
+        public const string AudioDataRate   = "audiodatarate";
         public const string AudioSampleRate = "audiosamplerate";
         public const string AudioSampleSize = "audiosamplesize";
         public const string AudioChannels   = "audiochannels";
@@ -117,7 +117,7 @@ internal class RtmpNetStream
         }
 
         uint csId = context.BasicHeader.ChunkStreamId;
-        const uint publishingStreamId = Protocol.ControlStreamId + 1;
+        uint publishingStreamId = Id; // the id createStream issued for this stream
 
         // publish authorization (and same-name takeover) at the protocol's rejection point
         if (context.PublishGate is { } gate
@@ -194,31 +194,73 @@ internal class RtmpNetStream
         }
         _logger.DumpObject(data);
 
-        if (data.TryGetValue(OnMetaDataKeys.Width, out object? width) && width is not null)
+        if (data.TryGetValue(OnMetaDataKeys.Width, out object? width) && width is double w)
         {
-            Context.VideoWidth = Convert.ToUInt32(width);
+            Context.VideoWidth = (uint)w;
         }
-        if (data.TryGetValue(OnMetaDataKeys.Height, out object? height) && height is not null)
+        if (data.TryGetValue(OnMetaDataKeys.Height, out object? height) && height is double h)
         {
-            Context.VideoHeight = Convert.ToUInt32(height);
-        }
-
-        if (data.TryGetValue("videocodecid", out object? videoCodecId) && videoCodecId is not null)
-        {
-            Context.VideoCodec = ((FlvVideoCodec)Convert.ToUInt32(videoCodecId)).ToInternal();
+            Context.VideoHeight = (uint)h;
         }
 
-        if (data.TryGetValue("audiocodecid", out object? audioCodecId) && audioCodecId is not null)
+        // Encoders send codec ids as numbers or as fourCC strings ("avc1", "hvc1", ...);
+        // an unknown value must not kill the session — the codec config frame that
+        // follows is the authoritative signal anyway.
+        if (data.TryGetValue(OnMetaDataKeys.VideoCodecId, out object? videoCodecId) && videoCodecId is not null)
         {
-            var flvAudioCodec = (FlvAudioCodec)Convert.ToUInt32(audioCodecId);
-            if (flvAudioCodec == FlvAudioCodec.AAC)
+            if (TryMapVideoCodecId(videoCodecId) is { } videoCodec)
             {
-                Context.AudioCodec = flvAudioCodec.ToInternal();
+                Context.VideoCodec = videoCodec;
             }
             else
             {
-                _logger.ZLogWarning($"Unsupported audio codec in metadata, audio will be dropped: {flvAudioCodec}");
+                _logger.ZLogWarning($"Unrecognized videocodecid in metadata, ignored: {videoCodecId}");
+            }
+        }
+
+        if (data.TryGetValue(OnMetaDataKeys.AudioCodecId, out object? audioCodecId) && audioCodecId is not null)
+        {
+            if (TryMapAudioCodecId(audioCodecId) is { } audioCodec)
+            {
+                Context.AudioCodec = audioCodec;
+            }
+            else
+            {
+                _logger.ZLogWarning($"Unsupported audiocodecid in metadata, audio will be dropped: {audioCodecId}");
             }
         }
     }
+
+    private static VideoCodec? TryMapVideoCodecId(object value)
+    {
+        switch (value)
+        {
+            case string s:
+                return s switch
+                {
+                    "avc1" or "avc3" => VideoCodec.H264,
+                    "hvc1" or "hev1" => VideoCodec.H265,
+                    "av01" => VideoCodec.AV1,
+                    _ => null,
+                };
+            case double d and >= 0:
+                try
+                {
+                    return ((FlvVideoCodec)(uint)d).ToInternal();
+                }
+                catch (NotInScopeException)
+                {
+                    return null;
+                }
+            default:
+                return null;
+        }
+    }
+
+    private static AudioCodec? TryMapAudioCodecId(object value) => value switch
+    {
+        "mp4a" => AudioCodec.AAC,
+        double d and >= 0 when (FlvAudioCodec)(uint)d == FlvAudioCodec.AAC => AudioCodec.AAC,
+        _ => null,
+    };
 }

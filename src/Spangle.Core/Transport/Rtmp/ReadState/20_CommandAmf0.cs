@@ -1,14 +1,19 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
+using Spangle.Logging;
 using Spangle.Transport.Rtmp.NetConnection;
 using Spangle.Transport.Rtmp.NetStream;
+using ZLogger;
 using static Spangle.Transport.Rtmp.Amf0.Amf0SequenceParser;
 
 namespace Spangle.Transport.Rtmp.ReadState;
 
 internal abstract class CommandAmf0
 {
+    private static readonly ILogger<CommandAmf0> s_logger = SpangleLogManager.GetLogger<CommandAmf0>();
+
     public static async ValueTask Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
         await DispatchRpc(context, payload);
@@ -68,7 +73,11 @@ internal abstract class CommandAmf0
                     ParseNumber(ref buff));
                 break;
             default:
-                throw new NotImplementedException($"The command `{command}` is not implemented.");
+                // Clients commonly send optional commands (getStreamLength, play-related
+                // probes, vendor extensions); killing the session over them breaks
+                // interoperability, so log and move on.
+                s_logger.ZLogWarning($"Ignoring unsupported command `{command}`");
+                break;
         }
     }
 }

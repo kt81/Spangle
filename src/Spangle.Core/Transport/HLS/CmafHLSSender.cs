@@ -76,6 +76,7 @@ public class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
             else
             {
                 builder.Complete();
+                context.Registry?.Remove(context.ResolveStreamKey());
                 s_logger.ZLogInformation($"HLS(CMAF) stream completed");
             }
             await reader.CompleteAsync();
@@ -127,6 +128,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     private uint _segmentStartMs;
     private uint _partStartMs;
     private uint _lastVideoDurationMs = 33;
+    private bool _forcedCutWarned;
 
     private struct VideoSampleMeta
     {
@@ -177,6 +179,20 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         if (header.IsKeyFrame && _hasSegmentStart
             && (header.Timestamp - _segmentStartMs) / 1000.0 >= context.TargetSegmentDuration)
         {
+            FinalizeSegment(header.Timestamp);
+        }
+        else if (_hasSegmentStart
+                 && (header.Timestamp - _segmentStartMs) / 1000.0 >= context.TargetSegmentDuration * 4)
+        {
+            // No keyframe for 4x the target: cut anyway so the sample buffers stay
+            // bounded (a source with a broken keyframe cadence would otherwise grow
+            // one segment without limit)
+            if (!_forcedCutWarned)
+            {
+                _forcedCutWarned = true;
+                s_logger.ZLogWarning(
+                    $"No keyframe for {context.TargetSegmentDuration * 4:F0}s; forcing a segment cut at a non-keyframe");
+            }
             FinalizeSegment(header.Timestamp);
         }
         else if (_partTarget is { } partTarget && _hasSegmentStart && _videoMeta.Count > 0

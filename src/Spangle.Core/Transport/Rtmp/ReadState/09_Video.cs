@@ -19,6 +19,10 @@ internal abstract class Video
     {
         // The assembled message is always a single segment
         var span = payload.FirstSpan;
+        if (span.Length < 2)
+        {
+            throw new InvalidDataException($"VIDEODATA message too short: {span.Length} bytes");
+        }
         var ctrl = new FlvVideoControl(span[0]);
         context.IsEnhanced = ctrl.IsEnhanced; // aka. IsExHeader
 
@@ -30,6 +34,10 @@ internal abstract class Video
         if (!ctrl.IsEnhanced)
         {
             // Classic envelope: [control][AVCPacketType][CompositionTime SI24][data]
+            if (span.Length < 5)
+            {
+                throw new InvalidDataException($"AVC VIDEODATA message too short: {span.Length} bytes");
+            }
             codec = ctrl.Codec.ToInternal();
             var packetType = (FlvAVCPacketType)span[1];
             switch (packetType)
@@ -51,6 +59,10 @@ internal abstract class Video
         else
         {
             // enhanced-RTMP envelope: [control(isEx+packetType)][FourCC][per-packet-type fields][data]
+            if (span.Length < 5)
+            {
+                throw new InvalidDataException($"Enhanced VIDEODATA message too short: {span.Length} bytes");
+            }
             uint fourCC = ((uint)span[1] << 24) | ((uint)span[2] << 16) | ((uint)span[3] << 8) | span[4];
             codec = FlvVideoCodecExtensions.ParseToInternal(fourCC);
             switch (ctrl.VideoPacketType)
@@ -64,6 +76,10 @@ internal abstract class Video
                     if (codec is VideoCodec.H264 or VideoCodec.H265)
                     {
                         // The SI24 composition time is only present for AVC/HEVC
+                        if (span.Length < 8)
+                        {
+                            throw new InvalidDataException($"CodedFrames message too short: {span.Length} bytes");
+                        }
                         compositionTimeMs = ReadSi24(span[5..8]);
                         body = payload.Slice(8);
                     }
@@ -77,7 +93,7 @@ internal abstract class Video
                     flags = ToKeyFrameFlag(ctrl.FrameType);
                     body = payload.Slice(5);
                     break;
-                case FlvVideoPacketType.PackoetTypeSequenceEnd:
+                case FlvVideoPacketType.PacketTypeSequenceEnd:
                     return;
                 case FlvVideoPacketType.PacketTypeMetadata:
                     s_logger.ZLogTrace($"Ignoring video metadata frame");

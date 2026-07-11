@@ -39,7 +39,7 @@ public static class RtmpWriter
     public static int Write(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
         uint chunkStreamId, uint streamId, IAmf0Serializable payload)
     {
-        TempWriter.Clear(); // ArrayBufferWriter only clears the area that is actually used. 😊
+        TempWriter.ResetWrittenCount(); // rewind without memset-ing the written area
         int plLen = payload.WriteBytes(TempWriter);
         int hLen = WriteHeader(context, timestampOrDelta, messageTypeId, chunkStreamId, streamId, plLen);
 
@@ -71,7 +71,24 @@ public static class RtmpWriter
         var buff = context.RemoteWriter.GetSpan(bhLen);
         context.BasicHeaderToSend.AsSpan()[..bhLen].CopyTo(buff);
         context.RemoteWriter.Advance(bhLen);
+
+        // 5.3.1.3: when the preceding header carried an extended timestamp, every
+        // Fmt3 continuation chunk of the same message repeats it
+        if (context.MessageHeaderToSend.HasExtendedTimestamp)
+        {
+            WriteExtendedTimestamp(context);
+            bhLen += sizeof(uint);
+        }
         return bhLen;
+    }
+
+    private static void WriteExtendedTimestamp(RtmpReceiverContext context)
+    {
+        var exTimeBuff = context.RemoteWriter.GetSpan(sizeof(uint));
+        context.MessageHeaderToSend.ExtendedTimeStamp.AsSpan().CopyTo(exTimeBuff);
+        // GetSpan may return more than requested; advancing by its full length would
+        // splice uninitialized bytes into the send stream
+        context.RemoteWriter.Advance(sizeof(uint));
     }
 
     private static int WriteHeader(RtmpReceiverContext context, uint timestampOrDelta, MessageType messageTypeId,
@@ -109,9 +126,8 @@ public static class RtmpWriter
 
         if (context.MessageHeaderToSend.HasExtendedTimestamp)
         {
-            var exTimeBuff = context.RemoteWriter.GetSpan(sizeof(uint));
-            context.MessageHeaderToSend.ExtendedTimeStamp.AsSpan().CopyTo(exTimeBuff);
-            context.RemoteWriter.Advance(exTimeBuff.Length);
+            WriteExtendedTimestamp(context);
+            totalHeaderLength += sizeof(uint);
         }
 
         return totalHeaderLength;

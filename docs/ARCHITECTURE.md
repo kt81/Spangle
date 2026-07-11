@@ -84,6 +84,13 @@ Payloads at this boundary:
 Because each frame is self-contained (codec, timestamps, flags), a spinner needs no
 side-channel and no knowledge of the ingest protocol.
 
+**Contract for frames that arrive before the pipeline is wired** (the wiring triggers
+on the first codec event, so early frames can see a null outlet): media frames may be
+dropped — they could not be decoded without their config anyway — but `Config` frames
+must be kept by the receiver and replayed into the outlet first, or the track stays
+dead for the whole session. The RTMP receiver stashes an early AAC sequence header
+for exactly this reason (video config cannot arrive early: it is itself the trigger).
+
 ## RTMP receiver
 
 ### Chunk → message assembly

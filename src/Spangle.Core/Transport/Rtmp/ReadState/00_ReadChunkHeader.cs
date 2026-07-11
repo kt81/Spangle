@@ -43,7 +43,9 @@ internal abstract class ReadChunkHeader
             // is still rented is safe: handlers never touch RemoteReader.
             var payload = new ReadOnlySequence<byte>(completed.Assembly.WrittenMemory);
             await DispatchMessage(context, completed, payload);
-            completed.Assembly.Clear();
+            // ResetWrittenCount, not Clear: Clear would memset the written area on
+            // every message, a pointless cost on the hot path
+            completed.Assembly.ResetWrittenCount();
 
             if (context.IsCompleted)
             {
@@ -122,6 +124,13 @@ internal abstract class ReadChunkHeader
         uint messageLength = format is MessageHeaderFormat.Fmt0 or MessageHeaderFormat.Fmt1
             ? header.Length.HostValue
             : state.MessageLength;
+        if (startsNewMessage && messageLength > context.MaxMessageSize)
+        {
+            // the length field allows up to 16MB per message and the assembly buffers
+            // never shrink, so unbounded lengths are a memory-exhaustion vector
+            throw new InvalidDataException(
+                $"Message length {messageLength} exceeds the limit of {context.MaxMessageSize}");
+        }
         int remaining = startsNewMessage ? (int)messageLength : state.Remaining;
         int chunkLength = Math.Min(remaining, (int)context.ChunkSize);
         int totalLength = bhLen + mhLen + extLen + chunkLength;
@@ -171,7 +180,7 @@ internal abstract class ReadChunkHeader
         if (startsNewMessage)
         {
             state.Remaining = (int)state.MessageLength;
-            state.Assembly.Clear();
+            state.Assembly.ResetWrittenCount();
         }
         if (chunkLength > 0)
         {

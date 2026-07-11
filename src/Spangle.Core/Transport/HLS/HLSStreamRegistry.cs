@@ -104,5 +104,17 @@ public sealed class HLSStreamRegistry
                 }
             }
         }
+
+        /// <summary>The media sequence number of the newest published playlist state.</summary>
+        public long CurrentMsn
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _msn;
+                }
+            }
+        }
     }
 }

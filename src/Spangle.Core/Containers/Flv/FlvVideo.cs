@@ -35,6 +35,14 @@ internal enum FlvVideoCodec : uint
     EnhancedVP9     = 'v' << 24 | 'p' << 16 | '0' << 8 | '9',
 }
 
+/// <summary>Packet type of the classic (pre-enhanced) AVC envelope.</summary>
+internal enum FlvAVCPacketType : byte
+{
+    SequenceHeader = 0,
+    Nalu           = 1,
+    EndOfSequence  = 2,
+}
+
 /// <summary>
 /// Packet type.
 /// This is available only in enhanced-rtmp.
@@ -43,7 +51,7 @@ internal enum FlvVideoPacketType : byte
 {
     PacketTypeSequenceStart = 0,
     PacketTypeCodedFrames,
-    PackoetTypeSequenceEnd,
+    PacketTypeSequenceEnd,
 
     // CompositionTime Offset is implied to equal zero. This is
     // an optimization to save putting SI24 composition time value of zero on
@@ -68,7 +76,8 @@ internal enum FlvVideoPacketType : byte
     // 6-15 = reserved
 }
 
-[Flags]
+// Not [Flags]: the values 1-5 are an enumeration, not a bit set
+// (Enhanced is masked out of the control byte before this is read)
 internal enum FlvVideoFrameType : byte
 {
     Keyframe             = 1,

@@ -72,6 +72,7 @@ public class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
                 else
                 {
                     segmenter.Complete();
+                    context.Registry?.Remove(context.ResolveStreamKey());
                     s_logger.ZLogInformation($"HLS(TS passthrough) stream completed");
                 }
             }
@@ -113,10 +114,17 @@ public class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
 /// </summary>
 internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
 {
+    private static readonly ILogger<TSPassthroughSegmenter> s_logger =
+        SpangleLogManager.GetLogger<TSPassthroughSegmenter>();
+
     private const ulong PtsMask = (1UL << 33) - 1;
+
+    /// <summary>A segment is force-cut past this multiple of the target duration.</summary>
+    private const double ForcedCutFactor = 4;
 
     private readonly IHLSStreamStorage _storage;
     private readonly double _targetDuration;
+    private readonly ulong _maxSegment90k;
     private readonly HLSPlaylist _playlist;
 
     /// <summary>PSI-only parse of the source to learn the program layout.</summary>
@@ -140,11 +148,20 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
     private ulong _segmentStart90k;
     private ulong _last90k;
 
+    // Sources without random_access_indicator flags (they exist) would otherwise
+    // produce no output at all, or one endlessly growing segment when the flags
+    // stop mid-stream; past ForcedCutFactor x target we cut at plain PES starts.
+    private bool  _noRaiFallback;
+    private bool  _forcedCutWarned;
+    private bool  _waitStart90kSet;
+    private ulong _waitStart90k;
+
     public TSPassthroughSegmenter(IHLSStreamStorage storage, double targetDuration, HLSPlaylistHandover? resume = null,
         Action<string, long, int>? onUpdated = null)
     {
         _storage = storage;
         _targetDuration = targetDuration;
+        _maxSegment90k = (ulong)(targetDuration * ForcedCutFactor * 90000.0);
         _playlist = new HLSPlaylist(storage, onUpdated: onUpdated, resume: resume);
     }
 
@@ -182,10 +199,11 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
         {
             pes90k = TryReadPesTimestamp(PayloadOf(packet, in header));
         }
+        ushort cutTrackPid = _videoPid != 0 ? _videoPid : _audioPid;
         if (pes90k is { } ts)
         {
             _last90k = ts;
-            if (IsCutPoint(packet, pid))
+            if (pid == cutTrackPid && ShouldCutAt(packet, pid, ts))
             {
                 if (_hasSegmentStart)
                 {
@@ -235,16 +253,54 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
 
     /// <summary>
     /// A valid cut point is a random-access video PES start, or any audio PES start
-    /// when the program has no video (every AAC frame is a sync point).
+    /// when the program has no video (every AAC frame is a sync point). Only called
+    /// for PES starts of the cut-driving track.
     /// </summary>
-    private bool IsCutPoint(ReadOnlySpan<byte> packet, ushort pid)
+    private bool ShouldCutAt(ReadOnlySpan<byte> packet, ushort pid, ulong ts90k)
     {
-        if (pid == _videoPid && _videoPid != 0)
+        if (pid != _videoPid || _videoPid == 0)
         {
-            ref readonly var ts = ref MemoryMarshal.AsRef<TSPacket>(packet);
-            return ts.HasAdaptationFields && ts.AdaptationFields.RandomAccessIndicator != 0;
+            return true; // audio-only program: every PES start is a sync point
         }
-        return pid == _audioPid && _videoPid == 0 && _audioPid != 0;
+
+        ref readonly var ts = ref MemoryMarshal.AsRef<TSPacket>(packet);
+        if (ts.HasAdaptationFields && ts.AdaptationFields.RandomAccessIndicator != 0)
+        {
+            return true;
+        }
+        if (_noRaiFallback)
+        {
+            return true;
+        }
+
+        // No random access point in sight: rather than producing nothing (or one
+        // endlessly growing segment), degrade to cutting at plain PES starts.
+        ulong waitedFrom;
+        if (_hasSegmentStart)
+        {
+            waitedFrom = _segmentStart90k;
+        }
+        else
+        {
+            if (!_waitStart90kSet)
+            {
+                _waitStart90kSet = true;
+                _waitStart90k = ts90k;
+            }
+            waitedFrom = _waitStart90k;
+        }
+        if (((ts90k - waitedFrom) & PtsMask) < _maxSegment90k)
+        {
+            return false;
+        }
+        if (!_forcedCutWarned)
+        {
+            _forcedCutWarned = true;
+            s_logger.ZLogWarning(
+                $"No random_access_indicator seen for {_targetDuration * ForcedCutFactor:F0}s; falling back to cutting at PES boundaries (segments may not start at keyframes)");
+        }
+        _noRaiFallback = true;
+        return true;
     }
 
     private static ReadOnlySpan<byte> PayloadOf(ReadOnlySpan<byte> packet, in TSHeader header)

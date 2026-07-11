@@ -35,6 +35,7 @@ internal sealed class HLSPlaylist
     private readonly StringBuilder _sb = new(1024);
     private int _sequence;
     private bool _pendingDiscontinuity;
+    private int _targetDurationCeil;
 
     public HLSPlaylist(IHLSStreamStorage storage, string? mapUri = null, double? partTargetDuration = null,
         Action<string, long, int>? onUpdated = null, HLSPlaylistHandover? resume = null)
@@ -116,12 +117,16 @@ internal sealed class HLSPlaylist
             return;
         }
 
-        double targetDuration = _window.Count > 0 ? _window.Max(static w => w.Duration) : _partTargetDuration ?? 1.0;
+        // RFC 8216 6.2.1: EXT-X-TARGETDURATION MUST NOT change, so track the ceiling
+        // monotonically instead of recomputing it from the sliding window (where a
+        // long segment leaving the window would shrink the value again)
+        double windowMax = _window.Count > 0 ? _window.Max(static w => w.Duration) : _partTargetDuration ?? 1.0;
+        _targetDurationCeil = Math.Max(_targetDurationCeil, (int)Math.Ceiling(windowMax));
 
         StringBuilder sb = _sb.Clear();
         sb.Append("#EXTM3U\n");
         sb.Append(_mapUri is null ? "#EXT-X-VERSION:3\n" : "#EXT-X-VERSION:6\n");
-        sb.Append($"#EXT-X-TARGETDURATION:{(int)Math.Ceiling(targetDuration)}\n");
+        sb.Append($"#EXT-X-TARGETDURATION:{_targetDurationCeil}\n");
         if (_partTargetDuration is { } partTarget)
         {
             sb.Append($"#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={partTarget * 3:F3}\n");

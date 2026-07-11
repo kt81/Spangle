@@ -338,21 +338,24 @@ internal sealed class M2TSDemuxer
     private void ProcessEsPacket(TrackState track, ReadOnlySpan<byte> payload, bool pusi, byte continuity,
         IM2TSDemuxerSink sink)
     {
-        // continuity check: a lost packet invalidates the frame under assembly
-        if (track.LastContinuity != 0xFF && !pusi)
+        // Continuity check: a lost packet invalidates the frame under assembly.
+        // This must run on PUSI packets too — a gap right before a new PES start
+        // means the tail of the previous frame was lost, and emitting the
+        // truncated access unit would hand a broken frame downstream.
+        if (track.LastContinuity != 0xFF)
         {
+            if (continuity == track.LastContinuity)
+            {
+                return; // duplicate packet (a packet may legally be sent twice)
+            }
             var expected = (byte)((track.LastContinuity + 1) & 0x0F);
-            if (continuity != expected && continuity != track.LastContinuity /* duplicate */)
+            if (continuity != expected)
             {
                 if (!track.Corrupt)
                 {
                     s_logger.ZLogWarning($"TS continuity broken (expected {expected}, got {continuity}); dropping the current frame");
                 }
                 track.Corrupt = true;
-            }
-            else if (continuity == track.LastContinuity)
-            {
-                return; // duplicate packet
             }
         }
         track.LastContinuity = continuity;
