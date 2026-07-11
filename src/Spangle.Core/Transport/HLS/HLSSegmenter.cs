@@ -8,6 +8,8 @@ namespace Spangle.Transport.HLS;
 /// (the muxer writes PAT/PMT right before every keyframe), and maintains
 /// a live M3U8 playlist in the output directory.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "the MemoryStream is a reusable growable buffer over managed memory; Dispose would release nothing")]
 internal sealed class HLSSegmenter
 {
     private readonly IHLSStreamStorage _storage;

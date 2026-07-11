@@ -38,7 +38,7 @@ internal partial struct OnStatusResult
 
     public OnStatusResult(Level level, Code code, string description, string details)
     {
-        var infoObj = new Dictionary<string, object?>
+        var infoObj = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             [InfoKeys.Level] = level.ToString().ToLowerInvariant(),
             [InfoKeys.Code] = code.ToResponseString(),

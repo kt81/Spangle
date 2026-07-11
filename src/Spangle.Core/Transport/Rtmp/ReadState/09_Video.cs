@@ -15,7 +15,7 @@ internal abstract class Video
 {
     private static readonly ILogger<Video> s_logger = SpangleLogManager.GetLogger<Video>();
 
-    public static async ValueTask Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
+    public static async ValueTask HandleAsync(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
         // The assembled message is always a single segment
         var span = payload.FirstSpan;
@@ -130,7 +130,7 @@ internal abstract class Video
         body.CopyTo(writeBuff);
         context.MediaOutlet.Advance((int)body.Length);
 
-        await context.MediaOutlet.FlushAsync(context.CancellationToken);
+        await context.MediaOutlet.FlushAsync(context.CancellationToken).ConfigureAwait(false);
     }
 
     private static MediaFrameFlags ToKeyFrameFlag(FlvVideoFrameType frameType) =>

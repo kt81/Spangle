@@ -424,7 +424,7 @@ internal sealed class M2TSDemuxer
     // =======================================================================
     // PES
 
-    private void ProcessEsPacket(TrackState track, ReadOnlySpan<byte> payload, bool pusi, byte continuity,
+    private static void ProcessEsPacket(TrackState track, ReadOnlySpan<byte> payload, bool pusi, byte continuity,
         IM2TSDemuxerSink sink)
     {
         // Continuity check: a lost packet invalidates the frame under assembly.

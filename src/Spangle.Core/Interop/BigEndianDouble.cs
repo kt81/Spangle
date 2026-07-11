@@ -1,4 +1,4 @@
-﻿using System.Buffers.Binary;
+using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
@@ -52,12 +52,12 @@ public unsafe struct BigEndianDouble : IInteropType<double, BigEndianDouble>
     public override readonly string ToString()
     {
         // ReSharper disable once SpecifyACultureInStringConversionExplicitly
-        return HostValue.ToString();
+        return HostValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     public readonly string ToString([StringSyntax(StringSyntaxAttribute.NumericFormat)] string? format)
     {
-        return HostValue.ToString(format);
+        return HostValue.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     public override int GetHashCode()

@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Globalization;
 using System.Text;
 using Spangle.Interop;
 using Spangle.Util;
@@ -25,7 +26,7 @@ internal static class Amf0Writer
                 or uint or int
                 or ulong or long
                 or decimal or double or float:
-                return WriteNumber(writer, Convert.ToDouble(value));
+                return WriteNumber(writer, Convert.ToDouble(value, CultureInfo.InvariantCulture));
             case bool b:
                 return WriteBoolean(writer, b);
             case string s:
@@ -35,7 +36,7 @@ internal static class Amf0Writer
             case null:
                 return WriteNull(writer);
             default:
-                throw new NotImplementedException($"The encoder for {value.GetType().Name} is not implemented.");
+                throw new NotSupportedException($"The encoder for {value.GetType().Name} is not supported.");
         }
     }
 

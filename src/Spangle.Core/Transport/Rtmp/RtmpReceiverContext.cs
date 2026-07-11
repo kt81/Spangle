@@ -1,4 +1,3 @@
-﻿using System.Collections.Concurrent;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -15,21 +14,17 @@ namespace Spangle.Transport.Rtmp;
 
 public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContext>
 {
-    private static readonly ILogger<RtmpReceiverContext> s_logger;
-    static RtmpReceiverContext()
-    {
-        s_logger = SpangleLogManager.GetLogger<RtmpReceiverContext>();
-    }
+    private static readonly ILogger<RtmpReceiverContext> s_logger = SpangleLogManager.GetLogger<RtmpReceiverContext>();
 
     #region Headers
 
     // =======================================================================
 
-    internal BasicHeader   BasicHeader   = default;
-    internal MessageHeader MessageHeader = default;
+    internal BasicHeader   BasicHeader;
+    internal MessageHeader MessageHeader;
 
-    internal BasicHeader   BasicHeaderToSend   = default;
-    internal MessageHeader MessageHeaderToSend = default;
+    internal BasicHeader   BasicHeaderToSend;
+    internal MessageHeader MessageHeaderToSend;
 
     #endregion
 
@@ -55,13 +50,13 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     /// <summary>
     /// Enhanced RTMP mode.
     /// </summary>
-    public bool IsEnhanced = false;
+    public bool IsEnhanced;
 
     /// <summary>
     /// Timeout milliseconds.
     /// It is checked for every State actions.
     /// </summary>
-    public int Timeout = 0;
+    public int Timeout;
 
     public string? App;
     public string? PreparingStreamName;
@@ -77,7 +72,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     // =======================================================================
 
-    public   uint           Timestamp       = 0;
+    public   uint           Timestamp;
     public   ReceivingState ConnectionState = ReceivingState.HandShaking;
     internal HandshakeState HandshakeState  = HandshakeState.Uninitialized;
 
@@ -147,7 +142,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     public override async ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource)
     {
         s_logger.ZLogDebug($"Begin to handshake");
-        await HandshakeHandler.DoHandshakeAsync(this);
+        await HandshakeHandler.DoHandshakeAsync(this).ConfigureAwait(false);
         s_logger.ZLogDebug($"Handshake done");
         ConnectionState = ReceivingState.WaitingConnect;
 
@@ -157,12 +152,12 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
             if (Timeout > 0)
             {
                 readTimeoutSource.CancelAfter(Timeout);
-                await ReadChunkHeader.Perform(this);
+                await ReadChunkHeader.PerformAsync(this).ConfigureAwait(false);
                 readTimeoutSource.TryReset();
             }
             else
             {
-                await ReadChunkHeader.Perform(this);
+                await ReadChunkHeader.PerformAsync(this).ConfigureAwait(false);
             }
         }
 
@@ -224,7 +219,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
         NetStream = null;
     }
 
-    internal void ReleaseStream(string streamName)
+    internal static void ReleaseStream(string streamName)
     {
         // It don't mean a thing
     }

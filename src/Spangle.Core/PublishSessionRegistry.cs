@@ -34,7 +34,7 @@ internal sealed class PublishGate(
     public async ValueTask<bool> TryOpenAsync(string streamName, CancellationToken ct)
     {
         bool opened = await registry.TryOpenAsync(authorizer, protocol, streamName, remoteEndPoint,
-            sessionId, kick, ct);
+            sessionId, kick, ct).ConfigureAwait(false);
         if (opened)
         {
             _openedName = streamName;
@@ -64,7 +64,7 @@ public sealed class PublishSessionRegistry
 
     private static readonly TimeSpan s_takeoverTimeout = TimeSpan.FromSeconds(5);
 
-    private readonly ConcurrentDictionary<string, Session> _sessions = new();
+    private readonly ConcurrentDictionary<string, Session> _sessions = new(StringComparer.Ordinal);
 
     private sealed class Session(string id, Action kick)
     {
@@ -95,7 +95,7 @@ public sealed class PublishSessionRegistry
                     : new ExistingSessionInfo { Id = existing.Id, StartedAt = existing.StartedAt },
             };
 
-            PublishDecision decision = await authorizer.AuthorizeAsync(request, ct);
+            PublishDecision decision = await authorizer.AuthorizeAsync(request, ct).ConfigureAwait(false);
             switch (decision)
             {
                 case PublishDecision.Deny:
@@ -118,7 +118,7 @@ public sealed class PublishSessionRegistry
                     existing.Kick();
                     try
                     {
-                        await existing.Ended.Task.WaitAsync(s_takeoverTimeout, ct);
+                        await existing.Ended.Task.WaitAsync(s_takeoverTimeout, ct).ConfigureAwait(false);
                     }
                     catch (TimeoutException)
                     {
@@ -136,7 +136,8 @@ public sealed class PublishSessionRegistry
                     continue;
 
                 default:
-                    throw new ArgumentOutOfRangeException(nameof(decision), decision, "Unknown PublishDecision");
+                    // the decision comes from an authorizer implementation, not from a caller argument
+                    throw new InvalidOperationException($"Unknown PublishDecision: {decision}");
             }
         }
 

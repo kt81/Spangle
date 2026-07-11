@@ -10,7 +10,7 @@ var mode = new Argument<string>("mode")
 };
 var cmd = new RootCommand("Spangle Example Console application.") { mode };
 
-var loggerFactory = LoggerFactory.Create(conf =>
+using var loggerFactory = LoggerFactory.Create(conf =>
 {
     conf.AddFilter("Spangle", LogLevel.Trace)
         .AddColorizedZLoggerConsole("Spangle");
@@ -22,13 +22,13 @@ cmd.SetAction(async (parseResult, _) =>
     switch (parseResult.GetValue(mode))
     {
         case "rtmp-hls":
-            await new RtmpToHLS(loggerFactory.CreateLogger<RtmpToHLS>()).Start();
+            await new RtmpToHLS(loggerFactory.CreateLogger<RtmpToHLS>()).StartAsync();
             return;
         case "srt-hls":
-            await new SRTToHLS(loggerFactory.CreateLogger<SRTToHLS>()).Start();
+            await new SRTToHLS(loggerFactory.CreateLogger<SRTToHLS>()).StartAsync();
             return;
         default:
-            throw new ArgumentException("Unrecognized mode");
+            throw new InvalidOperationException("Unrecognized mode");
     }
 });
 

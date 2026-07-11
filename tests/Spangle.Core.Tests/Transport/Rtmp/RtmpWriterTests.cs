@@ -23,7 +23,7 @@ public class RtmpWriterTests
         int written = RtmpWriter.Write(tc.Context, timestamp, MessageType.UserControl,
             chunkStreamId: 2, streamId: 0, ref payload);
         await tc.Context.RemoteWriter.FlushAsync();
-        tc.Context.RemoteWriter.Complete();
+        await tc.Context.RemoteWriter.CompleteAsync();
 
         var result = await tc.SendPipe.Reader.ReadAsync();
         byte[] bytes = result.Buffer.ToArray();

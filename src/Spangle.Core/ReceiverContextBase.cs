@@ -1,5 +1,4 @@
-﻿using System.Buffers;
-using System.IO.Pipelines;
+﻿using System.IO.Pipelines;
 using System.Net;
 using Cysharp.Text;
 using Microsoft.Extensions.Logging;
@@ -23,7 +22,7 @@ public abstract class ReceiverContextBase<TSelf>(PipeReader reader, PipeWriter w
         {
             if (value == null)
             {
-                throw new ArgumentNullException(nameof(VideoCodec));
+                throw new ArgumentNullException(nameof(value));
             }
             if (_videoCodec == value)
             {
@@ -43,7 +42,7 @@ public abstract class ReceiverContextBase<TSelf>(PipeReader reader, PipeWriter w
         {
             if (value == null)
             {
-                throw new ArgumentNullException(nameof(AudioCodec));
+                throw new ArgumentNullException(nameof(value));
             }
             if (_audioCodec == value)
             {
@@ -83,12 +82,7 @@ public abstract class ReceiverContextBase<TSelf>(PipeReader reader, PipeWriter w
 
     #region Logging support
 
-    protected static readonly ILogger<TSelf> Logger;
-
-    static ReceiverContextBase()
-    {
-        Logger = SpangleLogManager.GetLogger<TSelf>();
-    }
+    protected static readonly ILogger<TSelf> Logger = SpangleLogManager.GetLogger<TSelf>();
 
     #endregion
 }

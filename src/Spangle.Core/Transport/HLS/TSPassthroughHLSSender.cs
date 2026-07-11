@@ -12,7 +12,7 @@ namespace Spangle.Transport.HLS;
 /// packets are re-segmented as-is instead of being demuxed to MediaFrames and muxed
 /// back, which halves the container work on the SRT→TS-HLS path.
 /// </summary>
-public class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
+public sealed class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
 {
     private static readonly ILogger<TSPassthroughHLSSender> s_logger =
         SpangleLogManager.GetLogger<TSPassthroughHLSSender>();
@@ -32,7 +32,7 @@ public class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                var result = await reader.ReadAsync(ct);
+                var result = await reader.ReadAsync(ct).ConfigureAwait(false);
 
                 if (segmenter is null && result.Buffer.Length > 0)
                 {
@@ -112,6 +112,8 @@ public class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
 /// locally-owned continuity counters since we drop and inject table packets.
 /// </para>
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "the MemoryStream is a reusable growable buffer over managed memory; Dispose would release nothing")]
 internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
 {
     private static readonly ILogger<TSPassthroughSegmenter> s_logger =

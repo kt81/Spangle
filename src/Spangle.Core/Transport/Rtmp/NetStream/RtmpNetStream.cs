@@ -32,7 +32,7 @@ internal class RtmpNetStream
             }
 
             // not to reach
-            throw new NullReferenceException("Context class is already finalized.");
+            throw new InvalidOperationException("Context class is already finalized.");
         }
     }
 
@@ -98,7 +98,7 @@ internal class RtmpNetStream
     /// The client sends the publish command to publish a named stream to the server. Using this name,
     /// any client can play this stream and receive the published audio, video, and data messages.
     /// </summary>
-    public async ValueTask OnPublish(
+    public async ValueTask OnPublishAsync(
         double transactionId,
         AmfObject? commandObject,
         string publishingName,
@@ -121,7 +121,7 @@ internal class RtmpNetStream
 
         // publish authorization (and same-name takeover) at the protocol's rejection point
         if (context.PublishGate is { } gate
-            && !await gate.TryOpenAsync(publishingName, context.CancellationToken))
+            && !await gate.TryOpenAsync(publishingName, context.CancellationToken).ConfigureAwait(false))
         {
             _logger.ZLogInformation($"Publish rejected: '{publishingName}'");
             var denied = new OnStatusResult(OnStatusResult.Level.Error, OnStatusResult.Code.PublishBadName,

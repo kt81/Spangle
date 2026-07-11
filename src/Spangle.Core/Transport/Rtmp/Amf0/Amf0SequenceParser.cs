@@ -1,7 +1,6 @@
 ﻿using System.Buffers;
 using System.Runtime.CompilerServices;
 using Spangle.Interop;
-using Spangle.IO;
 
 namespace Spangle.Transport.Rtmp.Amf0;
 
@@ -10,7 +9,8 @@ internal static class Amf0SequenceParser
     /// <summary>
     /// Nesting bound for objects/arrays. AMF0 needs ~4 bytes per nesting level, so an
     /// unauthenticated connect message could otherwise drive the mutual recursion of
-    /// <see cref="Parse"/>/<see cref="ParseObject"/> into a StackOverflowException —
+    /// <see cref="Parse(ref ReadOnlySequence{byte}, int)"/>/<see cref="ParseObject(ref ReadOnlySequence{byte}, int)"/>
+    /// into a StackOverflowException —
     /// which is uncatchable and kills the whole process, not just the session.
     /// </summary>
     private const int MaxDepth = 32;
@@ -41,7 +41,7 @@ internal static class Amf0SequenceParser
             case Amf0TypeMarker.ObjectEnd:
                 return ParseObjectEnd(ref buff);
             default:
-                throw new NotImplementedException($"The parser for {type} is not implemented.");
+                throw new NotSupportedException($"The parser for {type} is not supported.");
         }
     }
 
@@ -93,16 +93,16 @@ internal static class Amf0SequenceParser
 
     public static AmfObject ParseObject(ref ReadOnlySequence<byte> buff) => ParseObject(ref buff, 0);
 
-    private static AmfObject ParseObject(ref ReadOnlySequence<byte> buff, int depth)
+    private static Dictionary<string, object?> ParseObject(ref ReadOnlySequence<byte> buff, int depth)
     {
         EnsureDepth(depth);
         buff = buff.Slice(1);
-        var dic = new Dictionary<string, object?>();
+        var dic = new Dictionary<string, object?>(StringComparer.Ordinal);
         while (!buff.IsEmpty)
         {
             string key = ParseString(ref buff, false);
             object? val = Parse(ref buff, depth + 1);
-            if (key == string.Empty && val is Amf0TypeMarker.ObjectEnd)
+            if (string.IsNullOrEmpty(key) && val is Amf0TypeMarker.ObjectEnd)
             {
                 break;
             }
@@ -137,14 +137,14 @@ internal static class Amf0SequenceParser
 
     public static AmfObject ParseEcmaArray(ref ReadOnlySequence<byte> buff) => ParseEcmaArray(ref buff, 0);
 
-    private static AmfObject ParseEcmaArray(ref ReadOnlySequence<byte> buff, int depth)
+    private static Dictionary<string, object?> ParseEcmaArray(ref ReadOnlySequence<byte> buff, int depth)
     {
         EnsureDepth(depth);
         var s = buff.Slice(1, sizeof(uint));
         buff = buff.Slice(s.End);
         uint count = BufferMarshal.AsRefOrCopy<BigEndianUInt32>(s).HostValue;
 
-        var dic = new Dictionary<string, object?>();
+        var dic = new Dictionary<string, object?>(StringComparer.Ordinal);
         for (uint i = 0; i < count; i++)
         {
             string key = ParseString(ref buff, false);
@@ -158,7 +158,7 @@ internal static class Amf0SequenceParser
 
         // Check count + 1 tokens
         string endKey = ParseString(ref buff, false);
-        if (endKey != string.Empty)
+        if (!string.IsNullOrEmpty(endKey))
         {
             // Broken
             throw new InvalidDataException($"Malformed EcmaArray close-part: {endKey}");

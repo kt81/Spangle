@@ -1,15 +1,13 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
-using Spangle.Spinner;
 using Spangle.Transport.HLS;
 using Spangle.Transport.Rtmp;
-using ValueTaskSupplement;
 using ZLogger;
 
 namespace Spangle.Examples.Console;
 
-public class RtmpToHLS
+internal sealed class RtmpToHLS
 {
     private readonly ILogger<RtmpToHLS> _logger;
 
@@ -19,15 +17,12 @@ public class RtmpToHLS
     }
 
     // Do NOT use this code in production!
-    public async ValueTask Start()
+    public async ValueTask StartAsync()
     {
         var listenEndPoint = new IPEndPoint(IPAddress.Parse("0.0.0.0"), 1935);
         using var listener = new TcpListener(listenEndPoint);
 
-        // TODO to be able to specify the container format (TS or fMP4(CMAF))
-        using HLSSender sender = new HLSSender();
-
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         System.Console.CancelKeyPress += (_, _) =>
         {
             cts.Cancel();
@@ -43,7 +38,10 @@ public class RtmpToHLS
             try
             {
                 var tcpClient = await listener.AcceptTcpClientAsync(ct);
-                _ = Task.Run(() => ProcessConnection(sender, tcpClient, _logger, ct), ct);
+                // ownership of the client transfers to the connection task
+#pragma warning disable CA2025
+                _ = Task.Run(() => ProcessConnectionAsync(tcpClient, _logger, ct), ct);
+#pragma warning restore CA2025
             }
             catch (Exception e)
             {
@@ -52,12 +50,13 @@ public class RtmpToHLS
         }
     }
 
-    private static async Task ProcessConnection(HLSSender sender, TcpClient tcpClient,
-        ILogger logger, CancellationToken ct)
+    private static async Task ProcessConnectionAsync(TcpClient tcpClient, ILogger logger, CancellationToken ct)
     {
         var rtmp = RtmpReceiverContext.CreateFromTcpClient(tcpClient, ct);
         var hls = new HLSSenderContext(ct) { OutputDirectory = "hls-out" };
-        LiveContext live = new LiveContext(rtmp, hls);
+        using var live = new LiveContext(rtmp, hls, cancellationToken: ct);
+        // TODO to be able to specify the container format (TS or fMP4(CMAF))
+        using var sender = new HLSSender();
         var senderTask = Task.Run(async () =>
         {
             try

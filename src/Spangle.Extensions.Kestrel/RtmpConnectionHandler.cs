@@ -54,11 +54,12 @@ public class RtmpConnectionHandler(
         {
             spinners.Add(new Spangle.Spinner.TimedMetadataInjector(receiver, metadataHub, ct));
         }
-        using var live = new LiveContext(receiver, hls, ct, mediaSpinners: spinners,
+        using var live = new LiveContext(receiver, hls, mediaSpinners: spinners,
             publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
             audioOnlyFallback: options.Value.Rtmp.AudioOnlyFallbackMs > 0
                 ? TimeSpan.FromMilliseconds(options.Value.Rtmp.AudioOnlyFallbackMs)
-                : null);
+                : null,
+            cancellationToken: ct);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
             : new HLSSender();
@@ -67,7 +68,7 @@ public class RtmpConnectionHandler(
         {
             try
             {
-                await sender.StartAsync(hls);
+                await sender.StartAsync(hls).ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -78,7 +79,7 @@ public class RtmpConnectionHandler(
         try
         {
             logger.ZLogInformation($"RTMP connection opened: {receiver.ToString()}");
-            await live.StartAsync();
+            await live.StartAsync().ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -97,7 +98,7 @@ public class RtmpConnectionHandler(
         finally
         {
             // The completion propagates receiver -> spinner -> sender; wait for the playlist to be finalized
-            await senderTask;
+            await senderTask.ConfigureAwait(false);
             (sender as IDisposable)?.Dispose();
             logger.ZLogInformation($"RTMP connection closed: {receiver.ToString()}");
         }

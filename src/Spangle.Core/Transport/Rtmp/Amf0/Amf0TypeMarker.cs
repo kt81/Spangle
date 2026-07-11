@@ -3,7 +3,7 @@
 /// <summary>
 /// AMF 0 Data Type Marker Definitions
 /// </summary>
-/// <see cref="http://download.macromedia.com/pub/labs/amf/amf0_spec_121207.pdf"/>
+/// <see href="http://download.macromedia.com/pub/labs/amf/amf0_spec_121207.pdf"/>
 internal enum Amf0TypeMarker : byte
 {
     Number      = 0x00,

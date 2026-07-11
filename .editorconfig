@@ -173,6 +173,68 @@ csharp_space_between_square_brackets = false
 # License header
 # file_header_template =
 
+# ---------------------------------------------------------------------------
+# Analyzer policy (AnalysisLevel latest-all + Meziantou + VSTHRD, warnings are
+# errors). Everything is ON by default; the rules below are the deliberate
+# exceptions, each with its reason. Do not add entries here without one.
+# ---------------------------------------------------------------------------
+
+# Protocol-flow files are numbered after the message types they handle
+# (00_ReadChunkHeader.cs, 08_Audio.cs, ...) and small wire types are colocated
+# with their owner - "read like the spec" beats file-per-type here.
+dotnet_diagnostic.MA0048.severity = none
+
+# Protocol handlers are deliberately linear so they can be read top-to-bottom
+# against the spec; splitting them into fragments would obscure the flow.
+dotnet_diagnostic.MA0051.severity = none
+
+# Nullable reference types are enabled solution-wide; the compiler enforces
+# the null contract, runtime re-validation of every public argument is noise.
+dotnet_diagnostic.CA1062.severity = none
+
+# Wire/context structs expose fields on purpose: LusterBits declares layouts
+# as fields, and the zero-allocation path passes them by ref.
+dotnet_diagnostic.CA1051.severity = none
+
+# Wire-layout structs are memory overlays, never compared for equality;
+# equality members would be dead weight on the hot path.
+dotnet_diagnostic.CA1815.severity = none
+
+# Enums mirror protocol tables verbatim (a guiding constraint of this repo):
+# Reserved entries keep their spec names (CA1700), spec tables contain aliased
+# values (CA1069), the underlying width is protocol-mandated (CA1028), and a
+# fabricated None=0 member would misrepresent the spec (CA1008, MA0099).
+dotnet_diagnostic.CA1700.severity = none
+dotnet_diagnostic.CA1069.severity = none
+dotnet_diagnostic.CA1028.severity = none
+dotnet_diagnostic.CA1008.severity = none
+dotnet_diagnostic.MA0099.severity = none
+
+# Lowercase is the canonical form of config keys, streamids and generated
+# identifiers here; this is formatting, not a security normalization.
+dotnet_diagnostic.CA1308.severity = none
+
+# C# string == is ordinal and compile-time safe; Equals adds nothing.
+dotnet_diagnostic.MA0006.severity = none
+
+# Session/pipeline boundaries catch broadly on purpose: one publisher's
+# failure must never take the server down. Every such site logs.
+dotnet_diagnostic.CA1031.severity = none
+
+# TODO markers are the owner's WIP workflow, tracked in the roadmap.
+dotnet_diagnostic.MA0026.severity = none
+
+# Codec signals are Action<T>-based on purpose: an EventArgs wrapper would
+# allocate per event and add no information.
+dotnet_diagnostic.CA1003.severity = none
+dotnet_diagnostic.MA0046.severity = none
+
+# MediaFrameFlags IS a [Flags] enum; the suffix is correct.
+dotnet_code_quality.ca1711.allowed_suffixes = Flags
+
+# Unused usings fail the build (needs GenerateDocumentationFile, see props).
+dotnet_diagnostic.IDE0005.severity = warning
+
 # C++ Files
 [*.{cpp,h,in}]
 curly_bracket_next_line = true

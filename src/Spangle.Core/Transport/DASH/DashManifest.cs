@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Spangle.Transport.HLS;
 
@@ -66,19 +67,19 @@ internal sealed class DashManifest(IHLSStreamStorage storage)
         if (ended)
         {
             sb.Append(" type=\"static\"");
-            sb.Append($" mediaPresentationDuration=\"{Pt(window[^1].Start + window[^1].Duration)}\"");
+            sb.Append(CultureInfo.InvariantCulture, $" mediaPresentationDuration=\"{Pt(window[^1].Start + window[^1].Duration)}\"");
         }
         else
         {
             sb.Append(" type=\"dynamic\"");
-            sb.Append($" availabilityStartTime=\"{Iso(availabilityStart)}\"");
-            sb.Append($" publishTime=\"{Iso(DateTime.UtcNow)}\"");
-            sb.Append($" minimumUpdatePeriod=\"{Pt(TargetSegmentDuration)}\"");
-            sb.Append($" timeShiftBufferDepth=\"{Pt(windowSeconds)}\"");
-            sb.Append($" suggestedPresentationDelay=\"{Pt(TargetSegmentDuration * 3)}\"");
+            sb.Append(CultureInfo.InvariantCulture, $" availabilityStartTime=\"{Iso(availabilityStart)}\"");
+            sb.Append(CultureInfo.InvariantCulture, $" publishTime=\"{Iso(DateTime.UtcNow)}\"");
+            sb.Append(CultureInfo.InvariantCulture, $" minimumUpdatePeriod=\"{Pt(TargetSegmentDuration)}\"");
+            sb.Append(CultureInfo.InvariantCulture, $" timeShiftBufferDepth=\"{Pt(windowSeconds)}\"");
+            sb.Append(CultureInfo.InvariantCulture, $" suggestedPresentationDelay=\"{Pt(TargetSegmentDuration * 3)}\"");
         }
-        sb.Append($" maxSegmentDuration=\"{Pt(maxSegment)}\"");
-        sb.Append($" minBufferTime=\"{Pt(TargetSegmentDuration)}\">\n");
+        sb.Append(CultureInfo.InvariantCulture, $" maxSegmentDuration=\"{Pt(maxSegment)}\"");
+        sb.Append(CultureInfo.InvariantCulture, $" minBufferTime=\"{Pt(TargetSegmentDuration)}\">\n");
 
         bool lowLatency = PartTargetDuration is not null && !ended;
         if (lowLatency)
@@ -86,9 +87,9 @@ internal sealed class DashManifest(IHLSStreamStorage storage)
             // clients must share the server clock to compute the live edge
             sb.Append("  <UTCTiming schemeIdUri=\"urn:mpeg:dash:utc:http-xsdate:2014\" value=\"/api/time\"/>\n");
             sb.Append("  <ServiceDescription id=\"0\">\n");
-            sb.Append($"    <Latency target=\"{(long)(TargetSegmentDuration * 1500)}\"");
-            sb.Append($" min=\"{(long)(PartTargetDuration!.Value * 2000)}\"");
-            sb.Append($" max=\"{(long)(TargetSegmentDuration * 4000)}\"/>\n");
+            sb.Append(CultureInfo.InvariantCulture, $"    <Latency target=\"{(long)(TargetSegmentDuration * 1500)}\"");
+            sb.Append(CultureInfo.InvariantCulture, $" min=\"{(long)(PartTargetDuration!.Value * 2000)}\"");
+            sb.Append(CultureInfo.InvariantCulture, $" max=\"{(long)(TargetSegmentDuration * 4000)}\"/>\n");
             sb.Append("    <PlaybackRate min=\"0.96\" max=\"1.04\"/>\n");
             sb.Append("  </ServiceDescription>\n");
         }
@@ -98,7 +99,7 @@ internal sealed class DashManifest(IHLSStreamStorage storage)
         var trackId = 1;
         foreach (DashTrack track in Tracks)
         {
-            sb.Append($"    <AdaptationSet mimeType=\"{track.MimeType}\" codecs=\"{track.Codecs}\"");
+            sb.Append(CultureInfo.InvariantCulture, $"    <AdaptationSet mimeType=\"{track.MimeType}\" codecs=\"{track.Codecs}\"");
             sb.Append(" segmentAlignment=\"true\">\n");
 
             if (lowLatency)
@@ -107,31 +108,30 @@ internal sealed class DashManifest(IHLSStreamStorage storage)
                 // the in-progress segment is addressable before it completes. The
                 // offset makes it available one part after its start.
                 double ato = TargetSegmentDuration - PartTargetDuration!.Value;
-                sb.Append($"      <SegmentTemplate timescale=\"1000\" initialization=\"{track.InitName}\"");
-                sb.Append($" media=\"{track.SegmentPrefix}$Number%05d$.m4s\" startNumber=\"0\"");
-                sb.Append($" duration=\"{(long)(TargetSegmentDuration * 1000)}\"");
-                sb.Append(string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                    $" availabilityTimeOffset=\"{ato:0.###}\""));
+                sb.Append(CultureInfo.InvariantCulture, $"      <SegmentTemplate timescale=\"1000\" initialization=\"{track.InitName}\"");
+                sb.Append(CultureInfo.InvariantCulture, $" media=\"{track.SegmentPrefix}$Number%05d$.m4s\" startNumber=\"0\"");
+                sb.Append(CultureInfo.InvariantCulture, $" duration=\"{(long)(TargetSegmentDuration * 1000)}\"");
+                sb.Append(CultureInfo.InvariantCulture, $" availabilityTimeOffset=\"{ato:0.###}\"");
                 sb.Append(" availabilityTimeComplete=\"false\"/>\n");
             }
             else
             {
                 int startNumber = sequence - window.Count;
-                sb.Append($"      <SegmentTemplate timescale=\"1000\" initialization=\"{track.InitName}\"");
-                sb.Append($" media=\"{track.SegmentPrefix}$Number%05d$.m4s\" startNumber=\"{startNumber}\">\n");
+                sb.Append(CultureInfo.InvariantCulture, $"      <SegmentTemplate timescale=\"1000\" initialization=\"{track.InitName}\"");
+                sb.Append(CultureInfo.InvariantCulture, $" media=\"{track.SegmentPrefix}$Number%05d$.m4s\" startNumber=\"{startNumber}\">\n");
                 sb.Append("        <SegmentTimeline>\n");
                 foreach (HLSPlaylist.SegmentEntry entry in window)
                 {
-                    sb.Append($"          <S t=\"{(long)(entry.Start * 1000)}\" d=\"{(long)(entry.Duration * 1000)}\"/>\n");
+                    sb.Append(CultureInfo.InvariantCulture, $"          <S t=\"{(long)(entry.Start * 1000)}\" d=\"{(long)(entry.Duration * 1000)}\"/>\n");
                 }
                 sb.Append("        </SegmentTimeline>\n");
                 sb.Append("      </SegmentTemplate>\n");
             }
 
-            sb.Append($"      <Representation id=\"{trackId++}\" bandwidth=\"{track.Bandwidth}\"");
+            sb.Append(CultureInfo.InvariantCulture, $"      <Representation id=\"{trackId++}\" bandwidth=\"{track.Bandwidth}\"");
             if (track.Width > 0)
             {
-                sb.Append($" width=\"{track.Width}\" height=\"{track.Height}\"");
+                sb.Append(CultureInfo.InvariantCulture, $" width=\"{track.Width}\" height=\"{track.Height}\"");
             }
             sb.Append("/>\n");
             sb.Append("    </AdaptationSet>\n");
@@ -143,8 +143,9 @@ internal sealed class DashManifest(IHLSStreamStorage storage)
         storage.WriteBlob("manifest.mpd", Encoding.UTF8.GetBytes(sb.ToString()));
     }
 
-    private static string Iso(DateTime utc) => utc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+    private static string Iso(DateTime utc) =>
+        utc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
 
     private static string Pt(double seconds) =>
-        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"PT{seconds:0.###}S");
+        string.Create(CultureInfo.InvariantCulture, $"PT{seconds:0.###}S");
 }

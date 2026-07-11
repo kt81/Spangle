@@ -1,8 +1,5 @@
-﻿using System.Diagnostics;
-using Spangle.Spinner;
+﻿using Spangle.Spinner;
 using Spangle.Transport.HLS;
-using Spangle.Transport.Rtmp;
-using Spangle.Transport.SRT;
 
 namespace Spangle;
 
@@ -35,9 +32,9 @@ public sealed class LiveContext : IDisposable
     private readonly TimeSpan? _audioOnlyFallback;
 
     public LiveContext(IReceiverContext receiverContext, ISenderContext senderContext,
-        CancellationToken cancellationToken = default, IReadOnlyList<ISpinner>? mediaSpinners = null,
+        IReadOnlyList<ISpinner>? mediaSpinners = null,
         PublishSessionRegistry? publishSessions = null, IPublishAuthorizer? publishAuthorizer = null,
-        TimeSpan? audioOnlyFallback = null)
+        TimeSpan? audioOnlyFallback = null, CancellationToken cancellationToken = default)
     {
         ReceiverContext = receiverContext;
         SenderContext = senderContext;
@@ -115,7 +112,7 @@ public sealed class LiveContext : IDisposable
     {
         try
         {
-            await Task.Delay(delay, _cancellationToken);
+            await Task.Delay(delay, _cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -187,7 +184,7 @@ public sealed class LiveContext : IDisposable
             return spinner.Intake;
         }
 
-        throw new NotImplementedException(
+        throw new NotSupportedException(
             $"No terminal stage is available for {ReceiverContext.GetType().Name} -> {SenderContext.GetType().Name}");
     }
 
@@ -226,7 +223,7 @@ public sealed class LiveContext : IDisposable
 
         try
         {
-            await ReceiverContext.BeginReceiveAsync(readTimeoutSource);
+            await ReceiverContext.BeginReceiveAsync(readTimeoutSource).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -244,47 +241,35 @@ public sealed class LiveContext : IDisposable
             // Signal downstream (spinner -> sender) that no more media will come
             if (ReceiverContext.MediaOutlet is not null)
             {
-                await ReceiverContext.MediaOutlet.CompleteAsync();
+                await ReceiverContext.MediaOutlet.CompleteAsync().ConfigureAwait(false);
             }
             else
             {
                 // Never wired (e.g. a denied publish): the sender is still waiting on
                 // its intake and the host awaits the sender, so complete it directly
-                await SenderContext.Intake.CompleteAsync();
+                await SenderContext.Intake.CompleteAsync().ConfigureAwait(false);
             }
 
-            contextCancellationRegistration.Dispose();
-            lifetimeCancellationRegistration.Dispose();
+            await contextCancellationRegistration.DisposeAsync().ConfigureAwait(false);
+            await lifetimeCancellationRegistration.DisposeAsync().ConfigureAwait(false);
             // No Cancel() here: the spinner chain must be left running to drain the
             // frames the receiver already emitted, or the tail of the stream is lost.
             // The CTS is disposed with the context, after the host awaited the sender.
         }
     }
 
-    private void Dispose(bool disposing)
+    public void Dispose()
     {
         if (_disposed)
         {
             return;
         }
-        if (disposing)
-        {
-            _lifetimeCancellationTokenSource.Cancel();
-            _lifetimeCancellationTokenSource.Dispose();
-            _readTimeoutSource?.Dispose();
-            // the hosts dispose after the sender finished, so the successor session
-            // (waiting in its gate) only proceeds once any handover state is stashed
-            _publishGate?.Release();
-        }
-
+        _lifetimeCancellationTokenSource.Cancel();
+        _lifetimeCancellationTokenSource.Dispose();
+        _readTimeoutSource?.Dispose();
+        // the hosts dispose after the sender finished, so the successor session
+        // (waiting in its gate) only proceeds once any handover state is stashed
+        _publishGate?.Release();
         _disposed = true;
     }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    ~LiveContext() => Dispose(false);
 }

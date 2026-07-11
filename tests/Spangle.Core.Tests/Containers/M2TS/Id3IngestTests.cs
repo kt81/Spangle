@@ -2,7 +2,6 @@ using System.Buffers;
 using System.IO.Pipelines;
 using System.Net;
 using System.Runtime.InteropServices;
-using System.Text;
 using Spangle.Codecs.Id3;
 using Spangle.Containers.M2TS;
 using Spangle.Spinner;

@@ -94,7 +94,7 @@ internal abstract class NetConnectionHandler
         s_logger.ZLogTrace($"Send _result ({transactionId}, {streamName}, {nameof(OnReleaseStream)})");
         context.PreparingStreamName = streamName;
         var result = new CommonCommand { CommandName = "_result", TransactionId = transactionId, Properties = null, };
-        context.ReleaseStream(streamName);
+        RtmpReceiverContext.ReleaseStream(streamName);
         RtmpWriter.Write(context, 0, MessageType.CommandAmf0,
             Protocol.ControlChunkStreamId, Protocol.ControlStreamId, result);
     }

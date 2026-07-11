@@ -78,6 +78,11 @@ Roadmap
 - [x] In-memory HLS output (`IHLSStorage`): the live window is served straight from
       process memory by default — nothing touches disk, works on read-only
       filesystems; `Hls.Storage: File` keeps the output on disk as an archive
+- [x] Analyzers at full power: `AnalysisLevel: latest-all` + Meziantou +
+      VS Threading analyzers, code style enforced in build, and warnings are
+      errors (CI builds Release, so the gate holds there too). The deliberate
+      exceptions live in `.editorconfig`, each with a written reason —
+      spec-mirroring enums, numbered protocol-flow files, wire-struct fields
 
 ### Mid term — features
 
@@ -116,14 +121,18 @@ Roadmap
       (`/api/time`). Memory storage backend by design (a future DVR serves from
       memory while archiving to files; file-only low latency is out of spec).
       Requires a steady keyframe interval from the encoder
-- [ ] RTSP pull ingest (IP cameras): explicit numbered control flow like the RTMP
-      receiver, with vendor dialects as a delegate table; TCP-interleaved first
-- [ ] MoQ (Media over QUIC) ingest/egress: draft target and interop peer to be
-      pinned at kickoff; raw QUIC first, WebTransport for browsers after
+- [ ] Web console (multi-server control, monitoring, settings) — next up,
+      to solidify the product's operational foundation
+
+### Backlog — decided, parked until kickoff
+
+- RTSP pull ingest (IP cameras): explicit numbered control flow like the RTMP
+  receiver, with vendor dialects as a delegate table; TCP-interleaved first
+- MoQ (Media over QUIC) ingest/egress: draft target and interop peer to be
+  pinned at kickoff; raw QUIC first, WebTransport for browsers after
 
 ### Long term — goals of effort
 
-- Web console (multi-server control, monitoring, settings)
 - Failover with very little gap
 - DRM / transcoder integration (undecided)
 

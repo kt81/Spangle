@@ -94,6 +94,7 @@ internal static class OpusPacket
         return head;
     }
 
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Auto)]
     public readonly record struct OpusHeadInfo(
         byte ChannelCount,
         ushort PreSkip,

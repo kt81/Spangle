@@ -1,9 +1,12 @@
+using System.Runtime.InteropServices;
+
 namespace Spangle.Codecs.AAC;
 
 /// <summary>
 /// AudioSpecificConfig (ISO/IEC 14496-3 1.6.2.1), the 2+ byte AAC configuration
 /// carried in FLV AAC sequence headers and in the mp4a esds box.
 /// </summary>
+[StructLayout(LayoutKind.Auto)]
 internal readonly struct AudioSpecificConfig
 {
     public required byte AudioObjectType { get; init; }

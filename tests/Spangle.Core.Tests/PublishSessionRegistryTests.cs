@@ -54,7 +54,8 @@ public class PublishSessionRegistryTests
         var registry = new PublishSessionRegistry();
         var authorizer = new DefaultPublishAuthorizer();
 
-        var gateA = new PublishGate(registry, authorizer, "TEST", "A", s_ep, kick: () => throw new Exception("must not be kicked"));
+        var gateA = new PublishGate(registry, authorizer, "TEST", "A", s_ep,
+            kick: () => throw new InvalidOperationException("must not be kicked"));
         var gateB = new PublishGate(registry, authorizer, "TEST", "B", s_ep, kick: () => { });
 
         (await gateA.TryOpenAsync("live/a", CancellationToken.None)).Should().BeTrue();

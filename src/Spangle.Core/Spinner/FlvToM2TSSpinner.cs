@@ -46,12 +46,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
     private readonly ArrayBufferWriter<byte> _esBuffer = new(4096);
     private readonly M2TSWriter _tsWriter = new();
 
-    private static readonly ILogger<FlvToM2TSSpinner> s_logger;
-
-    static FlvToM2TSSpinner()
-    {
-        s_logger = SpangleLogManager.GetLogger<FlvToM2TSSpinner>();
-    }
+    private static readonly ILogger<FlvToM2TSSpinner> s_logger = SpangleLogManager.GetLogger<FlvToM2TSSpinner>();
 
     public override async ValueTask SpinAsync()
     {
@@ -59,7 +54,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
         {
             while (!CancellationToken.IsCancellationRequested)
             {
-                var result = await IntakeReader.ReadAtLeastAsync(MediaFrameHeader.Size, CancellationToken);
+                var result = await IntakeReader.ReadAtLeastAsync(MediaFrameHeader.Size, CancellationToken).ConfigureAwait(false);
                 if (result.Buffer.Length < MediaFrameHeader.Size)
                 {
                     break; // intake completed
@@ -73,7 +68,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
                     continue;
                 }
 
-                result = await IntakeReader.ReadAtLeastAsync(header.Length, CancellationToken);
+                result = await IntakeReader.ReadAtLeastAsync(header.Length, CancellationToken).ConfigureAwait(false);
                 if (result.Buffer.Length < header.Length)
                 {
                     break; // intake completed halfway; drop the partial frame
@@ -96,7 +91,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
                 }
 
                 IntakeReader.AdvanceTo(payload.End);
-                await Outlet.FlushAsync(CancellationToken);
+                await Outlet.FlushAsync(CancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -105,8 +100,8 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
         }
         finally
         {
-            await IntakeReader.CompleteAsync();
-            await Outlet.CompleteAsync();
+            await IntakeReader.CompleteAsync().ConfigureAwait(false);
+            await Outlet.CompleteAsync().ConfigureAwait(false);
         }
     }
 
