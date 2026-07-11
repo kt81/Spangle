@@ -8,28 +8,31 @@ namespace Spangle.Tests.Transport.DASH;
 public class DashManifestTests
 {
     [Fact]
-    public void DynamicMpdCarriesTheSegmentTimeline()
+    public void DynamicMpdCarriesPerTrackAdaptationSets()
     {
         var storage = new MemoryHLSStorage().GetStream("test");
-        var dash = new DashManifest(storage, "init.mp4")
+        var dash = new DashManifest(storage) { TargetSegmentDuration = 2.0 };
+        dash.Tracks.Add(new DashTrack
         {
-            VideoCodecString = "avc1.64001F",
-            AudioCodecString = "mp4a.40.2",
-            Width = 640,
-            Height = 360,
-            TargetSegmentDuration = 2.0,
-        };
-        var playlist = new HLSPlaylist(storage, "init.mp4", dash: dash);
+            MimeType = "video/mp4", Codecs = "avc1.64001F", InitName = "init_v.mp4",
+            SegmentPrefix = "segV", Width = 640, Height = 360,
+        });
+        dash.Tracks.Add(new DashTrack
+        {
+            MimeType = "audio/mp4", Codecs = "mp4a.40.2", InitName = "init_a.mp4", SegmentPrefix = "segA",
+        });
+        var playlist = new HLSPlaylist(storage, "init_v.mp4", dash: dash) { SegmentNamePrefix = "segV" };
 
         playlist.AddSegment(playlist.NextSegmentName(".m4s"), 2.0);
         playlist.AddSegment(playlist.NextSegmentName(".m4s"), 2.5);
 
         string mpd = ReadMpd(storage);
         mpd.Should().Contain("type=\"dynamic\"");
-        mpd.Should().Contain("codecs=\"avc1.64001F,mp4a.40.2\"");
-        mpd.Should().Contain("mimeType=\"video/mp4\"");
-        mpd.Should().Contain("initialization=\"init.mp4\"");
-        mpd.Should().Contain("media=\"seg$Number%05d$.m4s\" startNumber=\"0\"");
+        mpd.Should().Contain("mimeType=\"video/mp4\" codecs=\"avc1.64001F\"");
+        mpd.Should().Contain("mimeType=\"audio/mp4\" codecs=\"mp4a.40.2\"");
+        mpd.Should().Contain("initialization=\"init_v.mp4\"").And.Contain("initialization=\"init_a.mp4\"");
+        mpd.Should().Contain("media=\"segV$Number%05d$.m4s\" startNumber=\"0\"");
+        mpd.Should().Contain("media=\"segA$Number%05d$.m4s\" startNumber=\"0\"");
         mpd.Should().Contain("<S t=\"0\" d=\"2000\"/>");
         mpd.Should().Contain("<S t=\"2000\" d=\"2500\"/>", "starts accumulate through the timeline");
         mpd.Should().Contain("maxSegmentDuration=\"PT2.5S\"");
@@ -40,8 +43,12 @@ public class DashManifestTests
     public void EndedStreamsBecomeStatic()
     {
         var storage = new MemoryHLSStorage().GetStream("test");
-        var dash = new DashManifest(storage, "init.mp4");
-        var playlist = new HLSPlaylist(storage, "init.mp4", dash: dash);
+        var dash = new DashManifest(storage);
+        dash.Tracks.Add(new DashTrack
+        {
+            MimeType = "video/mp4", Codecs = "avc1.64001F", InitName = "init_v.mp4", SegmentPrefix = "segV",
+        });
+        var playlist = new HLSPlaylist(storage, "init_v.mp4", dash: dash) { SegmentNamePrefix = "segV" };
 
         playlist.AddSegment(playlist.NextSegmentName(".m4s"), 2.0);
         playlist.Complete();
@@ -56,13 +63,20 @@ public class DashManifestTests
     public void TakeoverKeepsTheTimelineAndTheClockAnchor()
     {
         var storage = new MemoryHLSStorage().GetStream("test");
-        var dash = new DashManifest(storage, "init.mp4");
-        var first = new HLSPlaylist(storage, "init.mp4", dash: dash);
+        var dash = new DashManifest(storage);
+        dash.Tracks.Add(new DashTrack
+        {
+            MimeType = "video/mp4", Codecs = "avc1.64001F", InitName = "init_v.mp4", SegmentPrefix = "segV",
+        });
+        var first = new HLSPlaylist(storage, "init_v.mp4", dash: dash) { SegmentNamePrefix = "segV" };
         first.AddSegment(first.NextSegmentName(".m4s"), 2.0);
         string astBefore = ExtractAst(ReadMpd(storage));
 
         HLSPlaylistHandover handover = first.ExportHandover();
-        var second = new HLSPlaylist(storage, "init.mp4", resume: handover, dash: dash);
+        var second = new HLSPlaylist(storage, "init_v.mp4", resume: handover, dash: dash)
+        {
+            SegmentNamePrefix = "segV",
+        };
         second.AddSegment(second.NextSegmentName(".m4s"), 2.0);
 
         string mpd = ReadMpd(storage);

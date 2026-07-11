@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Spangle.Codecs.AAC;
 using Spangle.Codecs.Opus;
@@ -6,6 +7,7 @@ using Spangle.Containers.ISOBMFF;
 using Spangle.Interop;
 using Spangle.Logging;
 using Spangle.Spinner;
+using Spangle.Transport.DASH;
 using ZLogger;
 
 namespace Spangle.Transport.HLS;
@@ -67,17 +69,25 @@ public class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
         }
         finally
         {
-            if (context.EndBehavior == HLSEndBehavior.Handover && context.Registry is { } registry
-                && builder.ExportHandover() is { } handover)
+            if (context.EndBehavior == HLSEndBehavior.Handover && context.Registry is { } registry)
             {
-                // taken over: leave the playlist live for the successor session
-                registry.StashHandover(context.ResolveStreamKey(), handover);
+                // taken over: leave the playlists live for the successor session
+                foreach ((string key, HLSPlaylistHandover handover) in builder.ExportHandovers())
+                {
+                    registry.StashHandover(key, handover);
+                }
                 s_logger.ZLogInformation($"HLS(CMAF) stream handed over");
             }
             else
             {
                 builder.Complete();
-                context.Registry?.Remove(context.ResolveStreamKey());
+                if (context.Registry is { } reg)
+                {
+                    foreach (string key in builder.RegistryKeys)
+                    {
+                        reg.Remove(key);
+                    }
+                }
                 s_logger.ZLogInformation($"HLS(CMAF) stream completed");
             }
             await reader.CompleteAsync();
@@ -87,9 +97,11 @@ public class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
 
 /// <summary>
 /// Buffers media frames per fragment, cuts at keyframes once the target duration is
-/// reached, and writes init.mp4 / .m4s segments plus the playlist.
+/// reached, and writes demuxed per-track outputs: init_v.mp4 / init_a.mp4, aligned
+/// segV%05d / segA%05d segment sequences, media playlists (video.m3u8 / audio.m3u8),
+/// a multivariant playlist.m3u8, and one MPD over the same segments.
 /// In low-latency mode each segment is built from smaller partial fragments
-/// (LL-HLS parts); the segment file is the concatenation of its parts.
+/// (LL-HLS parts) which also grow the in-progress segment blob (LL-DASH).
 /// <para>
 /// Sample bytes are accumulated in reused buffers (one per track) with small metadata
 /// records, so steady-state operation performs no per-frame allocations.
@@ -103,12 +115,22 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
     private readonly double? _partTarget = context.LowLatency ? context.PartTargetDuration : null;
 
+    private sealed class TrackOutput
+    {
+        public required CmafPackager Packager { get; init; }
+        public required HLSPlaylist Playlist { get; init; }
+        public required DashTrack Dash { get; init; }
+        public required string RegistryKey { get; init; }
+        public readonly MemoryStream SegmentStream = new();
+        public bool Appended; // the LL live blob got this segment's fragments
+    }
+
     private IHLSStreamStorage? _storage;
     private ILiveBlobStreamStorage? _liveBlobs;
-    private bool _currentSegmentAppended;
-    private HLSPlaylist? _playlist;
-    private CmafPackager? _packager;
-    private Transport.DASH.DashManifest? _dash;
+    private TrackOutput? _videoOut;
+    private TrackOutput? _audioOut;
+    private DashManifest? _dash;
+    private bool _initialized;
 
     // Track configuration (arrives as Config frames before coded frames)
     private VideoCodec? _videoCodec;
@@ -126,9 +148,6 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     private readonly List<AudioSampleMeta> _audioMeta = new();
     private uint _firstAudioTsMs;
     private uint _lastAudioTsMs;
-
-    // The current segment accumulates here (one fragment per part); reused across segments
-    private readonly MemoryStream _segmentStream = new();
 
     private bool _hasSegmentStart;
     private uint _segmentStartMs;
@@ -154,6 +173,21 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
     // Timed-metadata events awaiting the next fragment (rare; one alloc per event)
     private readonly List<CmafEvent> _pendingEvents = new();
+
+    public IEnumerable<string> RegistryKeys
+    {
+        get
+        {
+            if (_videoOut is not null)
+            {
+                yield return _videoOut.RegistryKey;
+            }
+            if (_audioOut is not null)
+            {
+                yield return _audioOut.RegistryKey;
+            }
+        }
+    }
 
     public void ProcessFrame(in MediaFrameHeader header, ReadOnlySequence<byte> payload)
     {
@@ -321,9 +355,10 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     }
 
     /// <summary>
-    /// Builds one CMAF fragment (moof+mdat) from the buffered samples, ending at
-    /// <paramref name="endTsMs"/>, and appends it to the current segment.
-    /// In LL mode the fragment is also published as an EXT-X-PART.
+    /// Builds one CMAF fragment per track (moof+mdat) from the buffered samples,
+    /// ending at <paramref name="endTsMs"/>, and appends them to the current
+    /// segments. In LL mode each fragment is also published as an EXT-X-PART and
+    /// grows the in-progress segment blob (LL-DASH chunked delivery).
     /// </summary>
     private void FlushPart(uint endTsMs)
     {
@@ -334,69 +369,54 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
         EnsureInitialized();
 
-        var videoBuffer = _videoData.WrittenMemory;
-        var video = new CmafSample[_videoMeta.Count];
-        for (var i = 0; i < _videoMeta.Count; i++)
+        if (_videoOut is not null)
         {
-            VideoSampleMeta meta = _videoMeta[i];
-            uint nextDtsMs = i + 1 < _videoMeta.Count ? _videoMeta[i + 1].DtsMs : endTsMs;
-            uint durationMs = nextDtsMs > meta.DtsMs ? nextDtsMs - meta.DtsMs : _lastVideoDurationMs;
-            _lastVideoDurationMs = durationMs;
-            video[i] = new CmafSample
+            var videoBuffer = _videoData.WrittenMemory;
+            var video = new CmafSample[_videoMeta.Count];
+            for (var i = 0; i < _videoMeta.Count; i++)
             {
-                Data = videoBuffer.Slice(meta.Offset, meta.Length),
-                Duration = durationMs * 90,
-                CompositionOffset = meta.CtsMs * 90,
-                IsSync = meta.Sync,
-            };
-        }
-
-        var audioBuffer = _audioData.WrittenMemory;
-        var audio = new CmafSample[_audioMeta.Count];
-        for (var i = 0; i < _audioMeta.Count; i++)
-        {
-            AudioSampleMeta meta = _audioMeta[i];
-            audio[i] = new CmafSample
-            {
-                Data = audioBuffer.Slice(meta.Offset, meta.Length),
-                Duration = meta.Duration,
-                CompositionOffset = 0,
-                IsSync = true,
-            };
-        }
-        ulong audioBaseTime = _audioMeta.Count > 0
-            ? (ulong)_firstAudioTsMs * _audioSampleRate / 1000
-            : 0;
-
-        long fragmentStart = _segmentStream.Length;
-        CmafEvent[]? events = null;
-        if (_pendingEvents.Count > 0)
-        {
-            events = _pendingEvents.ToArray();
-            _pendingEvents.Clear();
-        }
-        _packager!.BuildFragment(_partStartMs * 90ul, video, audioBaseTime, audio, _segmentStream, events);
-
-        if (_partTarget is not null)
-        {
-            ReadOnlySpan<byte> fragment =
-                _segmentStream.GetBuffer().AsSpan((int)fragmentStart, (int)(_segmentStream.Length - fragmentStart));
-
-            // LL-DASH: the fragment also grows the in-progress segment blob, which
-            // the HTTP layer serves over chunked transfer before it completes
-            if (_liveBlobs is not null)
-            {
-                _liveBlobs.AppendBlob(_playlist!.NextSegmentName(".m4s"), fragment);
-                _currentSegmentAppended = true;
+                VideoSampleMeta meta = _videoMeta[i];
+                uint nextDtsMs = i + 1 < _videoMeta.Count ? _videoMeta[i + 1].DtsMs : endTsMs;
+                uint durationMs = nextDtsMs > meta.DtsMs ? nextDtsMs - meta.DtsMs : _lastVideoDurationMs;
+                _lastVideoDurationMs = durationMs;
+                video[i] = new CmafSample
+                {
+                    Data = videoBuffer.Slice(meta.Offset, meta.Length),
+                    Duration = durationMs * 90,
+                    CompositionOffset = meta.CtsMs * 90,
+                    IsSync = meta.Sync,
+                };
             }
 
-            // audio-only parts are always independent (every AAC frame is a sync point)
-            bool independent = _videoConfig is null
-                ? _audioMeta.Count > 0
-                : _videoMeta.Count > 0 && _videoMeta[0].Sync;
-            string partName = _playlist!.NextPartName();
-            _storage!.WriteBlob(partName, fragment);
-            _playlist.AddPart(partName, (endTsMs - _partStartMs) / 1000.0, independent);
+            // timed metadata rides on the video track's fragments (players read
+            // emsg regardless of which SourceBuffer carried it)
+            CmafEvent[]? events = TakePendingEvents();
+            bool independent = _videoMeta.Count > 0 && _videoMeta[0].Sync;
+            EmitFragment(_videoOut, _partStartMs * 90ul, video, isAudio: false, events, endTsMs, independent);
+        }
+
+        if (_audioOut is not null)
+        {
+            var audioBuffer = _audioData.WrittenMemory;
+            var audio = new CmafSample[_audioMeta.Count];
+            for (var i = 0; i < _audioMeta.Count; i++)
+            {
+                AudioSampleMeta meta = _audioMeta[i];
+                audio[i] = new CmafSample
+                {
+                    Data = audioBuffer.Slice(meta.Offset, meta.Length),
+                    Duration = meta.Duration,
+                    CompositionOffset = 0,
+                    IsSync = true,
+                };
+            }
+            ulong audioBaseTime = _audioMeta.Count > 0
+                ? (ulong)_firstAudioTsMs * _audioSampleRate / 1000
+                : 0;
+
+            CmafEvent[]? events = _videoOut is null ? TakePendingEvents() : null;
+            EmitFragment(_audioOut, audioBaseTime, audio, isAudio: true, events, endTsMs,
+                independent: _audioMeta.Count > 0);
         }
 
         _videoData.ResetWrittenCount();
@@ -406,41 +426,104 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         _partStartMs = endTsMs;
     }
 
-    /// <summary>Completes the current segment (= all its fragments) ending at <paramref name="endTsMs"/></summary>
+    private CmafEvent[]? TakePendingEvents()
+    {
+        if (_pendingEvents.Count == 0)
+        {
+            return null;
+        }
+        CmafEvent[] events = _pendingEvents.ToArray();
+        _pendingEvents.Clear();
+        return events;
+    }
+
+    private void EmitFragment(TrackOutput track, ulong baseTime, CmafSample[] samples, bool isAudio,
+        CmafEvent[]? events, uint endTsMs, bool independent)
+    {
+        long fragmentStart = track.SegmentStream.Length;
+        if (isAudio)
+        {
+            track.Packager.BuildFragment(0, [], baseTime, samples, track.SegmentStream, events);
+        }
+        else
+        {
+            track.Packager.BuildFragment(baseTime, samples, 0, [], track.SegmentStream, events);
+        }
+
+        if (_partTarget is not null)
+        {
+            ReadOnlySpan<byte> fragment = track.SegmentStream.GetBuffer()
+                .AsSpan((int)fragmentStart, (int)(track.SegmentStream.Length - fragmentStart));
+
+            // LL-DASH: the fragment also grows the in-progress segment blob, which
+            // the HTTP layer serves over chunked transfer before it completes
+            if (_liveBlobs is not null)
+            {
+                _liveBlobs.AppendBlob(track.Playlist.NextSegmentName(".m4s"), fragment);
+                track.Appended = true;
+            }
+
+            string partName = track.Playlist.NextPartName();
+            _storage!.WriteBlob(partName, fragment);
+            track.Playlist.AddPart(partName, (endTsMs - _partStartMs) / 1000.0, independent);
+        }
+    }
+
+    /// <summary>Completes the current segments (= all their fragments) ending at <paramref name="endTsMs"/></summary>
     private void FinalizeSegment(uint endTsMs)
     {
         FlushPart(endTsMs);
-        if (_segmentStream.Length == 0)
+
+        double duration = (endTsMs - _segmentStartMs) / 1000.0;
+        FinalizeTrack(_audioOut, duration, endTsMs);
+        // the driving playlist publishes last so the MPD sees both tracks' segments
+        FinalizeTrack(_videoOut, duration, endTsMs);
+        _segmentStartMs = endTsMs;
+    }
+
+    private void FinalizeTrack(TrackOutput? track, double duration, uint endTsMs)
+    {
+        if (track is null || track.SegmentStream.Length == 0)
         {
             return;
         }
 
-        string name = _playlist!.NextSegmentName(".m4s");
-        if (_currentSegmentAppended)
+        string name = track.Playlist.NextSegmentName(".m4s");
+        if (track.Appended)
         {
             // the fragments were already appended part by part; seal the blob
             _liveBlobs!.CompleteBlob(name);
-            _currentSegmentAppended = false;
+            track.Appended = false;
         }
         else
         {
-            _storage!.WriteBlob(name, _segmentStream.GetBuffer().AsSpan(0, (int)_segmentStream.Length));
+            _storage!.WriteBlob(name, track.SegmentStream.GetBuffer().AsSpan(0, (int)track.SegmentStream.Length));
         }
-        _dash?.UpdateBandwidth(_segmentStream.Length, (endTsMs - _segmentStartMs) / 1000.0);
-        _playlist.AddSegment(name, (endTsMs - _segmentStartMs) / 1000.0);
+        if (duration > 0.1)
+        {
+            track.Dash.Bandwidth = (long)(track.SegmentStream.Length * 8 / duration);
+        }
+        track.Playlist.AddSegment(name, duration);
+        track.SegmentStream.SetLength(0);
 
-        _segmentStream.SetLength(0);
-        _segmentStartMs = endTsMs;
+        if (track == _videoOut || _videoOut is null)
+        {
+            PublishMultivariant();
+        }
     }
 
     private void EnsureInitialized()
     {
-        if (_packager is not null)
+        if (_initialized)
         {
             return;
         }
+        _initialized = true;
 
         _storage = context.ResolveStreamStorage();
+        // LL-DASH needs blobs readable while they grow; only the memory backend
+        // provides that (by design — file-only low latency is out of spec)
+        _liveBlobs = _partTarget is not null ? _storage as ILiveBlobStreamStorage : null;
 
         // MSE rejects a 0x0 coded size, so when the source provided no dimension
         // metadata, read them from the parameter sets inside the config record
@@ -463,82 +546,171 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             }
         }
 
-        CmafVideoTrack? videoTrack = _videoConfig is not null
-            ? new CmafVideoTrack
+        string streamKey = context.ResolveStreamKey();
+        _dash = new DashManifest(_storage)
+        {
+            PartTargetDuration = _liveBlobs is not null ? _partTarget : null,
+            TargetSegmentDuration = context.TargetSegmentDuration,
+        };
+
+        if (_videoConfig is not null)
+        {
+            var videoTrack = new CmafVideoTrack
             {
                 Codec = _videoCodec!.Value,
                 ConfigRecord = _videoConfig,
                 Width = width,
                 Height = height,
-            }
-            : null;
-        CmafAudioTrack? audioTrack = _audioConfig is not null
-            ? new CmafAudioTrack
+            };
+            var packager = new CmafPackager(videoTrack, audio: null);
+            _storage.WriteBlob("init_v.mp4", packager.BuildInitSegment());
+            var dashTrack = new DashTrack
+            {
+                MimeType = "video/mp4",
+                Codecs = _videoCodec switch
+                {
+                    VideoCodec.H264 => CodecStrings.FromAvcC(_videoConfig),
+                    VideoCodec.H265 => CodecStrings.FromHvcC(_videoConfig),
+                    VideoCodec.AV1 => CodecStrings.FromAv1C(_videoConfig),
+                    _ => "unknown",
+                },
+                InitName = "init_v.mp4",
+                SegmentPrefix = "segV",
+                Width = width,
+                Height = height,
+            };
+            _dash.Tracks.Add(dashTrack);
+            _videoOut = CreateTrackOutput(streamKey, "video.m3u8", "segV", "init_v.mp4", packager, dashTrack,
+                attachDash: true);
+        }
+
+        if (_audioConfig is not null)
+        {
+            var audioTrack = new CmafAudioTrack
             {
                 Codec = _audioCodec!.Value,
                 Config = _audioConfig,
                 SampleRate = _audioSampleRate,
                 ChannelCount = _audioChannels,
-            }
-            : null;
+            };
+            var packager = new CmafPackager(video: null, audioTrack);
+            _storage.WriteBlob("init_a.mp4", packager.BuildInitSegment());
+            var dashTrack = new DashTrack
+            {
+                MimeType = "audio/mp4",
+                Codecs = CodecStrings.FromAudio(_audioCodec!.Value, _audioConfig) ?? "unknown",
+                InitName = "init_a.mp4",
+                SegmentPrefix = "segA",
+            };
+            _dash.Tracks.Add(dashTrack);
+            _audioOut = CreateTrackOutput(streamKey, "audio.m3u8", "segA", "init_a.mp4", packager, dashTrack,
+                attachDash: _videoConfig is null);
+        }
 
-        _packager = new CmafPackager(videoTrack, audioTrack);
-        _storage.WriteBlob("init.mp4", _packager.BuildInitSegment());
+        PublishMultivariant();
+        s_logger.ZLogInformation(
+            $"HLS(CMAF) output for {streamKey} to {context.StorageDescription} (video={(_videoOut is null ? "none" : _videoCodec!.Value.ToString())}, audio={(_audioOut is null ? "none" : _audioCodec!.Value.ToString())}, lowLatency={_partTarget is not null})");
+    }
 
+    private TrackOutput CreateTrackOutput(string streamKey, string playlistName, string segmentPrefix,
+        string initName, CmafPackager packager, DashTrack dashTrack, bool attachDash)
+    {
+        string registryKey = $"{streamKey}/{playlistName}";
         Action<string, string?, long, int>? onUpdated = null;
         if (context.Registry is { } registry)
         {
-            var live = registry.GetOrAdd(context.ResolveStreamKey());
+            var live = registry.GetOrAdd(registryKey);
             onUpdated = live.Publish;
         }
-        // LL-DASH needs blobs readable while they grow; only the memory backend
-        // provides that (by design — file-only low latency is out of spec)
-        _liveBlobs = _partTarget is not null ? _storage as ILiveBlobStreamStorage : null;
-
-        // DASH rides on the same CMAF segments: one more manifest, zero more media
-        _dash = new Transport.DASH.DashManifest(_storage, "init.mp4")
+        HLSPlaylistHandover? resume = context.Registry?.TakeHandover(registryKey);
+        var playlist = new HLSPlaylist(_storage!, initName, _partTarget, onUpdated, resume,
+            context.PlaylistWindow, attachDash ? _dash : null)
         {
-            PartTargetDuration = _liveBlobs is not null ? _partTarget : null,
-            VideoCodecString = videoTrack is null
-                ? null
-                : _videoCodec switch
-                {
-                    VideoCodec.H264 => CodecStrings.FromAvcC(_videoConfig),
-                    VideoCodec.H265 => CodecStrings.FromHvcC(_videoConfig),
-                    VideoCodec.AV1 => CodecStrings.FromAv1C(_videoConfig),
-                    _ => null,
-                },
-            AudioCodecString = audioTrack is null
-                ? null
-                : CodecStrings.FromAudio(_audioCodec!.Value, _audioConfig),
-            Width = width,
-            Height = height,
-            TargetSegmentDuration = context.TargetSegmentDuration,
+            SegmentNamePrefix = segmentPrefix,
+            PlaylistName = playlistName,
         };
-
-        HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
-        _playlist = new HLSPlaylist(_storage, "init.mp4", _partTarget, onUpdated, resume,
-            context.PlaylistWindow, _dash);
-        s_logger.ZLogInformation(
-            $"HLS(CMAF) output for {context.ResolveStreamKey()} to {context.StorageDescription} (video={(videoTrack is null ? "none" : _videoCodec!.Value.ToString())}, audio={(audioTrack is null ? "none" : _audioCodec!.Value.ToString())}, lowLatency={_partTarget is not null})");
-    }
-
-    /// <summary>Flushes the remaining samples and finalizes the playlist</summary>
-    public void Complete()
-    {
-        FlushRemainder();
-        _playlist?.Complete();
+        return new TrackOutput
+        {
+            Packager = packager,
+            Playlist = playlist,
+            Dash = dashTrack,
+            RegistryKey = registryKey,
+        };
     }
 
     /// <summary>
-    /// Flushes the remaining samples and exports the live playlist state for a
-    /// successor session (takeover): no EXT-X-ENDLIST is written. Null when no
-    /// output was produced yet.
+    /// The multivariant playlist: one variant referencing the video media playlist
+    /// with the audio rendition group, or the audio playlist directly when no video
+    /// exists. Re-published per segment so BANDWIDTH tracks the measured rate.
     /// </summary>
-    public HLSPlaylistHandover? ExportHandover()
+    private void PublishMultivariant()
+    {
+        if (_storage is null)
+        {
+            return;
+        }
+
+        var sb = new StringBuilder(256);
+        sb.Append("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-INDEPENDENT-SEGMENTS\n");
+        if (_videoOut is not null)
+        {
+            if (_audioOut is not null)
+            {
+                sb.Append("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"Audio\",DEFAULT=YES,");
+                sb.Append("AUTOSELECT=YES,URI=\"audio.m3u8\"\n");
+            }
+            long bandwidth = _videoOut.Dash.Bandwidth + (_audioOut?.Dash.Bandwidth ?? 0);
+            sb.Append($"#EXT-X-STREAM-INF:BANDWIDTH={bandwidth},CODECS=\"{_videoOut.Dash.Codecs}");
+            if (_audioOut is not null)
+            {
+                sb.Append($",{_audioOut.Dash.Codecs}");
+            }
+            sb.Append('"');
+            if (_videoOut.Dash.Width > 0)
+            {
+                sb.Append($",RESOLUTION={_videoOut.Dash.Width}x{_videoOut.Dash.Height}");
+            }
+            if (_audioOut is not null)
+            {
+                sb.Append(",AUDIO=\"audio\"");
+            }
+            sb.Append("\nvideo.m3u8\n");
+        }
+        else if (_audioOut is not null)
+        {
+            sb.Append($"#EXT-X-STREAM-INF:BANDWIDTH={_audioOut.Dash.Bandwidth},CODECS=\"{_audioOut.Dash.Codecs}\"\n");
+            sb.Append("audio.m3u8\n");
+        }
+
+        _storage.PublishPlaylist(sb.ToString());
+    }
+
+    /// <summary>Flushes the remaining samples and finalizes the playlists</summary>
+    public void Complete()
     {
         FlushRemainder();
-        return _playlist?.ExportHandover();
+        _videoOut?.Playlist.Complete();
+        _audioOut?.Playlist.Complete();
+    }
+
+    /// <summary>
+    /// Flushes the remaining samples and exports the live playlist states for a
+    /// successor session (takeover): no EXT-X-ENDLIST is written. Empty when no
+    /// output was produced yet.
+    /// </summary>
+    public IReadOnlyList<(string RegistryKey, HLSPlaylistHandover Handover)> ExportHandovers()
+    {
+        FlushRemainder();
+        var handovers = new List<(string, HLSPlaylistHandover)>(2);
+        if (_videoOut is not null)
+        {
+            handovers.Add((_videoOut.RegistryKey, _videoOut.Playlist.ExportHandover()));
+        }
+        if (_audioOut is not null)
+        {
+            handovers.Add((_audioOut.RegistryKey, _audioOut.Playlist.ExportHandover()));
+        }
+        return handovers;
     }
 
     private void FlushRemainder()
@@ -551,7 +723,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         {
             FinalizeSegment(_lastAudioTsMs + _audioMeta[^1].Duration * 1000 / _audioSampleRate);
         }
-        else if (_segmentStream.Length > 0)
+        else if ((_videoOut?.SegmentStream.Length ?? 0) > 0 || (_audioOut?.SegmentStream.Length ?? 0) > 0)
         {
             FinalizeSegment(_partStartMs);
         }

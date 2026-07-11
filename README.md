@@ -105,8 +105,10 @@ Roadmap
       `/hls/{stream}/manifest.mpd`, test player at `/dash.html?s={stream}`.
       Note: ffmpeg's dash demuxer cannot read muxed representations (its own
       limitation); real MSE players (dash.js) play it — verified live
-- [ ] Demuxed CMAF tracks (separate video/audio AdaptationSets and HLS renditions);
-      the shared foundation for clean DASH, ABR ladders and MoQ tracks
+- [x] Demuxed CMAF tracks: per-track init/segments (init_v/init_a, segV/segA),
+      HLS multivariant (`playlist.m3u8` → `video.m3u8` + `audio.m3u8` via
+      EXT-X-MEDIA) and per-track DASH AdaptationSets — ffmpeg now plays the MPD
+      too. The shared foundation for ABR ladders and MoQ tracks
 - [x] LL-DASH: with `Hls.LowLatency`, the in-progress segment grows part by part in
       memory and is served over chunked transfer (measured: first byte in ~5ms,
       response streams until the segment completes); the MPD switches to

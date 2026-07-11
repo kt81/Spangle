@@ -83,13 +83,22 @@ internal sealed class HLSPlaylist
     /// <summary>The media sequence number of the segment currently being produced</summary>
     public long CurrentMsn => _sequence;
 
+    /// <summary>
+    /// Base name of the segment files ("seg" → seg00000.ts); per-track outputs use
+    /// distinct prefixes (segV/segA) so they can share one storage namespace.
+    /// </summary>
+    public string SegmentNamePrefix { get; init; } = "seg";
+
+    /// <summary>The playlist's own file name in storage.</summary>
+    public string PlaylistName { get; init; } = "playlist.m3u8";
+
     /// <summary>The file name the next segment should be written as</summary>
-    public string NextSegmentName(string extension) => $"seg{_sequence:D5}{extension}";
+    public string NextSegmentName(string extension) => $"{SegmentNamePrefix}{_sequence:D5}{extension}";
 
     /// <summary>The file name the next partial segment should be written as</summary>
     public string NextPartName() => PartName(_currentParts.Count);
 
-    private string PartName(int index) => $"seg{_sequence:D5}.p{index:D2}.m4s";
+    private string PartName(int index) => $"{SegmentNamePrefix}{_sequence:D5}.p{index:D2}.m4s";
 
     /// <summary>Registers a written partial segment and republishes the playlist</summary>
     public void AddPart(string name, double duration, bool independent)
@@ -149,7 +158,16 @@ internal sealed class HLSPlaylist
 
         var text = Render(ended, skipCount: 0);
         string? delta = RenderDelta(ended);
-        _storage.PublishPlaylist(text);
+        if (PlaylistName == "playlist.m3u8")
+        {
+            // the primary playlist keeps the storage fast path
+            _storage.PublishPlaylist(text);
+        }
+        else
+        {
+            // per-track media playlists (video.m3u8 / audio.m3u8) live as blobs
+            _storage.WriteBlob(PlaylistName, Encoding.UTF8.GetBytes(text));
+        }
         _onUpdated?.Invoke(text, delta, CurrentMsn, _currentParts.Count - 1);
 
         if (_dash is not null && _window.Count > 0 && _availabilityStart is { } ast)

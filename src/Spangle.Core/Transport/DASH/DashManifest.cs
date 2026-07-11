@@ -3,22 +3,38 @@ using Spangle.Transport.HLS;
 
 namespace Spangle.Transport.DASH;
 
+/// <summary>One AdaptationSet of the MPD: a demuxed CMAF track sequence.</summary>
+internal sealed class DashTrack
+{
+    /// <summary>"video/mp4" or "audio/mp4"</summary>
+    public required string MimeType { get; init; }
+
+    /// <summary>RFC 6381 codec string</summary>
+    public required string Codecs { get; init; }
+
+    /// <summary>Init segment blob name (init_v.mp4 / init_a.mp4)</summary>
+    public required string InitName { get; init; }
+
+    /// <summary>Segment name prefix (segV / segA), matching the HLS media playlist</summary>
+    public required string SegmentPrefix { get; init; }
+
+    public uint Width { get; init; }
+    public uint Height { get; init; }
+
+    /// <summary>Measured output rate; refreshed per segment</summary>
+    public long Bandwidth { get; set; } = 1_000_000;
+}
+
 /// <summary>
-/// Renders a live-profile MPD over the CMAF output the HLS side already produces —
-/// the segments are shared byte for byte, so DASH costs one more manifest.
-/// SegmentTimeline (timescale 1000) carries the variable segment durations; the
-/// media template matches the existing seg%05d naming. Published as a
+/// Renders a live-profile MPD over the demuxed CMAF tracks the HLS side already
+/// produces — the segments are shared byte for byte, so DASH costs one more
+/// manifest. The tracks are segment-aligned by construction (one cut drives all),
+/// so a single timeline serves every AdaptationSet. Published as a
 /// <c>manifest.mpd</c> blob on every playlist update.
 /// </summary>
-internal sealed class DashManifest(IHLSStreamStorage storage, string initName)
+internal sealed class DashManifest(IHLSStreamStorage storage)
 {
-    /// <summary>RFC 6381 codec strings; null when the track does not exist</summary>
-    public string? VideoCodecString { get; set; }
-
-    public string? AudioCodecString { get; set; }
-
-    public uint Width { get; set; }
-    public uint Height { get; set; }
+    public List<DashTrack> Tracks { get; } = new();
 
     public double TargetSegmentDuration { get; set; } = 2.0;
 
@@ -30,21 +46,16 @@ internal sealed class DashManifest(IHLSStreamStorage storage, string initName)
     /// </summary>
     public double? PartTargetDuration { get; set; }
 
-    private long _bandwidth = 1_000_000;
     private readonly StringBuilder _sb = new(2048);
-
-    /// <summary>Feeds the measured output rate into the Representation@bandwidth attribute.</summary>
-    public void UpdateBandwidth(long segmentBytes, double segmentSeconds)
-    {
-        if (segmentSeconds > 0.1)
-        {
-            _bandwidth = (long)(segmentBytes * 8 / segmentSeconds);
-        }
-    }
 
     public void Publish(IReadOnlyList<HLSPlaylist.SegmentEntry> window, int sequence, bool ended,
         DateTime availabilityStart)
     {
+        if (Tracks.Count == 0)
+        {
+            return;
+        }
+
         StringBuilder sb = _sb.Clear();
         double windowSeconds = window.Sum(static w => w.Duration);
         double maxSegment = window.Max(static w => w.Duration);
@@ -84,47 +95,48 @@ internal sealed class DashManifest(IHLSStreamStorage storage, string initName)
 
         sb.Append("  <Period id=\"0\" start=\"PT0S\">\n");
 
-        // The output is muxed CMAF: one AdaptationSet carries every track
-        string mimeType = VideoCodecString is not null ? "video/mp4" : "audio/mp4";
-        string codecs = string.Join(',',
-            new[] { VideoCodecString, AudioCodecString }.Where(static c => c is not null));
-        sb.Append($"    <AdaptationSet mimeType=\"{mimeType}\" codecs=\"{codecs}\" segmentAlignment=\"true\">\n");
+        var trackId = 1;
+        foreach (DashTrack track in Tracks)
+        {
+            sb.Append($"    <AdaptationSet mimeType=\"{track.MimeType}\" codecs=\"{track.Codecs}\"");
+            sb.Append(" segmentAlignment=\"true\">\n");
 
-        if (lowLatency)
-        {
-            // Fixed-duration arithmetic: number 0 covers media time [0, d), so the
-            // in-progress segment is addressable before it completes. The offset
-            // makes it available one part after its start.
-            double ato = TargetSegmentDuration - PartTargetDuration!.Value;
-            sb.Append($"      <SegmentTemplate timescale=\"1000\" initialization=\"{initName}\"");
-            sb.Append($" media=\"seg$Number%05d$.m4s\" startNumber=\"0\"");
-            sb.Append($" duration=\"{(long)(TargetSegmentDuration * 1000)}\"");
-            sb.Append(string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                $" availabilityTimeOffset=\"{ato:0.###}\""));
-            sb.Append(" availabilityTimeComplete=\"false\"/>\n");
-        }
-        else
-        {
-            int startNumber = sequence - window.Count;
-            sb.Append($"      <SegmentTemplate timescale=\"1000\" initialization=\"{initName}\"");
-            sb.Append($" media=\"seg$Number%05d$.m4s\" startNumber=\"{startNumber}\">\n");
-            sb.Append("        <SegmentTimeline>\n");
-            foreach (HLSPlaylist.SegmentEntry entry in window)
+            if (lowLatency)
             {
-                sb.Append($"          <S t=\"{(long)(entry.Start * 1000)}\" d=\"{(long)(entry.Duration * 1000)}\"/>\n");
+                // Fixed-duration arithmetic: number 0 covers media time [0, d), so
+                // the in-progress segment is addressable before it completes. The
+                // offset makes it available one part after its start.
+                double ato = TargetSegmentDuration - PartTargetDuration!.Value;
+                sb.Append($"      <SegmentTemplate timescale=\"1000\" initialization=\"{track.InitName}\"");
+                sb.Append($" media=\"{track.SegmentPrefix}$Number%05d$.m4s\" startNumber=\"0\"");
+                sb.Append($" duration=\"{(long)(TargetSegmentDuration * 1000)}\"");
+                sb.Append(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $" availabilityTimeOffset=\"{ato:0.###}\""));
+                sb.Append(" availabilityTimeComplete=\"false\"/>\n");
             }
-            sb.Append("        </SegmentTimeline>\n");
-            sb.Append("      </SegmentTemplate>\n");
+            else
+            {
+                int startNumber = sequence - window.Count;
+                sb.Append($"      <SegmentTemplate timescale=\"1000\" initialization=\"{track.InitName}\"");
+                sb.Append($" media=\"{track.SegmentPrefix}$Number%05d$.m4s\" startNumber=\"{startNumber}\">\n");
+                sb.Append("        <SegmentTimeline>\n");
+                foreach (HLSPlaylist.SegmentEntry entry in window)
+                {
+                    sb.Append($"          <S t=\"{(long)(entry.Start * 1000)}\" d=\"{(long)(entry.Duration * 1000)}\"/>\n");
+                }
+                sb.Append("        </SegmentTimeline>\n");
+                sb.Append("      </SegmentTemplate>\n");
+            }
+
+            sb.Append($"      <Representation id=\"{trackId++}\" bandwidth=\"{track.Bandwidth}\"");
+            if (track.Width > 0)
+            {
+                sb.Append($" width=\"{track.Width}\" height=\"{track.Height}\"");
+            }
+            sb.Append("/>\n");
+            sb.Append("    </AdaptationSet>\n");
         }
 
-        sb.Append($"      <Representation id=\"1\" bandwidth=\"{_bandwidth}\"");
-        if (VideoCodecString is not null && Width > 0)
-        {
-            sb.Append($" width=\"{Width}\" height=\"{Height}\"");
-        }
-        sb.Append("/>\n");
-
-        sb.Append("    </AdaptationSet>\n");
         sb.Append("  </Period>\n");
         sb.Append("</MPD>\n");
 

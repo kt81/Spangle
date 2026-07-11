@@ -43,13 +43,19 @@ public class LiveBlobTests
     public void LowLatencyMpdUsesFixedDurationArithmetic()
     {
         var storage = new MemoryHLSStorage().GetStream("test");
-        var dash = new DashManifest(storage, "init.mp4")
+        var dash = new DashManifest(storage)
         {
-            VideoCodecString = "avc1.64001F",
             TargetSegmentDuration = 2.0,
             PartTargetDuration = 0.5,
         };
-        var playlist = new HLSPlaylist(storage, "init.mp4", partTargetDuration: 0.5, dash: dash);
+        dash.Tracks.Add(new DashTrack
+        {
+            MimeType = "video/mp4", Codecs = "avc1.64001F", InitName = "init_v.mp4", SegmentPrefix = "segV",
+        });
+        var playlist = new HLSPlaylist(storage, "init_v.mp4", partTargetDuration: 0.5, dash: dash)
+        {
+            SegmentNamePrefix = "segV",
+        };
         playlist.AddSegment(playlist.NextSegmentName(".m4s"), 2.0);
 
         storage.TryReadBlob("manifest.mpd", out ReadOnlyMemory<byte> blob).Should().BeTrue();

@@ -25,10 +25,14 @@ app.Use(async (ctx, next) =>
     PathString path = ctx.Request.Path;
     if (path.Value is { } p
         && p.StartsWith(hlsPathPrefix, StringComparison.OrdinalIgnoreCase)
-        && p.EndsWith("/playlist.m3u8", StringComparison.OrdinalIgnoreCase))
+        && p.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase))
     {
-        string streamKey = p[hlsPathPrefix.Length..^"/playlist.m3u8".Length];
-        if (!streamKey.Contains('/') && registry.TryGet(streamKey, out var live))
+        // registry entries are keyed {stream}/{playlist}: demuxed CMAF sessions
+        // publish several live playlists per stream (video.m3u8 / audio.m3u8)
+        string rest = p[hlsPathPrefix.Length..];
+        int slashAt = rest.IndexOf('/');
+        string registryKey = rest;
+        if (slashAt > 0 && rest.IndexOf('/', slashAt + 1) < 0 && registry.TryGet(registryKey, out var live))
         {
             // _HLS_skip=YES|v2 requests a playlist delta update (EXT-X-SKIP)
             string? skipValue = ctx.Request.Query["_HLS_skip"];
@@ -153,6 +157,7 @@ else
                         ".m4s" => "video/iso.segment",
                         ".mp4" => "video/mp4",
                         ".mpd" => "application/dash+xml",
+                        ".m3u8" => "application/vnd.apple.mpegurl",
                         _ => "application/octet-stream",
                     };
 
@@ -172,7 +177,7 @@ else
                     if (stream.TryReadBlob(name, out ReadOnlyMemory<byte> blob))
                     {
                         ctx.Response.ContentType = contentType;
-                        if (extension == ".mpd")
+                        if (extension is ".mpd" or ".m3u8")
                         {
                             ctx.Response.Headers.CacheControl = "no-cache, no-store";
                         }
