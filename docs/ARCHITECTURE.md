@@ -54,8 +54,10 @@ blocking reload.
     API: the spinner observes every frame anyway, so it knows both the current
     timestamp and the stream key it registers under.
 - **Sender** (`ISender`): delivers to viewers. `HLSSender` cuts the TS stream into segments
-  and maintains a playlist; `CmafHLSSender` muxes MediaFrames itself. HTTP delivery is
-  plain static file serving plus the in-memory playlist endpoint.
+  and maintains a playlist; `CmafHLSSender` muxes MediaFrames itself into demuxed
+  per-track CMAF (init_v/init_a, aligned segV/segA sequences) with an HLS multivariant
+  playlist, per-track media playlists, and one DASH MPD over the same segments.
+  HTTP delivery serves from the storage backend plus the in-memory playlist endpoint.
 - **`LiveContext`** wires receiver → [media spinners…] → terminal once the leading codec
   is known: normally the video codec (`VideoCodecSet`), the audio codec when the source
   declared itself audio-only (TS PMT), or — for protocols that cannot declare it, like

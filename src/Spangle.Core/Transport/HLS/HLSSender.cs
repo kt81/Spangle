@@ -33,7 +33,9 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
                 if (segmenter is null && result.Buffer.Length > 0)
                 {
                     // Media is flowing, so the stream name is known by now
-                    string key = context.ResolveStreamKey();
+                    // registry entries are keyed {stream}/{playlist} now that CMAF
+                    // sessions publish several playlists per stream
+                    string key = context.ResolveStreamKey() + "/playlist.m3u8";
                     HLSPlaylistHandover? resume = context.Registry?.TakeHandover(key);
                     Action<string, string?, long, int>? onUpdated =
                         context.Registry is { } registry ? registry.GetOrAdd(key).Publish : null;
@@ -64,7 +66,7 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
                 if (context.EndBehavior == HLSEndBehavior.Handover && context.Registry is { } registry)
                 {
                     // taken over: leave the playlist live for the successor session
-                    registry.StashHandover(context.ResolveStreamKey(), segmenter.ExportHandover());
+                    registry.StashHandover(context.ResolveStreamKey() + "/playlist.m3u8", segmenter.ExportHandover());
                     s_logger.ZLogInformation($"HLS stream handed over");
                 }
                 else
@@ -72,7 +74,7 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
                     segmenter.Complete();
                     // the ended playlist is served from storage; keeping the live entry
                     // would leak one registry slot per unique stream key
-                    context.Registry?.Remove(context.ResolveStreamKey());
+                    context.Registry?.Remove(context.ResolveStreamKey() + "/playlist.m3u8");
                     s_logger.ZLogInformation($"HLS stream completed");
                 }
             }

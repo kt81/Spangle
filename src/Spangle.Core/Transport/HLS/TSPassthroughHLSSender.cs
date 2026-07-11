@@ -36,7 +36,7 @@ public class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
 
                 if (segmenter is null && result.Buffer.Length > 0)
                 {
-                    string key = context.ResolveStreamKey();
+                    string key = context.ResolveStreamKey() + "/playlist.m3u8";
                     HLSPlaylistHandover? resume = context.Registry?.TakeHandover(key);
                     Action<string, string?, long, int>? onUpdated =
                         context.Registry is { } registry ? registry.GetOrAdd(key).Publish : null;
@@ -66,13 +66,13 @@ public class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
             {
                 if (context.EndBehavior == HLSEndBehavior.Handover && context.Registry is { } registry)
                 {
-                    registry.StashHandover(context.ResolveStreamKey(), segmenter.ExportHandover());
+                    registry.StashHandover(context.ResolveStreamKey() + "/playlist.m3u8", segmenter.ExportHandover());
                     s_logger.ZLogInformation($"HLS(TS passthrough) stream handed over");
                 }
                 else
                 {
                     segmenter.Complete();
-                    context.Registry?.Remove(context.ResolveStreamKey());
+                    context.Registry?.Remove(context.ResolveStreamKey() + "/playlist.m3u8");
                     s_logger.ZLogInformation($"HLS(TS passthrough) stream completed");
                 }
             }
