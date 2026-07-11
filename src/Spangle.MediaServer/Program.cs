@@ -116,8 +116,27 @@ app.MapGet("/api/time", () =>
     Results.Text(DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
         "text/plain"));
 
+// Web console (Blazor WASM) under /console, reachable only via the management port
+if (options.Management.Enabled)
+{
+    int managementPort = options.Management.Port;
+    app.Use(async (ctx, next) =>
+    {
+        if (ctx.Connection.LocalPort != managementPort
+            && ctx.Request.Path.StartsWithSegments("/console", StringComparison.OrdinalIgnoreCase))
+        {
+            // the SPA and its framework files must not leak onto the delivery port
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+        await next().ConfigureAwait(false);
+    });
+    app.UseBlazorFrameworkFiles("/console");
+    app.MapFallbackToFile("/console/{*path:nonfile}", "console/index.html");
+}
+
 app.UseDefaultFiles();
-app.UseStaticFiles(); // wwwroot (test player)
+app.UseStaticFiles(); // wwwroot (test player) + the console's static web assets
 
 if (storage is FileHLSStorage)
 {

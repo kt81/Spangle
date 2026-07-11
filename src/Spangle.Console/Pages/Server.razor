@@ -1,0 +1,84 @@
+@page "/server"
+@implements IDisposable
+@inject ConsoleApiClient Api
+
+<PageTitle>Server - Spangle Console</PageTitle>
+
+<h1>Server</h1>
+
+@if (_info is null)
+{
+    <p class="muted">Loading…</p>
+}
+else
+{
+    <div class="cards">
+        <div class="card">
+            <div class="card-title">Build</div>
+            <div class="card-value">@_info.Version.Split('+')[0]</div>
+            <div class="muted small">@_info.Runtime</div>
+            <div class="muted small">@_info.Os</div>
+        </div>
+        <div class="card">
+            <div class="card-title">Uptime</div>
+            <div class="card-value">@Fmt.Uptime(_info.UptimeSeconds)</div>
+            <div class="muted small">since @_info.StartedAt.ToLocalTime().ToString("u")</div>
+        </div>
+        <div class="card">
+            <div class="card-title">Memory</div>
+            <div class="card-value">@Fmt.Bytes(_info.WorkingSetBytes)</div>
+            <div class="muted small">GC heap @Fmt.Bytes(_info.GcHeapBytes)</div>
+        </div>
+    </div>
+
+    <h2>Configuration</h2>
+    <table class="grid kv">
+        <tbody>
+        <tr><td>RTMP ingest</td><td>@(_info.RtmpEnabled ? $"port {_info.RtmpPort}" : "disabled")</td></tr>
+        <tr><td>SRT ingest</td><td>@(_info.SrtEnabled ? $"port {_info.SrtPort}" : "disabled")</td></tr>
+        <tr><td>HTTP delivery</td><td>port @_info.HttpPort</td></tr>
+        <tr><td>Segment format</td><td>@_info.SegmentFormat</td></tr>
+        <tr><td>Storage</td><td>@_info.Storage</td></tr>
+        <tr><td>Low latency</td><td>@(_info.LowLatency ? "on" : "off")</td></tr>
+        <tr><td>TS passthrough</td><td>@(_info.TsPassthrough ? "on" : "off")</td></tr>
+        </tbody>
+    </table>
+}
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+    private ServerInfo? _info;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _info = await Api.GetServerAsync(_cts.Token);
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        while (true)
+        {
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(_cts.Token))
+                {
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            _info = await Api.GetServerAsync(_cts.Token) ?? _info;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

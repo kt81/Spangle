@@ -1,0 +1,129 @@
+@page "/logs"
+@implements IDisposable
+@inject ConsoleApiClient Api
+
+<PageTitle>Logs - Spangle Console</PageTitle>
+
+<h1>Logs <span class="live-dot @(_connected ? "on" : "off")"></span></h1>
+
+<div class="log-toolbar">
+    <select @bind="_minLevel">
+        <option value="0">Trace+</option>
+        <option value="1">Debug+</option>
+        <option value="2" selected>Info+</option>
+        <option value="3">Warning+</option>
+        <option value="4">Error+</option>
+    </select>
+    <input class="filter" placeholder="filter category…" @bind="_categoryFilter" @bind:event="oninput"/>
+    <input class="filter wide" placeholder="search message…" @bind="_searchFilter" @bind:event="oninput"/>
+    <button class="btn" @onclick="() => _paused = !_paused">@(_paused ? "▶ Resume" : "⏸ Pause")</button>
+    <button class="btn" @onclick="Clear">Clear</button>
+    <span class="muted">@Filtered.Count / @_entries.Count</span>
+</div>
+
+<div class="log-list">
+    @* newest first: the live tail is always at the top, no scroll chasing *@
+    <Virtualize Items="Filtered" ItemSize="22" Context="entry">
+        <div class="log-row @Fmt.LevelClass(entry.Level)" @key="entry">
+            <span class="log-ts">@Fmt.Time(entry.Timestamp)</span>
+            <span class="log-level">@Fmt.LevelName(entry.Level)</span>
+            <span class="log-cat" title="@entry.Category">@ShortCategory(entry.Category)</span>
+            <span class="log-msg">@entry.Message</span>
+        </div>
+        @if (entry.Exception is not null && _expanded.Contains(entry))
+        {
+            <pre class="log-exception">@entry.Exception</pre>
+        }
+        else if (entry.Exception is not null)
+        {
+            <button class="btn tiny" @onclick="() => _expanded.Add(entry)">exception…</button>
+        }
+    </Virtualize>
+</div>
+
+@code {
+    private const int MaxEntries = 5000;
+
+    private readonly CancellationTokenSource _cts = new();
+    private readonly List<LogRecord> _entries = []; // newest first
+    private readonly HashSet<LogRecord> _expanded = [];
+    private bool _connected;
+    private bool _paused;
+    private int _minLevel = 2;
+    private string _categoryFilter = "";
+    private string _searchFilter = "";
+
+    private List<LogRecord> Filtered =>
+        _entries.Where(e => e.Level >= _minLevel
+                            && (_categoryFilter.Length == 0
+                                || e.Category.Contains(_categoryFilter, StringComparison.OrdinalIgnoreCase))
+                            && (_searchFilter.Length == 0
+                                || e.Message.Contains(_searchFilter, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        IReadOnlyList<LogRecord>? snapshot = await Api.GetLogsAsync(500, _cts.Token);
+        if (snapshot is not null)
+        {
+            _entries.AddRange(snapshot.Reverse());
+        }
+        _ = FollowAsync();
+    }
+
+    private async Task FollowAsync()
+    {
+        while (!_cts.IsCancellationRequested)
+        {
+            try
+            {
+                await foreach (LogRecord entry in Api.SubscribeAsync<LogRecord>("api/manage/logs/live", _cts.Token))
+                {
+                    _connected = true;
+                    if (_paused)
+                    {
+                        continue;
+                    }
+                    _entries.Insert(0, entry);
+                    if (_entries.Count > MaxEntries)
+                    {
+                        _entries.RemoveAt(_entries.Count - 1);
+                    }
+                    StateHasChanged();
+                }
+            }
+            catch (Exception)
+            {
+                // reconnect below
+            }
+            _connected = false;
+            StateHasChanged();
+            try
+            {
+                await Task.Delay(2000, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private void Clear()
+    {
+        _entries.Clear();
+        _expanded.Clear();
+    }
+
+    private static string ShortCategory(string category)
+    {
+        int lastDot = category.LastIndexOf('.');
+        return lastDot >= 0 ? category[(lastDot + 1)..] : category;
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

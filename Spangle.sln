@@ -35,6 +35,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "benchmarks", "benchmarks", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.Core.Benchmarks", "benchmarks\Spangle.Core.Benchmarks\Spangle.Core.Benchmarks.csproj", "{91ED5611-8DA4-49D4-8866-0935B2A497FB}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spangle.Console", "src\Spangle.Console\Spangle.Console.csproj", "{3AFB181F-C48D-472C-A0F6-E6506733BBD4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -153,6 +155,18 @@ Global
 		{91ED5611-8DA4-49D4-8866-0935B2A497FB}.Release|x64.Build.0 = Release|Any CPU
 		{91ED5611-8DA4-49D4-8866-0935B2A497FB}.Release|x86.ActiveCfg = Release|Any CPU
 		{91ED5611-8DA4-49D4-8866-0935B2A497FB}.Release|x86.Build.0 = Release|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Debug|x64.Build.0 = Debug|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Debug|x86.Build.0 = Debug|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Release|x64.ActiveCfg = Release|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Release|x64.Build.0 = Release|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Release|x86.ActiveCfg = Release|Any CPU
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -167,5 +181,6 @@ Global
 		{6B9D28EC-F84F-4ADE-BB02-029C57E35289} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
 		{3A5964BE-5537-4057-AFC7-E8B8C845F9B8} = {094F95A7-D650-4408-8B17-081DEBBD5D5D}
 		{91ED5611-8DA4-49D4-8866-0935B2A497FB} = {66320409-64EC-F7C5-3DEF-65E7510DAAD1}
+		{3AFB181F-C48D-472C-A0F6-E6506733BBD4} = {76E37C85-31FB-4126-B65D-4272EF409FFC}
 	EndGlobalSection
 EndGlobal
