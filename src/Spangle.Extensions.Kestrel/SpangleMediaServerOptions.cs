@@ -54,6 +54,13 @@ public class HlsOptions : MediaProtocolOptions
     /// <summary>Enables LL-HLS partial segments and blocking playlist reload (fMP4 only)</summary>
     public bool LowLatency { get; set; }
 
+    /// <summary>
+    /// Re-segments SRT-ingested TS packets as-is for TS output (half the container
+    /// work, byte-faithful to the source). Disable to force the demux+remux path,
+    /// e.g. when MediaFrame spinner plugins must run on SRT sessions.
+    /// </summary>
+    public bool TsPassthrough { get; set; } = true;
+
     /// <summary>Target duration of LL-HLS partial segments in seconds</summary>
     [Range(0.1, 5.0)] public double PartTargetDuration { get; set; } = 0.5;
 }

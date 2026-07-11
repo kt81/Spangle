@@ -13,9 +13,9 @@ internal interface IM2TSDemuxerSink
 {
     /// <summary>
     /// Called when the PMT is parsed for the first time or changes.
-    /// Stream types are raw ISO 13818-1 values (0 = the track is absent).
+    /// Stream types are raw ISO 13818-1 values (0 = the track is absent, with PID 0).
     /// </summary>
-    void OnProgramMapped(byte videoStreamType, byte audioStreamType);
+    void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid);
 
     /// <summary>One complete PES payload (one video access unit, or one or more ADTS frames).</summary>
     void OnPes(byte streamType, ulong? pts90k, ulong? dts90k, ReadOnlySpan<byte> es);
@@ -30,8 +30,17 @@ internal sealed class M2TSDemuxer
 {
     private static readonly ILogger<M2TSDemuxer> s_logger = SpangleLogManager.GetLogger<M2TSDemuxer>();
 
+    /// <summary>
+    /// Parses only PAT/PMT and skips all elementary-stream work. Used by the TS
+    /// passthrough path, which needs the program layout but forwards the packets as-is.
+    /// </summary>
+    public bool PsiOnly { get; init; }
+
     private ushort _pmtPid;
     private int    _pmtVersion = -1;
+
+    /// <summary>The PMT PID once the PAT is parsed; 0 until then.</summary>
+    public ushort PmtPid => _pmtPid;
 
     private sealed class TrackState
     {
@@ -92,7 +101,7 @@ internal sealed class M2TSDemuxer
             return;
         }
 
-        if (_tracks.TryGetValue(pid, out TrackState? track))
+        if (!PsiOnly && _tracks.TryGetValue(pid, out TrackState? track))
         {
             ProcessEsPacket(track, payload, pusi, header.ContinuityCounter, sink);
         }
@@ -281,6 +290,8 @@ internal sealed class M2TSDemuxer
 
         byte videoStreamType = 0;
         byte audioStreamType = 0;
+        ushort videoPid = 0;
+        ushort audioPid = 0;
         var newTracks = new Dictionary<ushort, TrackState>();
         while (pos + 5 <= end)
         {
@@ -294,11 +305,13 @@ internal sealed class M2TSDemuxer
                 case M2TSStreamType.H264 when videoStreamType == 0:
                 case M2TSStreamType.H265 when videoStreamType == 0:
                     videoStreamType = streamType;
+                    videoPid = esPid;
                     newTracks[esPid] = _tracks.TryGetValue(esPid, out var vt) ? vt : new TrackState();
                     newTracks[esPid].StreamType = streamType;
                     break;
                 case M2TSStreamType.AdtsAac when audioStreamType == 0:
                     audioStreamType = streamType;
+                    audioPid = esPid;
                     newTracks[esPid] = _tracks.TryGetValue(esPid, out var at) ? at : new TrackState();
                     newTracks[esPid].StreamType = streamType;
                     break;
@@ -316,7 +329,7 @@ internal sealed class M2TSDemuxer
         }
 
         s_logger.ZLogDebug($"PMT mapped: video=0x{videoStreamType:X2} audio=0x{audioStreamType:X2}");
-        sink.OnProgramMapped(videoStreamType, audioStreamType);
+        sink.OnProgramMapped(videoStreamType, videoPid, audioStreamType, audioPid);
     }
 
     // =======================================================================
