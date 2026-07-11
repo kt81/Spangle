@@ -70,6 +70,9 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
                 else
                 {
                     segmenter.Complete();
+                    // the ended playlist is served from storage; keeping the live entry
+                    // would leak one registry slot per unique stream key
+                    context.Registry?.Remove(context.ResolveStreamKey());
                     s_logger.ZLogInformation($"HLS stream completed");
                 }
             }

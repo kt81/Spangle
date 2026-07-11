@@ -95,8 +95,22 @@ public class H265IngestTests
 
     // =======================================================================
 
+    [Fact]
+    public void ConformanceWindowCropsTheDimensions()
+    {
+        // 1920x1088 coded size with a bottom crop of 4 (in 4:2:0 units of 2) = 1080 display
+        byte[] sps = BuildTestSps(width: 1920, height: 1088, levelIdc: 123, cropBottom: 4);
+
+        HvcCBuilder.Build(s_vps, sps, s_pps, out HvcCBuilder.SpsSummary summary);
+
+        summary.Width.Should().Be(1920u);
+        summary.Height.Should().Be(1080u, "the conformance window crops the padded coded size");
+    }
+
+    // =======================================================================
+
     /// <summary>Composes a minimal, spec-valid HEVC SPS (Main profile, 4:2:0, 8-bit).</summary>
-    private static byte[] BuildTestSps(uint width, uint height, byte levelIdc)
+    private static byte[] BuildTestSps(uint width, uint height, byte levelIdc, uint cropBottom = 0)
     {
         var w = new BitWriter();
         w.WriteBits(0, 4);  // sps_video_parameter_set_id
@@ -114,7 +128,18 @@ public class H265IngestTests
         w.WriteUe(1);       // chroma_format_idc = 4:2:0
         w.WriteUe(width);   // pic_width_in_luma_samples
         w.WriteUe(height);  // pic_height_in_luma_samples
-        w.WriteBits(0, 1);  // conformance_window_flag
+        if (cropBottom > 0)
+        {
+            w.WriteBits(1, 1); // conformance_window_flag
+            w.WriteUe(0);      // conf_win_left_offset
+            w.WriteUe(0);      // conf_win_right_offset
+            w.WriteUe(0);      // conf_win_top_offset
+            w.WriteUe(cropBottom);
+        }
+        else
+        {
+            w.WriteBits(0, 1); // conformance_window_flag
+        }
         w.WriteUe(0);       // bit_depth_luma_minus8
         w.WriteUe(0);       // bit_depth_chroma_minus8
         w.WriteBits(1, 1);  // rbsp_stop_one_bit (the parser reads no further)

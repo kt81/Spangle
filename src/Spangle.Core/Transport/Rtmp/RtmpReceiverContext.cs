@@ -87,6 +87,12 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     private uint _streamIdPointer = Protocol.ControlStreamId + 1;
 
+    /// <summary>
+    /// The protocol allows 65,599 chunk stream ids, each holding an assembly buffer
+    /// that never shrinks; real clients use a handful, so cap it to bound memory.
+    /// </summary>
+    private const int MaxChunkStreams = 64;
+
     private readonly Dictionary<uint, ChunkStreamState> _chunkStreams = new();
 
     internal ChunkStreamState GetChunkStreamState(uint chunkStreamId)
@@ -94,6 +100,10 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
         if (_chunkStreams.TryGetValue(chunkStreamId, out var state))
         {
             return state;
+        }
+        if (_chunkStreams.Count >= MaxChunkStreams)
+        {
+            throw new InvalidDataException($"Too many chunk streams (limit {MaxChunkStreams})");
         }
         state = new ChunkStreamState(chunkStreamId);
         _chunkStreams.Add(chunkStreamId, state);
@@ -105,6 +115,13 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     /// Do not call this out of the stream specific command context.
     /// </summary>
     internal RtmpNetStream? NetStream { get; private set; }
+
+    /// <summary>
+    /// An AAC sequence header that arrived before the pipeline was wired
+    /// (the wiring triggers on the video codec); replayed into the media outlet
+    /// ahead of the next audio frame.
+    /// </summary>
+    internal byte[]? PendingAudioConfig;
 
     #endregion
 
@@ -173,7 +190,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
         return new RtmpReceiverContext(
             PipeReader.Create(stream), PipeWriter.Create(stream),
-            client.Client.LocalEndPoint!, ct);
+            client.Client.RemoteEndPoint!, ct);
     }
 
     #endregion

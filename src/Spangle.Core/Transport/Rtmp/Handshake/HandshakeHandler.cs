@@ -104,7 +104,7 @@ internal class HandshakeHandler
         }
 
         s_logger.ZLogError($"Unsupported rtmp version: {c0.RtmpVersion}");
-        throw new Exception();
+        throw new InvalidDataException($"Unsupported RTMP version: {c0.RtmpVersion}");
     }
 
     private static void VerifyC1AndSendS2(PipeWriter writer, in ReadOnlySequence<byte> buff)
@@ -125,7 +125,7 @@ internal class HandshakeHandler
         s_logger.ZLogError($"RandomEcho is mismatched. " +
                            $"Orig:{BitConverter.ToString(s1.RandomSpan[..10].ToArray())}... " +
                            $"Echo:{BitConverter.ToString(c2.RandomEchoSpan[..10].ToArray())}...");
-        throw new Exception("Not match");
+        throw new InvalidDataException("Handshake random echo mismatch");
     }
 
     private static void SendMessage<T>(PipeWriter writer, ref T message) where T : unmanaged

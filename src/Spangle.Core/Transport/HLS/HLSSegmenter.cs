@@ -15,7 +15,11 @@ internal sealed class HLSSegmenter
     private readonly HLSPlaylist _playlist;
 
     private readonly MemoryStream _current = new();
+
+    // Packets held while deciding a cut (PAT+PMT for our own muxer's output).
+    // Reused 188-byte buffers, so steady-state segmentation stays allocation-free.
     private readonly List<byte[]> _held = new();
+    private int _heldCount;
 
     private bool  _pendingCut;
     private bool  _hasSegmentStart;
@@ -65,17 +69,13 @@ internal sealed class HLSSegmenter
                 }
                 _lastPcr = pcr.Value;
                 _pendingCut = false;
-                foreach (byte[] held in _held)
-                {
-                    _current.Write(held);
-                }
-                _held.Clear();
+                WriteHeldPackets();
                 _current.Write(packet);
             }
             else
             {
                 // PAT/PMT possibly belonging to the next segment
-                _held.Add(packet.ToArray());
+                Hold(packet);
             }
             return;
         }
@@ -83,7 +83,7 @@ internal sealed class HLSSegmenter
         if (pid == M2TSWriter.PidPat && payloadUnitStart && _hasSegmentStart)
         {
             _pendingCut = true;
-            _held.Add(packet.ToArray());
+            Hold(packet);
             return;
         }
 
@@ -109,13 +109,28 @@ internal sealed class HLSSegmenter
         _playlist.Complete();
     }
 
+    private void Hold(ReadOnlySpan<byte> packet)
+    {
+        if (_heldCount == _held.Count)
+        {
+            _held.Add(new byte[M2TSWriter.PacketSize]);
+        }
+        packet.CopyTo(_held[_heldCount]);
+        _heldCount++;
+    }
+
+    private void WriteHeldPackets()
+    {
+        for (var i = 0; i < _heldCount; i++)
+        {
+            _current.Write(_held[i]);
+        }
+        _heldCount = 0;
+    }
+
     private void FlushRemainder()
     {
-        foreach (byte[] held in _held)
-        {
-            _current.Write(held);
-        }
-        _held.Clear();
+        WriteHeldPackets();
 
         if (_current.Length > 0 && _hasSegmentStart)
         {

@@ -35,8 +35,8 @@ internal unsafe struct C1S1
     public C1S1(uint time)
     {
         Timestamp = BigEndianUInt32.FromHost(time);
-        var rand = new Random();
-        rand.NextBytes(RandomSpan);
+        // qualified: `Random` alone is the fixed buffer field
+        System.Random.Shared.NextBytes(RandomSpan);
     }
     
     public C1S1(uint time, byte[] random)

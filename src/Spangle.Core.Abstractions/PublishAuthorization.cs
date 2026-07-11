@@ -80,18 +80,39 @@ public interface IPublishGate
 /// </summary>
 public static class StreamKeys
 {
+    private const int MaxKeyLength = 64;
+
+    /// <summary>
+    /// Names that are already safe map to themselves. Anything the mapping alters
+    /// (or truncates) gets a hash suffix of the original name, so distinct names
+    /// cannot collide into one key — with last-wins takeover as the default policy,
+    /// a collision like "a/b" vs "a_b" would let one stream hijack the other.
+    /// </summary>
     public static string Sanitize(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
             return "stream";
         }
-        Span<char> buff = stackalloc char[name.Length];
-        for (var i = 0; i < name.Length; i++)
+
+        int length = Math.Min(name.Length, MaxKeyLength);
+        var altered = name.Length > MaxKeyLength;
+        Span<char> buff = stackalloc char[MaxKeyLength];
+        for (var i = 0; i < length; i++)
         {
             char c = name[i];
-            buff[i] = char.IsAsciiLetterOrDigit(c) || c is '-' or '_' ? c : '_';
+            bool safe = char.IsAsciiLetterOrDigit(c) || c is '-' or '_';
+            buff[i] = safe ? c : '_';
+            altered |= !safe;
         }
-        return new string(buff);
+        if (!altered)
+        {
+            return name;
+        }
+
+        Span<byte> hash = stackalloc byte[32];
+        System.Security.Cryptography.SHA256.HashData(
+            System.Runtime.InteropServices.MemoryMarshal.AsBytes(name.AsSpan()), hash);
+        return $"{buff[..length]}-{Convert.ToHexStringLower(hash[..4])}";
     }
 }

@@ -107,10 +107,6 @@ internal unsafe struct BasicHeader
         }
     }
 
-    public void Dump()
-    {
-
-    }
     public override readonly string ToString()
     {
         return

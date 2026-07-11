@@ -135,10 +135,17 @@ internal static class HvcCBuilder
         uint height = (uint)r.ReadUe(); // pic_height_in_luma_samples
         if (r.ReadBit()) // conformance_window_flag
         {
-            r.ReadUe();
-            r.ReadUe();
-            r.ReadUe();
-            r.ReadUe();
+            // The luma sample counts are the coded size (padded to whole CTUs); the
+            // window crops them to the display size (e.g. 1920x1088 -> 1920x1080),
+            // in units of SubWidthC/SubHeightC (7.4.3.2.1)
+            var left = (uint)r.ReadUe();
+            var right = (uint)r.ReadUe();
+            var top = (uint)r.ReadUe();
+            var bottom = (uint)r.ReadUe();
+            uint subWidthC = chromaFormatIdc is 1 or 2 ? 2u : 1u;
+            uint subHeightC = chromaFormatIdc == 1 ? 2u : 1u;
+            width -= (left + right) * subWidthC;
+            height -= (top + bottom) * subHeightC;
         }
         var bitDepthLumaMinus8 = (byte)r.ReadUe();
         var bitDepthChromaMinus8 = (byte)r.ReadUe();

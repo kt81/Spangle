@@ -7,7 +7,8 @@ using Spangle.Transport.SRT;
 namespace Spangle;
 
 /// <summary>
-/// LiveContext is a context for whale live streaming.
+/// One live session: wires a receiver, the spinner chain and a sender together,
+/// and owns the session's lifetime (authorization gate, shutdown, takeover kick).
 /// </summary>
 public sealed class LiveContext : IDisposable
 {

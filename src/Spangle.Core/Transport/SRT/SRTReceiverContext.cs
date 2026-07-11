@@ -79,15 +79,18 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
             {
                 if (PeekByte(buff) != 0x47)
                 {
-                    // lost 188-byte alignment: skip to the next sync byte
-                    SequencePosition? sync = buff.Slice(1).PositionOf((byte)0x47);
-                    if (sync is null)
+                    // Lost 188-byte alignment: find a sync byte that is also followed
+                    // by one a packet later, so we don't latch onto a 0x47 inside a
+                    // payload. An unverifiable candidate waits for the next read.
+                    if (!TryResync(ref buff, out bool needMoreData))
                     {
-                        buff = buff.Slice(buff.End);
+                        if (!needMoreData)
+                        {
+                            buff = buff.Slice(buff.End);
+                        }
                         break;
                     }
-                    Logger.ZLogWarning($"TS alignment lost; resynchronizing");
-                    buff = buff.Slice(sync.Value);
+                    Logger.ZLogWarning($"TS alignment lost; resynchronized");
                     continue;
                 }
 
@@ -151,6 +154,38 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
         Span<byte> tmp = stackalloc byte[1];
         buff.Slice(0, 1).CopyTo(tmp);
         return tmp[0];
+    }
+
+    /// <summary>
+    /// Advances <paramref name="buff"/> to the next verified packet boundary: a 0x47
+    /// with another 0x47 exactly one packet later. Returns false when no boundary was
+    /// found; <paramref name="needMoreData"/> distinguishes "a candidate exists but
+    /// there aren't enough bytes to verify it yet" (keep the tail for the next read).
+    /// </summary>
+    private static bool TryResync(ref ReadOnlySequence<byte> buff, out bool needMoreData)
+    {
+        ReadOnlySequence<byte> search = buff.Slice(1);
+        while (search.PositionOf((byte)0x47) is { } sync)
+        {
+            ReadOnlySequence<byte> candidate = buff.Slice(sync);
+            if (candidate.Length <= M2TSWriter.PacketSize)
+            {
+                buff = candidate;
+                needMoreData = true;
+                return false;
+            }
+            Span<byte> next = stackalloc byte[1];
+            candidate.Slice(M2TSWriter.PacketSize, 1).CopyTo(next);
+            if (next[0] == 0x47)
+            {
+                buff = candidate;
+                needMoreData = false;
+                return true;
+            }
+            search = candidate.Slice(1);
+        }
+        needMoreData = false;
+        return false;
     }
 
     /// <summary>

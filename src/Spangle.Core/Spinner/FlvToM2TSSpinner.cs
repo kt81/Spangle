@@ -34,6 +34,9 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
     /// <summary>ADTS header template built from the AudioSpecificConfig; bytes 3..5 are patched per frame.</summary>
     private byte[]? _adtsTemplate;
 
+    /// <summary>The ASC declared something ADTS cannot carry; audio frames are dropped silently.</summary>
+    private bool _audioUnrepresentable;
+
     // ---- Audio-only mode (the source declared no video track) ----
     /// <summary>90kHz PTS of the last PAT/PMT emission; tables repeat about once a second.</summary>
     private ulong _lastTablesPts;
@@ -143,7 +146,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
 
         _tsWriter.WritePes(Outlet, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo,
             _esBuffer.WrittenSpan, pts, dts == pts ? null : dts, frameHeader.IsKeyFrame, withPcr: true);
-        _esBuffer.Clear();
+        _esBuffer.ResetWrittenCount();
     }
 
     private void ProcessVideoConfig(VideoCodec codec, ReadOnlySequence<byte> payload)
@@ -169,7 +172,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
     /// </summary>
     private void BuildAccessUnit(ReadOnlySequence<byte> buff, bool isKeyFrame)
     {
-        _esBuffer.Clear();
+        _esBuffer.ResetWrittenCount();
         _esBuffer.Write(_videoCodec == VideoCodec.H265 ? s_audH265 : s_audH264);
         if (isKeyFrame && _parameterSets is not null)
         {
@@ -264,14 +267,24 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
 
         if (_adtsTemplate is null)
         {
-            s_logger.ZLogWarning($"AAC frame arrived before AudioSpecificConfig; dropped");
+            if (!_audioUnrepresentable)
+            {
+                s_logger.ZLogWarning($"AAC frame arrived before AudioSpecificConfig; dropped");
+            }
             return;
         }
 
         var aacLength = (int)payload.Length;
         int frameLength = AdtsHeaderSize + aacLength;
+        if (frameLength > 0x1FFF)
+        {
+            // the ADTS frame length field is 13 bits; anything larger would silently
+            // truncate and desynchronize the stream
+            s_logger.ZLogWarning($"AAC frame too large for ADTS ({aacLength} bytes); dropped");
+            return;
+        }
 
-        _esBuffer.Clear();
+        _esBuffer.ResetWrittenCount();
         var adts = _esBuffer.GetSpan(AdtsHeaderSize);
         _adtsTemplate.CopyTo(adts);
         adts[3] = (byte)(adts[3] | ((frameLength >> 11) & 0x03));
@@ -303,7 +316,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
 
         _tsWriter.WritePes(Outlet, M2TSWriter.PidAudio, M2TSWriter.StreamIdAudio,
             _esBuffer.WrittenSpan, pts, null, randomAccess: audioOnly, withPcr: audioOnly);
-        _esBuffer.Clear();
+        _esBuffer.ResetWrittenCount();
     }
 
     private void ProcessAudioSpecificConfig(ReadOnlySequence<byte> buff)
@@ -314,6 +327,23 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
         int audioObjectType = asc[0] >> 3;
         int samplingFrequencyIndex = ((asc[0] & 0x07) << 1) | (asc[1] >> 7);
         int channelConfiguration = (asc[1] >> 3) & 0x0F;
+
+        // ADTS cannot express every AudioSpecificConfig: the profile field is 2 bits
+        // (AOT 1-4) and the frequency must be an index (SFI 15 = explicit 24-bit rate).
+        // HE-AAC (SBR/PS) is representable as its AAC-LC core with implicit signaling.
+        if (audioObjectType is 5 or 29)
+        {
+            s_logger.ZLogInformation($"HE-AAC signaled as its AAC-LC core in ADTS (SBR is implicit for decoders)");
+            audioObjectType = 2; // the base SFI in the ASC is the core AAC sample rate
+        }
+        if (audioObjectType is < 1 or > 4 || samplingFrequencyIndex == 15)
+        {
+            s_logger.ZLogWarning(
+                $"AudioSpecificConfig not representable in ADTS (AOT={audioObjectType}, SFI={samplingFrequencyIndex}); audio is dropped");
+            _audioUnrepresentable = true;
+            _adtsTemplate = null;
+            return;
+        }
 
         s_logger.ZLogDebug(
             $"AudioSpecificConfig: AOT={audioObjectType}, SFI={samplingFrequencyIndex}, Channels={channelConfiguration}");
