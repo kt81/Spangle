@@ -83,12 +83,12 @@ internal sealed class M2TSDemuxer
 
         if (pid == 0x0000)
         {
-            ParsePat(payload, pusi);
+            ProcessPsiPacket(_patSection, payload, pusi, header.ContinuityCounter, PatTableId, sink);
             return;
         }
         if (_pmtPid != 0 && pid == _pmtPid)
         {
-            ParsePmt(payload, pusi, sink);
+            ProcessPsiPacket(_pmtSection, payload, pusi, header.ContinuityCounter, PmtTableId, sink);
             return;
         }
 
@@ -108,12 +108,140 @@ internal sealed class M2TSDemuxer
     }
 
     // =======================================================================
-    // PSI
+    // PSI — a section may span TS packets (section_length goes up to 1021 bytes,
+    // a packet payload holds 184), so each PSI PID gets a small reassembly buffer,
+    // mirroring the PES track assembly.
 
-    private void ParsePat(ReadOnlySpan<byte> payload, bool pusi)
+    private const byte PatTableId = 0x00;
+    private const byte PmtTableId = 0x02;
+
+    private sealed class SectionState
     {
-        ReadOnlySpan<byte> section = SkipPointer(payload, pusi);
-        if (section.Length < 12 || section[0] != 0x00)
+        public byte LastContinuity = 0xFF;
+        public bool Assembling;
+        public readonly ArrayBufferWriter<byte> Assembly = new(1024);
+
+        public void Reset()
+        {
+            Assembling = false;
+            Assembly.ResetWrittenCount();
+        }
+    }
+
+    private readonly SectionState _patSection = new();
+    private readonly SectionState _pmtSection = new();
+
+    private void ProcessPsiPacket(SectionState state, ReadOnlySpan<byte> payload, bool pusi, byte continuity,
+        byte tableId, IM2TSDemuxerSink sink)
+    {
+        if (state.LastContinuity != 0xFF)
+        {
+            if (continuity == state.LastContinuity)
+            {
+                return; // duplicate packet
+            }
+            var expected = (byte)((state.LastContinuity + 1) & 0x0F);
+            if (continuity != expected && state.Assembling)
+            {
+                s_logger.ZLogWarning($"TS continuity broken on a PSI PID; dropping the partial section");
+                state.Reset();
+            }
+        }
+        state.LastContinuity = continuity;
+
+        if (pusi)
+        {
+            if (payload.Length < 1)
+            {
+                return;
+            }
+            int pointer = payload[0];
+            if (1 + pointer > payload.Length)
+            {
+                state.Reset();
+                return;
+            }
+            // the bytes before the pointer are the tail of the section under assembly
+            if (state.Assembling && pointer > 0)
+            {
+                AppendSection(state, payload.Slice(1, pointer));
+                TryCompleteSection(state, tableId, sink);
+            }
+            state.Reset();
+            ConsumeSections(state, payload[(1 + pointer)..], tableId, sink);
+        }
+        else if (state.Assembling)
+        {
+            AppendSection(state, payload);
+            TryCompleteSection(state, tableId, sink);
+        }
+    }
+
+    /// <summary>
+    /// Parses as many complete sections as <paramref name="data"/> holds; an incomplete
+    /// trailing section is buffered until its continuation packets arrive.
+    /// </summary>
+    private void ConsumeSections(SectionState state, ReadOnlySpan<byte> data, byte tableId, IM2TSDemuxerSink sink)
+    {
+        while (data.Length > 0 && data[0] != 0xFF /* stuffing */)
+        {
+            if (data.Length >= 3)
+            {
+                int total = 3 + (((data[1] & 0x0F) << 8) | data[2]);
+                if (total <= data.Length)
+                {
+                    DispatchSection(data[..total], tableId, sink);
+                    data = data[total..];
+                    continue;
+                }
+            }
+            state.Assembling = true;
+            AppendSection(state, data);
+            return;
+        }
+    }
+
+    private static void AppendSection(SectionState state, ReadOnlySpan<byte> data)
+    {
+        data.CopyTo(state.Assembly.GetSpan(data.Length));
+        state.Assembly.Advance(data.Length);
+    }
+
+    private void TryCompleteSection(SectionState state, byte tableId, IM2TSDemuxerSink sink)
+    {
+        ReadOnlySpan<byte> buff = state.Assembly.WrittenSpan;
+        if (buff.Length < 3)
+        {
+            return;
+        }
+        int total = 3 + (((buff[1] & 0x0F) << 8) | buff[2]);
+        if (buff.Length < total)
+        {
+            return; // still waiting for continuation packets
+        }
+        DispatchSection(buff[..total], tableId, sink);
+        state.Reset();
+    }
+
+    private void DispatchSection(ReadOnlySpan<byte> section, byte tableId, IM2TSDemuxerSink sink)
+    {
+        if (section[0] != tableId)
+        {
+            return;
+        }
+        if (tableId == PatTableId)
+        {
+            ParsePat(section);
+        }
+        else
+        {
+            ParsePmt(section, sink);
+        }
+    }
+
+    private void ParsePat(ReadOnlySpan<byte> section)
+    {
+        if (section.Length < 12)
         {
             return;
         }
@@ -133,10 +261,9 @@ internal sealed class M2TSDemuxer
         }
     }
 
-    private void ParsePmt(ReadOnlySpan<byte> payload, bool pusi, IM2TSDemuxerSink sink)
+    private void ParsePmt(ReadOnlySpan<byte> section, IM2TSDemuxerSink sink)
     {
-        ReadOnlySpan<byte> section = SkipPointer(payload, pusi);
-        if (section.Length < 16 || section[0] != 0x02)
+        if (section.Length < 16)
         {
             return;
         }
@@ -190,16 +317,6 @@ internal sealed class M2TSDemuxer
 
         s_logger.ZLogDebug($"PMT mapped: video=0x{videoStreamType:X2} audio=0x{audioStreamType:X2}");
         sink.OnProgramMapped(videoStreamType, audioStreamType);
-    }
-
-    private static ReadOnlySpan<byte> SkipPointer(ReadOnlySpan<byte> payload, bool pusi)
-    {
-        if (!pusi || payload.Length < 1)
-        {
-            return default; // multi-packet PSI sections are out of scope
-        }
-        int pointer = payload[0];
-        return 1 + pointer >= payload.Length ? default : payload[(1 + pointer)..];
     }
 
     // =======================================================================
