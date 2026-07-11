@@ -1,11 +1,12 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Spangle.LusterBits;
 
 namespace Spangle.Containers.M2TS;
 
 [LusterCharm]
 [StructLayout(LayoutKind.Sequential, Pack = Size, Size = Size)]
-internal unsafe partial struct AdaptationFieldsBasic
+internal partial struct AdaptationFieldsBasic
 {
     public const int Size = 2;
 
@@ -20,5 +21,5 @@ internal unsafe partial struct AdaptationFieldsBasic
         BitField(typeof(bool), "HasTransportPrivateData", 1, description: "Transport private data flag"),
         BitField(typeof(bool), "HasAdaptationFieldExtension", 1, description: "Adaptation field extension flag"),
     ]
-    private fixed byte _value[Size];
+    private InlineArray2<byte> _value;
 }

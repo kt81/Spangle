@@ -1,16 +1,17 @@
-﻿using Spangle.LusterBits;
+﻿using Spangle.Interop;
+using Spangle.LusterBits;
 
 namespace Spangle.Codecs;
 
 [LusterCharm]
-public unsafe partial struct NALUnitHeader
+public partial struct NALUnitHeader
 {
     [
         BitField(typeof(byte), "ForbiddenZeroBit", 1),
         BitField(typeof(byte), "NALRefIDC", 2),
         BitField(typeof(NALUnitType), "Type", 5)
     ]
-    private fixed byte _val[1];
+    private ByteArray1 _val;
 }
 
 public enum NALUnitType : byte

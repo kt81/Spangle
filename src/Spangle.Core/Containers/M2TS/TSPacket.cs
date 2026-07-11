@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Spangle.Interop;
 using Spangle.LusterBits;
 
 namespace Spangle.Containers.M2TS;
@@ -11,7 +12,7 @@ namespace Spangle.Containers.M2TS;
 /// </summary>
 [LusterCharm]
 [StructLayout(LayoutKind.Sequential, Pack = 1, Size = Size)]
-internal unsafe partial struct TSPacket
+internal partial struct TSPacket
 {
     public const int MaxPayloadSize = 184;
     public const int Size           = TSHeader.Size + MaxPayloadSize;
@@ -26,5 +27,5 @@ internal unsafe partial struct TSPacket
         Segment(typeof(PCR), "OPCR", If = "AdaptationFields.HasOPCR",
             Description = "Original program clock reference"),
     ]
-    private fixed byte _value[Size];
+    private ByteArray188 _value;
 }

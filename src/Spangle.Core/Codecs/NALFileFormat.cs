@@ -3,7 +3,7 @@ using Spangle.Interop;
 
 namespace Spangle.Codecs;
 
-public static unsafe class NALFileFormat
+public static class NALFileFormat
 {
     public static int WriteNALU(IBufferWriter<byte> buff, ReadOnlySequence<byte> nalu)
     {

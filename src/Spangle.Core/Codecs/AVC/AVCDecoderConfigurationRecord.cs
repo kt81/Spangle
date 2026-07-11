@@ -6,7 +6,7 @@ namespace Spangle.Codecs.AVC;
 /// Map of AVCDecoderConfigurationRecord
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1, Size = Size)]
-internal unsafe struct AVCDecoderConfigurationRecord
+internal struct AVCDecoderConfigurationRecord
 {
     public const int Size = 6;
 

@@ -2,7 +2,7 @@
 
 namespace Spangle.Codecs;
 
-public static unsafe class NALAnnexB
+public static class NALAnnexB
 {
     public const int NALUIndicatorSize = 3;
 

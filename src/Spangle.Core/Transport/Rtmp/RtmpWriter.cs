@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Runtime.InteropServices;
 using Spangle.Transport.Rtmp.Amf0;
 using Spangle.Transport.Rtmp.Chunk;
 using Spangle.Transport.Rtmp.ProtocolControlMessage;
@@ -23,13 +24,7 @@ public static class RtmpWriter
         var buff = context.RemoteWriter.GetSpan(plLen);
 
         // Write the payload
-        unsafe
-        {
-            fixed (void* p = &payload)
-            {
-                new ReadOnlySpan<byte>(p, plLen).CopyTo(buff[..plLen]);
-            }
-        }
+        MemoryMarshal.Write(buff[..plLen], in payload);
 
         context.RemoteWriter.Advance(plLen);
 
