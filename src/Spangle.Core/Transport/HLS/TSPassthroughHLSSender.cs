@@ -378,7 +378,8 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
 
     // ---- IM2TSDemuxerSink (PSI-only: OnPes never fires) ----
 
-    public void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid)
+    public void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid,
+        byte opusChannels)
     {
         _videoPid = videoPid;
         _audioPid = audioPid;

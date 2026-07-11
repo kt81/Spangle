@@ -78,8 +78,9 @@ Payloads at this boundary:
 
 - Video `Config`: the raw codec configuration record (`avcC` for H.264, `hvcC` for H.265)
 - Video frame: length-prefixed NALUs (the length size is declared in the config record)
-- Audio `Config`: AudioSpecificConfig (2+ bytes)
-- Audio frame: one raw AAC frame
+- Audio `Config`: the AudioSpecificConfig (AAC, 2+ bytes) or the OpusHead
+  identification header (Opus, 19+ bytes)
+- Audio frame: one raw AAC frame or one Opus packet
 
 Because each frame is self-contained (codec, timestamps, flags), a spinner needs no
 side-channel and no knowledge of the ingest protocol.
@@ -212,9 +213,13 @@ SRT bytes ──► SRTReceiverContext ──► M2TSDemuxer ──► M2TSMedia
   form: H.264/H.265 Annex B access units become length-prefixed samples plus a Config
   frame built from the in-band parameter sets (avcC from SPS/PPS; hvcC from
   VPS/SPS/PPS via `HvcCBuilder`, which also extracts width/height from the SPS);
-  ADTS AAC becomes raw AAC frames plus an AudioSpecificConfig; 33-bit 90 kHz PES
-  timestamps are unwrapped to milliseconds. Because the output matches what the RTMP
-  receiver emits, both HLS output paths work unchanged.
+  ADTS AAC becomes raw AAC frames plus an AudioSpecificConfig; Opus (private PES
+  0x06 with a registration descriptor "Opus") is unframed from its control headers
+  into raw packets plus a synthesized OpusHead, with timestamps advanced per packet
+  from the TOC; 33-bit 90 kHz PES timestamps are unwrapped to milliseconds. Because
+  the output matches what the RTMP receiver emits, both HLS output paths work
+  unchanged (Opus itself needs the CMAF output — the TS spinner drops it, while the
+  TS passthrough forwards the source's Opus PES verbatim).
 - Routing and security use the SRT counterparts of the RTMP stream key:
   `SRTClient.StreamId` (plain, or the `r=` key of Haivision Access Control ids) becomes
   the stream name; an optional listener passphrase (`Srt.Passphrase`) enforces wire

@@ -14,8 +14,12 @@ internal interface IM2TSDemuxerSink
     /// <summary>
     /// Called when the PMT is parsed for the first time or changes.
     /// Stream types are raw ISO 13818-1 values (0 = the track is absent, with PID 0).
+    /// An audio stream type of <see cref="M2TSStreamType.PrivatePes"/> means Opus
+    /// (identified by its registration descriptor); <paramref name="opusChannels"/>
+    /// carries the channel count from the extension descriptor, 0 otherwise.
     /// </summary>
-    void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid);
+    void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid,
+        byte opusChannels);
 
     /// <summary>One complete PES payload (one video access unit, or one or more ADTS frames).</summary>
     void OnPes(byte streamType, ulong? pts90k, ulong? dts90k, ReadOnlySpan<byte> es);
@@ -292,12 +296,16 @@ internal sealed class M2TSDemuxer
         byte audioStreamType = 0;
         ushort videoPid = 0;
         ushort audioPid = 0;
+        byte opusChannels = 0;
         var newTracks = new Dictionary<ushort, TrackState>();
         while (pos + 5 <= end)
         {
             byte streamType = section[pos];
             var esPid = (ushort)(((section[pos + 1] & 0x1F) << 8) | section[pos + 2]);
             int esInfoLength = ((section[pos + 3] & 0x0F) << 8) | section[pos + 4];
+            ReadOnlySpan<byte> esInfo = pos + 5 + esInfoLength <= end
+                ? section.Slice(pos + 5, esInfoLength)
+                : default;
             pos += 5 + esInfoLength;
 
             switch (streamType)
@@ -315,6 +323,14 @@ internal sealed class M2TSDemuxer
                     newTracks[esPid] = _tracks.TryGetValue(esPid, out var at) ? at : new TrackState();
                     newTracks[esPid].StreamType = streamType;
                     break;
+                case M2TSStreamType.PrivatePes when audioStreamType == 0
+                    && ReadOpusChannels(esInfo) is > 0 and var channels:
+                    audioStreamType = streamType;
+                    audioPid = esPid;
+                    opusChannels = channels;
+                    newTracks[esPid] = _tracks.TryGetValue(esPid, out var ot) ? ot : new TrackState();
+                    newTracks[esPid].StreamType = streamType;
+                    break;
                 default:
                     s_logger.ZLogInformation($"Ignoring PMT stream_type 0x{streamType:X2} (PID {esPid})");
                     break;
@@ -329,7 +345,46 @@ internal sealed class M2TSDemuxer
         }
 
         s_logger.ZLogDebug($"PMT mapped: video=0x{videoStreamType:X2} audio=0x{audioStreamType:X2}");
-        sink.OnProgramMapped(videoStreamType, videoPid, audioStreamType, audioPid);
+        sink.OnProgramMapped(videoStreamType, videoPid, audioStreamType, audioPid, opusChannels);
+    }
+
+    /// <summary>
+    /// Opus over TS ("Opus in MPEG-TS" mapping): private PES with a registration
+    /// descriptor "Opus" plus an extension descriptor (0x7F, tag extension 0x80)
+    /// carrying the channel_config_code. Returns the channel count, or 0 when the
+    /// stream is not Opus or uses a custom layout we cannot express.
+    /// </summary>
+    private static byte ReadOpusChannels(ReadOnlySpan<byte> esInfo)
+    {
+        var isOpus = false;
+        byte channels = 0;
+        var p = 0;
+        while (p + 2 <= esInfo.Length)
+        {
+            byte tag = esInfo[p];
+            int len = esInfo[p + 1];
+            p += 2;
+            if (p + len > esInfo.Length)
+            {
+                break;
+            }
+            if (tag == 0x05 /* registration */ && len >= 4 && esInfo.Slice(p, 4).SequenceEqual("Opus"u8))
+            {
+                isOpus = true;
+            }
+            else if (tag == 0x7F /* extension */ && len >= 2 && esInfo[p] == 0x80)
+            {
+                byte code = esInfo[p + 1];
+                channels = code switch
+                {
+                    0 => 2,    // dual mono
+                    <= 8 => code,
+                    _ => 0,    // custom channel layouts are not supported
+                };
+            }
+            p += len;
+        }
+        return isOpus ? channels : (byte)0;
     }
 
     // =======================================================================

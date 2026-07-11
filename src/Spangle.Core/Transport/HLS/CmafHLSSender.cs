@@ -1,6 +1,7 @@
 using System.Buffers;
 using Microsoft.Extensions.Logging;
 using Spangle.Codecs.AAC;
+using Spangle.Codecs.Opus;
 using Spangle.Containers.ISOBMFF;
 using Spangle.Interop;
 using Spangle.Logging;
@@ -109,8 +110,10 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     // Track configuration (arrives as Config frames before coded frames)
     private VideoCodec? _videoCodec;
     private byte[]? _videoConfig;
+    private AudioCodec? _audioCodec;
     private byte[]? _audioConfig;
-    private AudioSpecificConfig _asc;
+    private uint _audioSampleRate;
+    private ushort _audioChannels;
 
     // Samples of the fragment (= part in LL mode) being built:
     // raw bytes in reused buffers, positions and timing in metadata lists
@@ -141,8 +144,9 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
     private struct AudioSampleMeta
     {
-        public int Offset;
-        public int Length;
+        public int  Offset;
+        public int  Length;
+        public uint Duration; // in the audio timescale (sample rate)
     }
 
     public void ProcessFrame(in MediaFrameHeader header, ReadOnlySequence<byte> payload)
@@ -223,7 +227,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
     private void ProcessAudioFrame(in MediaFrameHeader header, ReadOnlySequence<byte> payload)
     {
-        if (header.AudioCodec != AudioCodec.AAC)
+        if (header.AudioCodec is not (AudioCodec.AAC or AudioCodec.Opus))
         {
             s_logger.ZLogWarning($"Unsupported audio codec, dropping: {header.AudioCodec}");
             return;
@@ -231,16 +235,30 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
         if (header.IsConfig)
         {
+            _audioCodec = header.AudioCodec;
             _audioConfig = payload.ToArray();
-            _asc = AudioSpecificConfig.Parse(_audioConfig);
-            s_logger.ZLogDebug(
-                $"AudioSpecificConfig: AOT={_asc.AudioObjectType}, rate={_asc.SampleRate}, ch={_asc.ChannelConfiguration}");
+            if (_audioCodec == AudioCodec.AAC)
+            {
+                var asc = AudioSpecificConfig.Parse(_audioConfig);
+                _audioSampleRate = asc.SampleRate;
+                _audioChannels = asc.ChannelConfiguration;
+                s_logger.ZLogDebug(
+                    $"AudioSpecificConfig: AOT={asc.AudioObjectType}, rate={asc.SampleRate}, ch={asc.ChannelConfiguration}");
+            }
+            else
+            {
+                var head = OpusPacket.ParseOpusHead(_audioConfig);
+                _audioSampleRate = OpusPacket.SampleRate; // the Opus track clock is always 48 kHz
+                _audioChannels = head.ChannelCount;
+                s_logger.ZLogDebug(
+                    $"OpusHead: ch={head.ChannelCount}, preSkip={head.PreSkip}, inputRate={head.InputSampleRate}");
+            }
             return;
         }
 
         if (_audioConfig is null)
         {
-            s_logger.ZLogWarning($"AAC frame arrived before AudioSpecificConfig; dropped");
+            s_logger.ZLogWarning($"Audio frame arrived before the codec config; dropped");
             return;
         }
 
@@ -273,8 +291,16 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         }
         _lastAudioTsMs = header.Timestamp;
         var length = (int)payload.Length;
-        payload.CopyTo(_audioData.GetSpan(length));
-        _audioMeta.Add(new AudioSampleMeta { Offset = _audioData.WrittenCount, Length = length });
+        Span<byte> dest = _audioData.GetSpan(length);
+        payload.CopyTo(dest);
+        // AAC frames are a fixed 1024 samples; Opus packets declare theirs in the TOC
+        uint duration = _audioCodec == AudioCodec.Opus
+            ? OpusPacket.GetSampleCount(dest[..length])
+            : AacSamplesPerFrame;
+        _audioMeta.Add(new AudioSampleMeta
+        {
+            Offset = _audioData.WrittenCount, Length = length, Duration = duration,
+        });
         _audioData.Advance(length);
     }
 
@@ -317,13 +343,13 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             audio[i] = new CmafSample
             {
                 Data = audioBuffer.Slice(meta.Offset, meta.Length),
-                Duration = AacSamplesPerFrame,
+                Duration = meta.Duration,
                 CompositionOffset = 0,
                 IsSync = true,
             };
         }
         ulong audioBaseTime = _audioMeta.Count > 0
-            ? (ulong)_firstAudioTsMs * _asc.SampleRate / 1000
+            ? (ulong)_firstAudioTsMs * _audioSampleRate / 1000
             : 0;
 
         long fragmentStart = _segmentStream.Length;
@@ -386,9 +412,10 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         CmafAudioTrack? audioTrack = _audioConfig is not null
             ? new CmafAudioTrack
             {
-                AudioSpecificConfig = _audioConfig,
-                SampleRate = _asc.SampleRate,
-                ChannelCount = _asc.ChannelConfiguration,
+                Codec = _audioCodec!.Value,
+                Config = _audioConfig,
+                SampleRate = _audioSampleRate,
+                ChannelCount = _audioChannels,
             }
             : null;
 
@@ -404,7 +431,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
         _playlist = new HLSPlaylist(_storage, "init.mp4", _partTarget, onUpdated, resume);
         s_logger.ZLogInformation(
-            $"HLS(CMAF) output for {context.ResolveStreamKey()} to {context.StorageDescription} (video={(videoTrack is null ? "none" : _videoCodec!.Value.ToString())}, audio={(audioTrack is null ? "none" : "AAC")}, lowLatency={_partTarget is not null})");
+            $"HLS(CMAF) output for {context.ResolveStreamKey()} to {context.StorageDescription} (video={(videoTrack is null ? "none" : _videoCodec!.Value.ToString())}, audio={(audioTrack is null ? "none" : _audioCodec!.Value.ToString())}, lowLatency={_partTarget is not null})");
     }
 
     /// <summary>Flushes the remaining samples and finalizes the playlist</summary>
@@ -433,7 +460,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         }
         else if (_videoConfig is null && _audioConfig is not null && _audioMeta.Count > 0)
         {
-            FinalizeSegment(_lastAudioTsMs + AacSamplesPerFrame * 1000 / _asc.SampleRate);
+            FinalizeSegment(_lastAudioTsMs + _audioMeta[^1].Duration * 1000 / _audioSampleRate);
         }
         else if (_segmentStream.Length > 0)
         {

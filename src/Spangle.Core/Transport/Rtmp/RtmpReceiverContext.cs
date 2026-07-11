@@ -117,11 +117,17 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     internal RtmpNetStream? NetStream { get; private set; }
 
     /// <summary>
-    /// An AAC sequence header that arrived before the pipeline was wired
-    /// (the wiring triggers on the video codec); replayed into the media outlet
-    /// ahead of the next audio frame.
+    /// An audio codec config (AAC sequence header / OpusHead) that arrived before the
+    /// pipeline was wired (the wiring triggers on the video codec); replayed into the
+    /// media outlet ahead of the next audio frame.
     /// </summary>
     internal byte[]? PendingAudioConfig;
+
+    /// <inheritdoc cref="PendingAudioConfig"/>
+    internal AudioCodec PendingAudioConfigCodec;
+
+    /// <summary>Keeps unsupported-audio warnings to one line per session.</summary>
+    internal bool AudioUnsupportedLogged;
 
     #endregion
 

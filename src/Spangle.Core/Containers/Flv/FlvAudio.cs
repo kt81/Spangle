@@ -20,9 +20,25 @@ internal enum FlvAudioCodec : byte
     MP3_8kHz       = 14,
     DeviceSpecific = 15,
 
+    /// <summary>
+    /// enhanced-RTMP v2 audio envelope: the lower nibble is an
+    /// <see cref="FlvAudioPacketType"/> and a FourCC follows the control byte.
+    /// (Legacy community muxers used 9 for Opus; the enhanced spec reclaimed it.)
+    /// </summary>
+    ExHeader = 9,
+
     // It is not official, but it is well known out there.
-    CommunityOpus1 = 9,
     CommunityOpus2 = 13,
+}
+
+/// <summary>enhanced-RTMP v2 AudioPacketType (the lower nibble under <see cref="FlvAudioCodec.ExHeader"/>)</summary>
+internal enum FlvAudioPacketType : byte
+{
+    SequenceStart      = 0,
+    CodedFrames        = 1,
+    SequenceEnd        = 2,
+    MultichannelConfig = 4,
+    Multitrack         = 5,
 }
 
 [SuppressMessage("ReSharper", "InconsistentNaming")]
@@ -79,4 +95,16 @@ internal static class FlvAudioEnumExtensions
             _ => throw new NotInScopeException($"Unsupported audio codec: {codec.ToString()})"),
         };
     }
+
+    // https://www.w3.org/TR/webcodecs-codec-registry/ FourCCs used by enhanced-RTMP v2 audio
+    private const uint FourCcOpus = 'O' << 24 | 'p' << 16 | 'u' << 8 | 's';
+    private const uint FourCcMp4A = 'm' << 24 | 'p' << 16 | '4' << 8 | 'a';
+
+    /// <summary>Maps an enhanced-RTMP audio FourCC; null when the codec is not supported.</summary>
+    public static AudioCodec? ParseAudioFourCc(uint fourCc) => fourCc switch
+    {
+        FourCcOpus => AudioCodec.Opus,
+        FourCcMp4A => AudioCodec.AAC, // same payload shapes as the legacy envelope
+        _ => null,
+    };
 }

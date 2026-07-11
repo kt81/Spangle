@@ -128,7 +128,8 @@ public class MultiPacketPsiTests
     {
         public List<(byte Video, byte Audio)> ProgramMappings { get; } = [];
 
-        public void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid) =>
+        public void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid,
+            byte opusChannels) =>
             ProgramMappings.Add((videoStreamType, audioStreamType));
 
         public void OnPes(byte streamType, ulong? pts90k, ulong? dts90k, ReadOnlySpan<byte> es)

@@ -12,8 +12,9 @@ Current status
 
 Two first-class ingest protocols, one canonical internal form, two output shapes:
 
-- **Ingest**: RTMP (classic + enhanced; H.264/H.265/AV1 + AAC) and
-  **SRT** (MPEG-TS; H.264/H.265 + AAC, streamid routing, optional passphrase encryption)
+- **Ingest**: RTMP (classic + enhanced; H.264/H.265/AV1 + AAC/Opus) and
+  **SRT** (MPEG-TS; H.264/H.265 + AAC/Opus, streamid routing, optional passphrase
+  encryption)
 - **Output**: HLS with MPEG-2 TS segments, or CMAF/fMP4 — optionally **LL-HLS**
   (partial segments + blocking playlist reload), served over HTTP with per-stream
   routing (`/hls/{stream}/playlist.m3u8`)
@@ -84,8 +85,12 @@ Roadmap
       the Spinner plugin point exists for exactly this
 - [x] Audio-only streams over SRT/TS ingest (video-less PMT with the PCR on the
       audio PID; both TS and CMAF outputs cut segments on the audio timeline)
-- [ ] Opus audio (CMAF path); audio-only over RTMP (no in-protocol way to declare
-      "no video is coming", needs a policy such as a timeout)
+- [x] Opus audio, end to end on the CMAF path: enhanced-RTMP v2 envelope and
+      Opus-over-TS (SRT) ingest → 'Opus' sample entry + dOps output. The TS output
+      drops Opus with a warning (no interoperable HLS/TS mapping exists) — except
+      SRT passthrough, which carries the source's Opus PES verbatim
+- [ ] Audio-only over RTMP (no in-protocol way to declare "no video is coming",
+      needs a policy such as a timeout)
 - [ ] LL-HLS playlist delta updates (`_HLS_skip`)
 - [ ] DASH / LL-DASH (low priority)
 - [ ] RTSP ingest (very low priority)

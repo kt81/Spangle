@@ -260,6 +260,7 @@ internal class RtmpNetStream
     private static AudioCodec? TryMapAudioCodecId(object value) => value switch
     {
         "mp4a" => AudioCodec.AAC,
+        "Opus" => AudioCodec.Opus,
         double d and >= 0 when (FlvAudioCodec)(uint)d == FlvAudioCodec.AAC => AudioCodec.AAC,
         _ => null,
     };

@@ -77,7 +77,8 @@ public class ContinuityTests
     {
         public List<byte[]> Payloads { get; } = [];
 
-        public void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid)
+        public void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid,
+            byte opusChannels)
         {
         }
 

@@ -73,7 +73,8 @@ public class CmafPackagerBenchmarks
         };
         var audioTrack = new CmafAudioTrack
         {
-            AudioSpecificConfig = [0x12, 0x10],
+            Codec = AudioCodec.AAC,
+            Config = [0x12, 0x10],
             SampleRate = 44100,
             ChannelCount = 2,
         };
