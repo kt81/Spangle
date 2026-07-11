@@ -16,6 +16,8 @@ Spangle:
     OutputDirectory: hls-out
     RequestPath: /hls
     TargetSegmentDuration: 2.0
+    # PlaylistWindow: 6  # segments kept in the live playlist; larger windows give
+    #                    # rewind and make LL-HLS delta updates (?_HLS_skip=YES) pay off
     # TsPassthrough: true  # SRT→TS-HLS re-segments the source TS as-is (half the
     #                      # container work); set false to force demux+remux, e.g.
     #                      # when MediaFrame spinner plugins must run on SRT sessions

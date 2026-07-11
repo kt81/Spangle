@@ -129,6 +129,9 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     /// <summary>Keeps unsupported-audio warnings to one line per session.</summary>
     internal bool AudioUnsupportedLogged;
 
+    /// <summary>Keeps the video-after-audio-only warning to one line per session.</summary>
+    internal bool VideoAfterAudioOnlyLogged;
+
     #endregion
 
     #region IO

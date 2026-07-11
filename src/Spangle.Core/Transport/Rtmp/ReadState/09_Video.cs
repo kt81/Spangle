@@ -103,6 +103,18 @@ internal abstract class Video
             }
         }
 
+        if (context.IsAudioOnly)
+        {
+            // the audio-only fallback already wired the session without a video track
+            if (!context.VideoAfterAudioOnlyLogged)
+            {
+                context.VideoAfterAudioOnlyLogged = true;
+                s_logger.ZLogWarning(
+                    $"Video appeared after the session was declared audio-only (it outwaited the fallback); video is dropped");
+            }
+            return;
+        }
+
         context.VideoCodec ??= codec;
 
         if (context.MediaOutlet is null)

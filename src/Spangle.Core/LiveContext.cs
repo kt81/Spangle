@@ -26,15 +26,25 @@ public sealed class LiveContext : IDisposable
 
     private readonly PublishGate? _publishGate;
 
+    /// <summary>
+    /// When set, a session whose audio codec is known but whose video codec has not
+    /// appeared within this delay is treated as audio-only and wired on the audio
+    /// track. RTMP needs this: the protocol has no way to declare "no video is
+    /// coming" (TS programs declare it in the PMT, so SRT never waits).
+    /// </summary>
+    private readonly TimeSpan? _audioOnlyFallback;
+
     public LiveContext(IReceiverContext receiverContext, ISenderContext senderContext,
         CancellationToken cancellationToken = default, IReadOnlyList<ISpinner>? mediaSpinners = null,
-        PublishSessionRegistry? publishSessions = null, IPublishAuthorizer? publishAuthorizer = null)
+        PublishSessionRegistry? publishSessions = null, IPublishAuthorizer? publishAuthorizer = null,
+        TimeSpan? audioOnlyFallback = null)
     {
         ReceiverContext = receiverContext;
         SenderContext = senderContext;
         senderContext.SourceInfo = receiverContext;
         _cancellationToken = cancellationToken;
         _mediaSpinners = mediaSpinners ?? [];
+        _audioOnlyFallback = audioOnlyFallback;
         receiverContext.VideoCodecSet += OnVideoCodecSet;
         receiverContext.AudioCodecSet += OnAudioCodecSet;
 
@@ -72,7 +82,10 @@ public sealed class LiveContext : IDisposable
         _lifetimeCancellationTokenSource.Cancel();
     }
 
+    private readonly Lock _wireLock = new();
     private bool _pipelineWired;
+    private bool _wiringClosed;
+    private bool _audioOnlyFallbackScheduled;
 
     private void OnVideoCodecSet(VideoCodec _) => WirePipeline();
 
@@ -81,13 +94,44 @@ public sealed class LiveContext : IDisposable
     /// so the audio codec is the wiring trigger — but only when the source has
     /// declared itself audio-only; otherwise the video codec event stays authoritative
     /// (audio usually arrives first and the output must not start without video).
+    /// When the source cannot declare it (RTMP), an optional fallback timer treats
+    /// "audio present, no video in sight" as audio-only after a grace period.
     /// </summary>
-    private void OnAudioCodecSet(AudioCodec _)
+    private void OnAudioCodecSet(AudioCodec codec)
     {
         if (ReceiverContext.IsAudioOnly)
         {
             WirePipeline();
+            return;
         }
+        if (_audioOnlyFallback is { } delay && !_pipelineWired && !_audioOnlyFallbackScheduled)
+        {
+            _audioOnlyFallbackScheduled = true;
+            _ = RunAudioOnlyFallbackAsync(delay);
+        }
+    }
+
+    private async Task RunAudioOnlyFallbackAsync(TimeSpan delay)
+    {
+        try
+        {
+            await Task.Delay(delay, _cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        lock (_wireLock)
+        {
+            if (_pipelineWired || _wiringClosed || ReceiverContext.VideoCodec is not null)
+            {
+                return;
+            }
+            // declare before wiring: the segmenters key their cut logic on this flag
+            ReceiverContext.IsAudioOnly = true;
+        }
+        WirePipeline();
     }
 
     /// <summary>
@@ -97,11 +141,14 @@ public sealed class LiveContext : IDisposable
     /// </summary>
     private void WirePipeline()
     {
-        if (_pipelineWired)
+        lock (_wireLock)
         {
-            return;
+            if (_pipelineWired || _wiringClosed)
+            {
+                return;
+            }
+            _pipelineWired = true;
         }
-        _pipelineWired = true;
 
         var intake = DetermineTerminalIntake();
 
@@ -187,10 +234,23 @@ public sealed class LiveContext : IDisposable
         }
         finally
         {
+            // No wiring may happen after this point (e.g. the audio-only fallback
+            // timer firing into a dead session)
+            lock (_wireLock)
+            {
+                _wiringClosed = true;
+            }
+
             // Signal downstream (spinner -> sender) that no more media will come
             if (ReceiverContext.MediaOutlet is not null)
             {
                 await ReceiverContext.MediaOutlet.CompleteAsync();
+            }
+            else
+            {
+                // Never wired (e.g. a denied publish): the sender is still waiting on
+                // its intake and the host awaits the sender, so complete it directly
+                await SenderContext.Intake.CompleteAsync();
             }
 
             contextCancellationRegistration.Dispose();

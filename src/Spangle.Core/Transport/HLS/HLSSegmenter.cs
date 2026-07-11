@@ -27,11 +27,11 @@ internal sealed class HLSSegmenter
     private ulong _lastPcr;
 
     public HLSSegmenter(IHLSStreamStorage storage, double targetDuration, HLSPlaylistHandover? resume = null,
-        Action<string, long, int>? onUpdated = null)
+        Action<string, string?, long, int>? onUpdated = null, int windowSize = 6)
     {
         _storage = storage;
         _targetDuration = targetDuration;
-        _playlist = new HLSPlaylist(storage, onUpdated: onUpdated, resume: resume);
+        _playlist = new HLSPlaylist(storage, onUpdated: onUpdated, resume: resume, windowSize: windowSize);
     }
 
     /// <summary>

@@ -52,8 +52,11 @@ blocking reload.
 - **Sender** (`ISender`): delivers to viewers. `HLSSender` cuts the TS stream into segments
   and maintains a playlist; `CmafHLSSender` muxes MediaFrames itself. HTTP delivery is
   plain static file serving plus the in-memory playlist endpoint.
-- **`LiveContext`** wires receiver → [media spinners…] → terminal once the video codec
-  is known (`VideoCodecSet` event).
+- **`LiveContext`** wires receiver → [media spinners…] → terminal once the leading codec
+  is known: normally the video codec (`VideoCodecSet`), the audio codec when the source
+  declared itself audio-only (TS PMT), or — for protocols that cannot declare it, like
+  RTMP — an optional fallback timer that treats "audio present, no video in sight" as
+  audio-only after a grace period.
 
 Shutdown propagates through pipe completion: receiver completes its outlet → spinner
 drains and completes its outlet → sender finalizes the last segment and writes
@@ -262,7 +265,5 @@ publisher can take over an RTMP session of the same name.
 ## Known simplifications (as of now)
 
 - Single program / fixed PIDs in TS output; PCR equals DTS (no PCR offset)
-- Concurrent publishers with the same stream name clash in the same directory
-- Extended timestamps (>0xFFFFFF ms ≈ 4.6h) are consumed but not fully exercised by tests
-- Abrupt disconnects may lose the tail frames that were still in flight
-- LL-HLS: no playlist delta updates (`_HLS_skip`), no rendition reports
+- LL-HLS: no rendition reports (`EXT-X-RENDITION-REPORT`; single-rendition output
+  has nothing to report yet)
