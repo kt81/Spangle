@@ -100,6 +100,7 @@ if (storage is FileHLSStorage)
     contentTypes.Mappings[".m3u8"] = "application/vnd.apple.mpegurl";
     contentTypes.Mappings[".ts"] = "video/mp2t";
     contentTypes.Mappings[".m4s"] = "video/iso.segment";
+    contentTypes.Mappings[".mpd"] = "application/dash+xml";
     app.UseStaticFiles(new StaticFileOptions
     {
         FileProvider = new PhysicalFileProvider(hlsDirectory),
@@ -107,8 +108,9 @@ if (storage is FileHLSStorage)
         ContentTypeProvider = contentTypes,
         OnPrepareResponse = static ctx =>
         {
-            // Playlists change every segment; segments themselves are immutable
-            if (ctx.File.Name.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase))
+            // Manifests change every segment; segments themselves are immutable
+            if (ctx.File.Name.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase)
+                || ctx.File.Name.EndsWith(".mpd", StringComparison.OrdinalIgnoreCase))
             {
                 ctx.Context.Response.Headers.CacheControl = "no-cache, no-store";
             }
@@ -141,13 +143,19 @@ else
                     }
                     if (stream.TryReadBlob(name, out ReadOnlyMemory<byte> blob))
                     {
-                        ctx.Response.ContentType = Path.GetExtension(name).ToLowerInvariant() switch
+                        string extension = Path.GetExtension(name).ToLowerInvariant();
+                        ctx.Response.ContentType = extension switch
                         {
                             ".ts" => "video/mp2t",
                             ".m4s" => "video/iso.segment",
                             ".mp4" => "video/mp4",
+                            ".mpd" => "application/dash+xml",
                             _ => "application/octet-stream",
                         };
+                        if (extension == ".mpd")
+                        {
+                            ctx.Response.Headers.CacheControl = "no-cache, no-store";
+                        }
                         await ctx.Response.Body.WriteAsync(blob, ctx.RequestAborted);
                         return;
                     }
