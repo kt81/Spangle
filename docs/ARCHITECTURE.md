@@ -207,7 +207,12 @@ SRT bytes ──► SRTReceiverContext ──► M2TSDemuxer ──► M2TSMedia
   `SRTClient.StreamId` (plain, or the `r=` key of Haivision Access Control ids) becomes
   the stream name; an optional listener passphrase (`Srt.Passphrase`) enforces wire
   encryption.
-- Not yet supported over TS ingest: audio-only programs, multi-packet PSI sections.
+- PSI sections spanning multiple TS packets are reassembled (per-PSI-PID section
+  buffers with continuity checking), and audio-only programs are first-class: the
+  adapter declares the source audio-only (PMT maps no video), the pipeline wires on
+  the audio codec, and both output paths cut segments on the audio timeline — the
+  TS muxer emits a video-less PMT with the PCR and random-access flags on the audio
+  PID, and the CMAF packager builds an audio-only init segment.
 
 ## Publish authorization & takeover
 

@@ -33,6 +33,13 @@ public interface IReceiverContext
     public string? StreamName { get; }
 
     /// <summary>
+    /// True when the source has declared that no video track exists (e.g. a TS program
+    /// mapping only an audio stream). Distinguishes "audio-only by design" from
+    /// "the video codec is not known yet".
+    /// </summary>
+    public bool IsAudioOnly { get; }
+
+    /// <summary>
     /// Video dimensions from the source metadata; 0 when unknown
     /// </summary>
     public uint VideoWidth { get; }

@@ -118,6 +118,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     private readonly List<VideoSampleMeta> _videoMeta = new();
     private readonly List<AudioSampleMeta> _audioMeta = new();
     private uint _firstAudioTsMs;
+    private uint _lastAudioTsMs;
 
     // The current segment accumulates here (one fragment per part); reused across segments
     private readonly MemoryStream _segmentStream = new();
@@ -227,10 +228,34 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             return;
         }
 
+        // With no video track there are no keyframes; every AAC frame is a sync point,
+        // so the audio timeline drives the segment and part cuts instead.
+        if (context.SourceInfo?.IsAudioOnly == true)
+        {
+            if (_hasSegmentStart
+                && (header.Timestamp - _segmentStartMs) / 1000.0 >= context.TargetSegmentDuration)
+            {
+                FinalizeSegment(header.Timestamp);
+            }
+            else if (_partTarget is { } partTarget && _hasSegmentStart && _audioMeta.Count > 0
+                     && (header.Timestamp - _partStartMs) / 1000.0 >= partTarget)
+            {
+                FlushPart(header.Timestamp);
+            }
+
+            if (!_hasSegmentStart)
+            {
+                _hasSegmentStart = true;
+                _segmentStartMs = header.Timestamp;
+                _partStartMs = header.Timestamp;
+            }
+        }
+
         if (_audioMeta.Count == 0)
         {
             _firstAudioTsMs = header.Timestamp;
         }
+        _lastAudioTsMs = header.Timestamp;
         var length = (int)payload.Length;
         payload.CopyTo(_audioData.GetSpan(length));
         _audioMeta.Add(new AudioSampleMeta { Offset = _audioData.WrittenCount, Length = length });
@@ -290,7 +315,10 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
         if (_partTarget is not null)
         {
-            bool independent = _videoMeta.Count > 0 && _videoMeta[0].Sync;
+            // audio-only parts are always independent (every AAC frame is a sync point)
+            bool independent = _videoConfig is null
+                ? _audioMeta.Count > 0
+                : _videoMeta.Count > 0 && _videoMeta[0].Sync;
             string partName = _playlist!.NextPartName();
             using (var file = File.Create(Path.Combine(_directory!, partName)))
             {
@@ -336,13 +364,15 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         _directory = context.ResolveStreamDirectory();
         Directory.CreateDirectory(_directory);
 
-        var videoTrack = new CmafVideoTrack
-        {
-            Codec = _videoCodec!.Value,
-            ConfigRecord = _videoConfig!,
-            Width = context.SourceInfo?.VideoWidth ?? 0,
-            Height = context.SourceInfo?.VideoHeight ?? 0,
-        };
+        CmafVideoTrack? videoTrack = _videoConfig is not null
+            ? new CmafVideoTrack
+            {
+                Codec = _videoCodec!.Value,
+                ConfigRecord = _videoConfig,
+                Width = context.SourceInfo?.VideoWidth ?? 0,
+                Height = context.SourceInfo?.VideoHeight ?? 0,
+            }
+            : null;
         CmafAudioTrack? audioTrack = _audioConfig is not null
             ? new CmafAudioTrack
             {
@@ -364,7 +394,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
         _playlist = new HLSPlaylist(_directory, "init.mp4", _partTarget, onUpdated, resume);
         s_logger.ZLogInformation(
-            $"HLS(CMAF) output to {_directory} (video={_videoCodec}, audio={(audioTrack is null ? "none" : "AAC")}, lowLatency={_partTarget is not null})");
+            $"HLS(CMAF) output to {_directory} (video={(videoTrack is null ? "none" : _videoCodec!.Value.ToString())}, audio={(audioTrack is null ? "none" : "AAC")}, lowLatency={_partTarget is not null})");
     }
 
     /// <summary>Flushes the remaining samples and finalizes the playlist</summary>
@@ -390,6 +420,10 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         if (_videoConfig is not null && _videoMeta.Count > 0)
         {
             FinalizeSegment(_videoMeta[^1].DtsMs + _lastVideoDurationMs);
+        }
+        else if (_videoConfig is null && _audioConfig is not null && _audioMeta.Count > 0)
+        {
+            FinalizeSegment(_lastAudioTsMs + AacSamplesPerFrame * 1000 / _asc.SampleRate);
         }
         else if (_segmentStream.Length > 0)
         {
