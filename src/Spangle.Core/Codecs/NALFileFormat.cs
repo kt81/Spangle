@@ -18,7 +18,8 @@ public static unsafe class NALFileFormat
         // We always treat the NALU length size as 4 internally in this application.
         const int lengthSize = 4;
         var lenSpan = buff.GetSpan(lengthSize);
-        BigEndianUInt32.FromHost((uint)naluLength).AsSpan().CopyTo(lenSpan);
+        BigEndianUInt32 be = BigEndianUInt32.FromHost((uint)naluLength);
+        be.AsSpan().CopyTo(lenSpan);
         buff.Advance(lengthSize);
         return lengthSize;
     }

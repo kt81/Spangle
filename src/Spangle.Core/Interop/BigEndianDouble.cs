@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Spangle.Interop;
@@ -8,11 +9,11 @@ namespace Spangle.Interop;
 /// Struct mapping for 8 bytes double precision floating point value of Big Endian
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = Length, Size = Length)]
-public unsafe struct BigEndianDouble : IInteropType<double, BigEndianDouble>
+public struct BigEndianDouble : IInteropType<double, BigEndianDouble>
 {
     private const int Length = sizeof(double);
 
-    private fixed byte _val[Length];
+    private InlineArray8<byte> _val;
 
     public static BigEndianDouble FromHost(double value)
     {
@@ -23,35 +24,18 @@ public unsafe struct BigEndianDouble : IInteropType<double, BigEndianDouble>
         return self;
     }
 
-    public readonly double HostValue
+    public double HostValue
     {
-        get
-        {
-            fixed (byte* p = _val)
-            {
-                return BinaryPrimitives.ReadDoubleBigEndian(new Span<byte>(p, Length));
-            }
-        }
-        init
-        {
-            fixed (byte* p = _val)
-            {
-                BinaryPrimitives.WriteDoubleBigEndian(new Span<byte>(p, Length), value);
-            }
-        }
+        readonly get => BinaryPrimitives.ReadDoubleBigEndian(_val);
+        init => BinaryPrimitives.WriteDoubleBigEndian(_val, value);
     }
 
-    public readonly Span<byte> AsSpan()
-    {
-        fixed (byte* p = _val)
-        {
-            return new Span<byte>(p, Length);
-        }
-    }
+    /// <summary>The raw big-endian bytes; the span aliases this instance.</summary>
+    [UnscopedRef]
+    public Span<byte> AsSpan() => _val;
 
     public override readonly string ToString()
     {
-        // ReSharper disable once SpecifyACultureInStringConversionExplicitly
         return HostValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 

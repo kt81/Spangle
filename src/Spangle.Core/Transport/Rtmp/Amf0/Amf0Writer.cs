@@ -45,7 +45,8 @@ internal static class Amf0Writer
         const int totalLen = sizeof(double) + MarkerLength;
         var result = writer.GetSpan(totalLen);
         result[0] = (byte)Amf0TypeMarker.Number;
-        BigEndianDouble.FromHost(value).AsSpan().CopyTo(result[1..]);
+        BigEndianDouble be = BigEndianDouble.FromHost(value);
+        be.AsSpan().CopyTo(result[1..]);
 
         writer.Advance(totalLen);
         return totalLen;

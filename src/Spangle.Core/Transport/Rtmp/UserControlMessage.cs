@@ -1,21 +1,21 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Spangle.Interop;
 
 namespace Spangle.Transport.Rtmp;
 
 [StructLayout(LayoutKind.Sequential, Pack = 2, Size = Size)]
-internal unsafe struct UserControlMessage
+internal struct UserControlMessage
 {
-    public const  int Size               = 6;
-    private const int EventDataMaxLength = 4;
+    public const int Size = 6;
 
-    public       BigEndianUInt16 EventType;
-    public fixed byte            EventData[EventDataMaxLength];
+    public BigEndianUInt16    EventType;
+    public InlineArray4<byte> EventData;
 
     public static UserControlMessage Create(UserControlMessageEvents type, ReadOnlySpan<byte> data)
     {
         var self = new UserControlMessage { EventType = BigEndianUInt16.FromHost((ushort)type) };
-        data.CopyTo(new Span<byte>(self.EventData, EventDataMaxLength));
+        data.CopyTo(self.EventData);
         return self;
     }
 }

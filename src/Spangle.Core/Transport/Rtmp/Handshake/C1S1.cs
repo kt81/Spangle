@@ -1,4 +1,6 @@
-﻿using System.Runtime.InteropServices;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Spangle.Interop;
 
 namespace Spangle.Transport.Rtmp.Handshake;
@@ -23,14 +25,18 @@ namespace Spangle.Transport.Rtmp.Handshake;
 
                          C1 and S1 bits
  */
-[StructLayout(LayoutKind.Sequential, Pack = 1)] 
-internal unsafe struct C1S1
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+internal struct C1S1
 {
-    public readonly BigEndianUInt32 Timestamp; 
+    public readonly BigEndianUInt32 Timestamp;
     public readonly uint Empty;
-    public fixed byte Random[IContract.RandomSectionLength];
-    
-    public Span<byte> RandomSpan => MemoryMarshal.CreateSpan(ref Random[0], IContract.RandomSectionLength);
+    public HandshakeRandomBytes Random;
+
+    [UnscopedRef]
+    public Span<byte> RandomSpan => Random;
+
+    [UnscopedRef]
+    public readonly ReadOnlySpan<byte> RandomReadOnlySpan => Random;
 
     public C1S1(uint time)
     {
@@ -39,7 +45,7 @@ internal unsafe struct C1S1
         // (once per connection) and keeps the analyzer's security bar (CA5394).
         System.Security.Cryptography.RandomNumberGenerator.Fill(RandomSpan);
     }
-    
+
     public C1S1(uint time, byte[] random)
     {
         if (random.Length != IContract.RandomSectionLength)
@@ -49,4 +55,11 @@ internal unsafe struct C1S1
         Timestamp = BigEndianUInt32.FromHost(time);
         random.CopyTo(RandomSpan);
     }
+}
+
+/// <summary>The 1528-byte random section shared by C1/S1 and C2/S2 (echo).</summary>
+[InlineArray(IContract.RandomSectionLength)]
+internal struct HandshakeRandomBytes
+{
+    private byte _element0;
 }

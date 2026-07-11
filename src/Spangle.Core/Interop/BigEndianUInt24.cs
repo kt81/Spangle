@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Spangle.Interop;
@@ -6,12 +8,12 @@ namespace Spangle.Interop;
 /// Struct mapping for 3 bytes number of Big Endian
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1, Size = Length)]
-public unsafe struct BigEndianUInt24 : IInteropType<uint, BigEndianUInt24>
+public struct BigEndianUInt24 : IInteropType<uint, BigEndianUInt24>
 {
     public const uint MaxValue = 0xFF_FF_FF;
     private const int Length = 3;
 
-    private fixed byte _val[Length];
+    private InlineArray3<byte> _val;
 
     public static BigEndianUInt24 FromHost(uint value)
     {
@@ -22,16 +24,13 @@ public unsafe struct BigEndianUInt24 : IInteropType<uint, BigEndianUInt24>
         return self;
     }
 
-    public readonly uint HostValue
+    public uint HostValue
     {
-        get
-        {
-            return (uint)(
-                (_val[0] << 16)
-                + (_val[1] << 8)
-                + (_val[2] << 0)
-            );
-        }
+        readonly get => (uint)(
+            (_val[0] << 16)
+            + (_val[1] << 8)
+            + (_val[2] << 0)
+        );
         init
         {
             if (value > MaxValue)
@@ -44,13 +43,9 @@ public unsafe struct BigEndianUInt24 : IInteropType<uint, BigEndianUInt24>
         }
     }
 
-    public readonly Span<byte> AsSpan()
-    {
-        fixed (byte* p = _val)
-        {
-            return new Span<byte>(p, Length);
-        }
-    }
+    /// <summary>The raw big-endian bytes; the span aliases this instance.</summary>
+    [UnscopedRef]
+    public Span<byte> AsSpan() => _val;
 
     public override readonly string ToString()
     {
