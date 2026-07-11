@@ -12,6 +12,13 @@ Spangle:
     Port: 8080
     # MetadataInjection: true  # POST /api/streams/{key}/metadata -> timed ID3 in the
     #                          # output. No built-in auth: protect it at the network level.
+  Management:
+    # The control API (and web console) listens on its own port, never on the
+    # delivery port. Binding beyond loopback requires Token.
+    Enabled: true
+    Port: 8081
+    # BindAddress: 127.0.0.1   # e.g. 0.0.0.0 to manage remotely (Token required)
+    # Token: ""                # Bearer token for every /api/manage request
   Hls:
     Enabled: true
     # Storage: Memory  # "Memory" (default): the live window is served from process

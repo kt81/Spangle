@@ -94,4 +94,9 @@ public interface IReceiverContext
     /// <returns></returns>
     public ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource);
 
+    /// <summary>
+    /// Total bytes this session has received from the publisher, counted at the
+    /// transport read loop. Monitoring reads this to derive the ingest bitrate.
+    /// </summary>
+    public long BytesReceived => 0;
 }

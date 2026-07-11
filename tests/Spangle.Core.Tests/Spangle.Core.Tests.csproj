@@ -41,6 +41,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Spangle.Core\Spangle.Core.csproj" />
+    <ProjectReference Include="..\..\src\Spangle.Extensions.Kestrel\Spangle.Extensions.Kestrel.csproj" />
   </ItemGroup>
 
   <ItemGroup>

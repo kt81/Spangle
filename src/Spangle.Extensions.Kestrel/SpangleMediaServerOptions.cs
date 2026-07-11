@@ -13,6 +13,30 @@ public class SpangleMediaServerOptions
     public SrtOptions Srt { get; set; } = new();
     public HlsOptions Hls { get; set; } = new();
     public HttpOptions Http { get; set; } = new();
+    public ManagementOptions Management { get; set; } = new();
+}
+
+/// <summary>
+/// The management surface (web console + control API). It listens on its own
+/// port so operational endpoints never share the public delivery port.
+/// </summary>
+public class ManagementOptions
+{
+    public bool Enabled { get; set; } = true;
+
+    [Range(1, 65535)] public int Port { get; set; } = 8081;
+
+    /// <summary>
+    /// Address the management endpoint binds to. Loopback by default; binding
+    /// wider (e.g. "0.0.0.0") requires <see cref="Token"/> to be set.
+    /// </summary>
+    public string BindAddress { get; set; } = "127.0.0.1";
+
+    /// <summary>
+    /// Bearer token required on every management request when set
+    /// (<c>Authorization: Bearer ...</c>). Mandatory for non-loopback binds.
+    /// </summary>
+    public string? Token { get; set; }
 }
 
 public class RtmpOptions : MediaProtocolOptions

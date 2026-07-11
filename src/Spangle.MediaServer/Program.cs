@@ -5,6 +5,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Spangle.Extensions.Kestrel;
 using Spangle.Extensions.Kestrel.DependencyInjection;
+using Spangle.Extensions.Kestrel.Management;
 using Spangle.Transport.HLS;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,7 +18,11 @@ var app = builder.Build();
 var options = app.Services.GetRequiredService<IOptions<SpangleMediaServerOptions>>().Value;
 var storage = app.Services.GetRequiredService<IHLSStorage>();
 var registry = app.Services.GetRequiredService<HLSStreamRegistry>();
+var viewerStats = app.Services.GetRequiredService<ViewerStatsRegistry>();
 var hlsPathPrefix = options.Hls.RequestPath + "/";
+
+// Control API for the console and for scripts; reachable only via the management port
+app.MapSpangleManagement();
 
 // Serve live playlists from memory, implementing LL-HLS blocking reload
 // (?_HLS_msn=&_HLS_part=). Falls through to the storage/static serving below.
@@ -35,6 +40,9 @@ app.Use(async (ctx, next) =>
         string registryKey = rest;
         if (slashAt > 0 && rest.IndexOf('/', slashAt + 1) < 0 && registry.TryGet(registryKey, out var live))
         {
+            string streamKey = rest[..slashAt];
+            viewerStats.OnPlaylistRequest(streamKey);
+
             // _HLS_skip=YES|v2 requests a playlist delta update (EXT-X-SKIP)
             string? skipValue = ctx.Request.Query["_HLS_skip"];
             bool skip = "YES".Equals(skipValue, StringComparison.OrdinalIgnoreCase)
@@ -53,7 +61,15 @@ app.Use(async (ctx, next) =>
                 }
                 _ = int.TryParse(ctx.Request.Query["_HLS_part"], NumberStyles.Integer, CultureInfo.InvariantCulture,
                     out int part);
-                text = await live.WaitForAsync(msn, part, skip, TimeSpan.FromSeconds(15), ctx.RequestAborted).ConfigureAwait(false);
+                viewerStats.WaiterEntered(streamKey);
+                try
+                {
+                    text = await live.WaitForAsync(msn, part, skip, TimeSpan.FromSeconds(15), ctx.RequestAborted).ConfigureAwait(false);
+                }
+                finally
+                {
+                    viewerStats.WaiterExited(streamKey);
+                }
             }
             else
             {
