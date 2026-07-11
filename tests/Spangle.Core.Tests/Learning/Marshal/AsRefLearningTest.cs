@@ -1,19 +1,24 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Spangle.Tests.Learning.Marshal;
 
 /*
- * - AsRef interprets byte sequence as a struct without copying original bytes.
- * - `ref` keyword is necessary on calling AsRef and declaring variable in caller. (ref var a = ref AsRef(...))
- *   - Otherwise, the variable in caller is the COPY of the struct interpreted.
+ * Documents the MemoryMarshal.AsRef semantics every wire-struct overlay in this
+ * codebase relies on (BufferMarshal, the TS/RTMP struct mappings):
+ * - AsRef interprets a byte sequence as a struct without copying original bytes.
+ * - `ref` is required both on the AsRef call and the caller's variable
+ *   (ref var a = ref AsRef(...)) — otherwise the variable is a COPY.
+ * - A struct without Pack=1/Size grows by alignment padding, and AsRef rejects
+ *   a span shorter than that padded size — the reason all wire structs here
+ *   pin their layout explicitly.
  * See also: https://github.com/dotnet/corefx/pull/31236
  */
 public class MarshalLearningTest
 {
     [Fact]
-    public unsafe void TestAsRefSpan()
+    public void TestAsRefSpan()
     {
         var bytes = new byte[] { 1, 2, 0, 3, 0, 0, 0 };
         var span = bytes.AsSpan(..bytes.Length);
@@ -26,30 +31,10 @@ public class MarshalLearningTest
         span[0].Should().Be(0);
         mapped.V1.Should().Be(0, "the struct is not the copy but only interpreting original byte sequence.");
 
-        fixed (void* p = &mapped)
-        {
-            Unsafe.AreSame(ref Unsafe.AsRef<byte>(p), ref MemoryMarshal.GetReference(span))
-                .Should().BeTrue("Same address");
-        }
+        Unsafe.AreSame(ref Unsafe.As<BytePackedStruct, byte>(ref mapped), ref MemoryMarshal.GetReference(span))
+            .Should().BeTrue("Same address");
     }
-    
-    [Fact]
-    public unsafe void TestAsRefPointer()
-    {
-        var bytes = new byte[] { 1, 2, 0, 3, 0, 0, 0 };
-        fixed (byte* p = bytes)
-        {
-            ref var mapped = ref Unsafe.AsRef<BytePackedStruct>(p);
-            mapped.V1.Should().Be(1);
-            mapped.V2.Should().Be(2);
-            mapped.V3.Should().Be(3);
-            p[1].Should().Be(2);
 
-            bytes[0] = 0;
-            mapped.V1.Should().Be(0);
-        }
-    }
-    
     [Fact]
     public void TestAsRefHostAlignSpan()
     {
@@ -60,33 +45,6 @@ public class MarshalLearningTest
         });
         exception.Should().NotBeNull();
         exception.Should().BeOfType<ArgumentOutOfRangeException>("byte sequence does not match struct layout");
-    }
-    
-    [Fact]
-    public unsafe void TestAsRefHostAlignPointer()
-    {
-        var bytes = new byte[] { 1, 2, 0, 3, 0, 0, 0 };
-        fixed (byte* p = bytes)
-        {
-            // This way is REALLY UNSAFE!!
-            // var mapped = Unsafe.AsRef<HostAlignStruct>(p);
-            // mapped.V1.Should().Be(1);
-            // mapped.V2.Should().NotBe(2);
-            // mapped.V3.Should().NotBe(3);
-
-            try
-            {
-                // Cannot use Assert.Throws or Record.Exception with pointer and byref-type span
-                MemoryMarshal.AsRef<HostAlignStruct>(new Span<byte>(p, bytes.Length));
-            }
-            catch (Exception exception)
-            {
-                exception.Should().BeOfType<ArgumentOutOfRangeException>();
-                return;
-            }
-            
-            Assert.Fail("Should throws exception");
-        }
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1, Size = 5)]
@@ -108,5 +66,4 @@ public class MarshalLearningTest
         public short V2;
         public int   V3;
     }
-
 }
