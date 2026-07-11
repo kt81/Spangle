@@ -9,4 +9,10 @@ internal static class M2TSStreamType
     public const byte H264    = 0x1B;
     public const byte H265    = 0x24;
     public const byte AdtsAac = 0x0F;
+
+    /// <summary>
+    /// PES packets containing private data — the codec is identified by descriptors;
+    /// Opus rides here with a registration descriptor "Opus".
+    /// </summary>
+    public const byte PrivatePes = 0x06;
 }

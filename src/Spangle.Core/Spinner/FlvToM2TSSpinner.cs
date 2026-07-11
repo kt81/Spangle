@@ -255,7 +255,12 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
     {
         if (frameHeader.AudioCodec != AudioCodec.AAC)
         {
-            s_logger.ZLogWarning($"Unsupported audio codec, dropping: {frameHeader.AudioCodec}");
+            if (!_audioUnrepresentable)
+            {
+                _audioUnrepresentable = true;
+                s_logger.ZLogWarning(
+                    $"{frameHeader.AudioCodec} cannot be carried in this TS output; audio is dropped (use the fMP4/CMAF segment format)");
+            }
             return;
         }
 

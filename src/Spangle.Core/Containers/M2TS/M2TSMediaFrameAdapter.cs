@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Spangle.Codecs;
 using Spangle.Codecs.AAC;
 using Spangle.Codecs.HEVC;
+using Spangle.Codecs.Opus;
 using Spangle.Logging;
 using Spangle.Spinner;
 using ZLogger;
@@ -37,9 +38,10 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
     private readonly ArrayBufferWriter<byte> _sample = new(16 * 1024);
     private TimestampUnwrapper _videoTs;
 
-    // ---- audio (AAC) state ----
+    // ---- audio (AAC / Opus) state ----
     private bool  _audioConfigSent;
     private uint  _sampleRate;
+    private byte  _opusChannels;
     private ulong _audioNext90k;
     private TimestampUnwrapper _audioTs;
 
@@ -48,7 +50,8 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
     /// <summary>Set when frames were written since the last flush; the receiver flushes and clears it.</summary>
     public bool HasPendingFrames { get; set; }
 
-    public void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid)
+    public void OnProgramMapped(byte videoStreamType, ushort videoPid, byte audioStreamType, ushort audioPid,
+        byte opusChannels)
     {
         switch (videoStreamType)
         {
@@ -58,7 +61,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
             case M2TSStreamType.H265:
                 context.VideoCodec = VideoCodec.H265;
                 break;
-            case 0 when audioStreamType == M2TSStreamType.AdtsAac:
+            case 0 when audioStreamType != 0:
                 // declare before AudioCodec below: setting the codec triggers the wiring
                 context.IsAudioOnly = true;
                 s_logger.ZLogInformation($"The TS program is audio-only");
@@ -75,9 +78,15 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
                 break;
         }
 
-        if (audioStreamType == M2TSStreamType.AdtsAac)
+        switch (audioStreamType)
         {
-            context.AudioCodec = AudioCodec.AAC;
+            case M2TSStreamType.AdtsAac:
+                context.AudioCodec = AudioCodec.AAC;
+                break;
+            case M2TSStreamType.PrivatePes when opusChannels > 0:
+                _opusChannels = opusChannels;
+                context.AudioCodec = AudioCodec.Opus;
+                break;
         }
     }
 
@@ -98,6 +107,9 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
                 break;
             case M2TSStreamType.AdtsAac:
                 OnAdtsFrames(pts90k, es);
+                break;
+            case M2TSStreamType.PrivatePes:
+                OnOpusPes(pts90k, es);
                 break;
         }
     }
@@ -306,6 +318,83 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
             // 1024 samples per AAC frame
             _audioNext90k += 1024UL * 90000 / _sampleRate;
             es = es[frameLength..];
+        }
+    }
+
+    // =======================================================================
+    // Opus (private PES with control headers, per the Opus-in-TS mapping)
+
+    private void OnOpusPes(ulong? pts90k, ReadOnlySpan<byte> es)
+    {
+        if (pts90k is { } pts)
+        {
+            _audioNext90k = _audioTs.Unwrap(pts);
+        }
+
+        var pos = 0;
+        while (pos + 2 <= es.Length)
+        {
+            // control header: 11-bit prefix 0x3FF + start/end trim + extension flags
+            if (es[pos] != 0x7F || (es[pos + 1] & 0xE0) != 0xE0)
+            {
+                s_logger.ZLogWarning($"Lost Opus control-header sync; dropping the rest of the PES payload");
+                return;
+            }
+            bool startTrim = (es[pos + 1] & 0x10) != 0;
+            bool endTrim = (es[pos + 1] & 0x08) != 0;
+            bool controlExtension = (es[pos + 1] & 0x04) != 0;
+            pos += 2;
+
+            var size = 0;
+            while (pos < es.Length && es[pos] == 0xFF)
+            {
+                size += 255;
+                pos++;
+            }
+            if (pos >= es.Length)
+            {
+                s_logger.ZLogWarning($"Truncated Opus control header; dropped");
+                return;
+            }
+            size += es[pos++];
+
+            if (startTrim)
+            {
+                pos += 2;
+            }
+            if (endTrim)
+            {
+                pos += 2;
+            }
+            if (controlExtension)
+            {
+                if (pos >= es.Length)
+                {
+                    s_logger.ZLogWarning($"Truncated Opus control extension; dropped");
+                    return;
+                }
+                pos += 1 + es[pos];
+            }
+            if (pos + size > es.Length)
+            {
+                s_logger.ZLogWarning($"Truncated Opus access unit ({size} of {es.Length - pos} bytes); dropped");
+                return;
+            }
+
+            ReadOnlySpan<byte> au = es.Slice(pos, size);
+            pos += size;
+
+            if (!_audioConfigSent)
+            {
+                // TS carries no OpusHead; synthesize one from the descriptor channel count
+                WriteFrame(MediaFrameKind.Audio, MediaFrameFlags.Config, (uint)AudioCodec.Opus, 0,
+                    OpusPacket.BuildOpusHead(_opusChannels), (uint)(_audioNext90k / 90));
+                _audioConfigSent = true;
+            }
+
+            WriteFrame(MediaFrameKind.Audio, MediaFrameFlags.None, (uint)AudioCodec.Opus, 0,
+                au, (uint)(_audioNext90k / 90));
+            _audioNext90k += OpusPacket.GetSampleCount(au) * 90000UL / OpusPacket.SampleRate;
         }
     }
 

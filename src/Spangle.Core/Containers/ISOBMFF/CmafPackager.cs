@@ -16,10 +16,15 @@ internal readonly struct CmafVideoTrack
 
 internal readonly struct CmafAudioTrack
 {
-    /// <summary>AudioSpecificConfig bytes verbatim (goes into esds)</summary>
-    public required byte[] AudioSpecificConfig { get; init; }
+    public required AudioCodec Codec { get; init; }
 
-    /// <summary>Sample rate; also used as the audio track timescale</summary>
+    /// <summary>
+    /// Codec configuration verbatim: the AudioSpecificConfig for AAC (goes into esds),
+    /// the OpusHead identification header for Opus (converted into dOps).
+    /// </summary>
+    public required byte[] Config { get; init; }
+
+    /// <summary>Sample rate; also used as the audio track timescale (48000 for Opus)</summary>
     public required uint SampleRate { get; init; }
 
     public required ushort ChannelCount { get; init; }
@@ -344,7 +349,7 @@ internal sealed class CmafPackager(CmafVideoTrack? video, CmafAudioTrack? audio)
 
     private static void WriteAudioSampleEntry(BoxWriter w, CmafAudioTrack audioTrack)
     {
-        w.Begin("mp4a");
+        w.Begin(audioTrack.Codec == AudioCodec.Opus ? "Opus" : "mp4a");
         w.WriteZeros(6);      // reserved
         w.WriteUInt16(1);     // data_reference_index
         w.WriteZeros(4 * 2);  // reserved
@@ -354,8 +359,15 @@ internal sealed class CmafPackager(CmafVideoTrack? video, CmafAudioTrack? audio)
         w.WriteUInt16(0);     // reserved
         w.WriteUInt32(audioTrack.SampleRate << 16); // 16.16 fixed
 
+        if (audioTrack.Codec == AudioCodec.Opus)
+        {
+            WriteDOps(w, audioTrack.Config);
+            w.End(); // Opus
+            return;
+        }
+
         // esds: MPEG-4 ES_Descriptor with the AudioSpecificConfig
-        byte[] asc = audioTrack.AudioSpecificConfig;
+        byte[] asc = audioTrack.Config;
         w.BeginFull("esds", 0, 0);
         int dsiLength = asc.Length;
         int dcdLength = 13 + 2 + dsiLength; // fixed part + DSI tag+len
@@ -384,6 +396,28 @@ internal sealed class CmafPackager(CmafVideoTrack? video, CmafAudioTrack? audio)
         w.End(); // esds
 
         w.End(); // mp4a
+    }
+
+    /// <summary>
+    /// OpusSpecificBox ("Encapsulation of Opus in ISO BMFF" 4.3.2): the OpusHead
+    /// fields with the multi-byte values flipped to big-endian, without the magic.
+    /// </summary>
+    private static void WriteDOps(BoxWriter w, ReadOnlySpan<byte> opusHead)
+    {
+        var info = Codecs.Opus.OpusPacket.ParseOpusHead(opusHead);
+        w.Begin("dOps");
+        w.WriteUInt8(0); // Version
+        w.WriteUInt8(info.ChannelCount);
+        w.WriteUInt16(info.PreSkip);
+        w.WriteUInt32(info.InputSampleRate);
+        w.WriteInt16(info.OutputGain);
+        w.WriteUInt8(info.ChannelMappingFamily);
+        if (info.ChannelMappingFamily != 0)
+        {
+            // StreamCount, CoupledCount and the channel mapping follow verbatim
+            w.WriteBytes(opusHead[Codecs.Opus.OpusPacket.OpusHeadMinSize..]);
+        }
+        w.End();
     }
 
     private static void WriteHdlr(BoxWriter w, string handlerType, string name)
