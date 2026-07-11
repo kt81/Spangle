@@ -36,10 +36,13 @@ public class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
 
                 if (segmenter is null && result.Buffer.Length > 0)
                 {
-                    var directory = context.ResolveStreamDirectory();
-                    HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
-                    segmenter = new TSPassthroughSegmenter(directory, context.TargetSegmentDuration, resume);
-                    s_logger.ZLogInformation($"HLS(TS passthrough) output to {directory}");
+                    string key = context.ResolveStreamKey();
+                    HLSPlaylistHandover? resume = context.Registry?.TakeHandover(key);
+                    Action<string, long, int>? onUpdated =
+                        context.Registry is { } registry ? registry.GetOrAdd(key).Publish : null;
+                    segmenter = new TSPassthroughSegmenter(context.ResolveStreamStorage(),
+                        context.TargetSegmentDuration, resume, onUpdated);
+                    s_logger.ZLogInformation($"HLS(TS passthrough) output for {key} to {context.StorageDescription}");
                 }
 
                 var consumed = segmenter is null
@@ -112,7 +115,7 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
 {
     private const ulong PtsMask = (1UL << 33) - 1;
 
-    private readonly string _directory;
+    private readonly IHLSStreamStorage _storage;
     private readonly double _targetDuration;
     private readonly HLSPlaylist _playlist;
 
@@ -137,12 +140,12 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
     private ulong _segmentStart90k;
     private ulong _last90k;
 
-    public TSPassthroughSegmenter(string directory, double targetDuration, HLSPlaylistHandover? resume = null)
+    public TSPassthroughSegmenter(IHLSStreamStorage storage, double targetDuration, HLSPlaylistHandover? resume = null,
+        Action<string, long, int>? onUpdated = null)
     {
-        _directory = directory;
+        _storage = storage;
         _targetDuration = targetDuration;
-        Directory.CreateDirectory(directory);
-        _playlist = new HLSPlaylist(directory, resume: resume);
+        _playlist = new HLSPlaylist(storage, onUpdated: onUpdated, resume: resume);
     }
 
     public void ProcessPacket(ReadOnlySpan<byte> packet)
@@ -312,10 +315,7 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
     private void FinalizeSegment(double duration)
     {
         string name = _playlist.NextSegmentName(".ts");
-        using (var file = File.Create(Path.Combine(_directory, name)))
-        {
-            file.Write(_current.GetBuffer(), 0, (int)_current.Length);
-        }
+        _storage.WriteBlob(name, _current.GetBuffer().AsSpan(0, (int)_current.Length));
         _current.SetLength(0);
         _playlist.AddSegment(name, duration);
     }

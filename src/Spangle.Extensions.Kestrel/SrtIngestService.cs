@@ -18,6 +18,7 @@ public sealed class SrtIngestService(
     HLSStreamRegistry registry,
     PublishSessionRegistry publishSessions,
     IPublishAuthorizer publishAuthorizer,
+    IHLSStorage storage,
     ILogger<SrtIngestService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -69,6 +70,7 @@ public sealed class SrtIngestService(
         var receiver = new SRTReceiverContext(client, ct) { RawTsPassthrough = passthrough };
         var hls = new HLSSenderContext(ct)
         {
+            Storage = storage,
             OutputDirectory = hlsOptions.OutputDirectory,
             TargetSegmentDuration = hlsOptions.TargetSegmentDuration,
             SegmentFormat = segmentFormat,

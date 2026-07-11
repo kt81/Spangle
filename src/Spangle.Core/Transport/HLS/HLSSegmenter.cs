@@ -10,7 +10,7 @@ namespace Spangle.Transport.HLS;
 /// </summary>
 internal sealed class HLSSegmenter
 {
-    private readonly string _directory;
+    private readonly IHLSStreamStorage _storage;
     private readonly double _targetDuration;
     private readonly HLSPlaylist _playlist;
 
@@ -22,12 +22,12 @@ internal sealed class HLSSegmenter
     private ulong _segmentStartPcr;
     private ulong _lastPcr;
 
-    public HLSSegmenter(string directory, double targetDuration, HLSPlaylistHandover? resume = null)
+    public HLSSegmenter(IHLSStreamStorage storage, double targetDuration, HLSPlaylistHandover? resume = null,
+        Action<string, long, int>? onUpdated = null)
     {
-        _directory = directory;
+        _storage = storage;
         _targetDuration = targetDuration;
-        Directory.CreateDirectory(directory);
-        _playlist = new HLSPlaylist(directory, resume: resume);
+        _playlist = new HLSPlaylist(storage, onUpdated: onUpdated, resume: resume);
     }
 
     /// <summary>
@@ -126,11 +126,8 @@ internal sealed class HLSSegmenter
     private void FinalizeSegment(double duration)
     {
         string name = _playlist.NextSegmentName(".ts");
-        using (var file = File.Create(Path.Combine(_directory, name)))
-        {
-            // Write straight from the accumulation buffer; no per-segment copy
-            file.Write(_current.GetBuffer(), 0, (int)_current.Length);
-        }
+        // Write straight from the accumulation buffer; no per-segment copy
+        _storage.WriteBlob(name, _current.GetBuffer().AsSpan(0, (int)_current.Length));
         _current.SetLength(0);
         _playlist.AddSegment(name, duration);
     }

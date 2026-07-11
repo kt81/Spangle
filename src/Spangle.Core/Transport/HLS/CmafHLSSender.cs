@@ -101,7 +101,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
     private readonly double? _partTarget = context.LowLatency ? context.PartTargetDuration : null;
 
-    private string? _directory;
+    private IHLSStreamStorage? _storage;
     private HLSPlaylist? _playlist;
     private CmafPackager? _packager;
 
@@ -320,10 +320,8 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
                 ? _audioMeta.Count > 0
                 : _videoMeta.Count > 0 && _videoMeta[0].Sync;
             string partName = _playlist!.NextPartName();
-            using (var file = File.Create(Path.Combine(_directory!, partName)))
-            {
-                file.Write(_segmentStream.GetBuffer(), (int)fragmentStart, (int)(_segmentStream.Length - fragmentStart));
-            }
+            _storage!.WriteBlob(partName,
+                _segmentStream.GetBuffer().AsSpan((int)fragmentStart, (int)(_segmentStream.Length - fragmentStart)));
             _playlist.AddPart(partName, (endTsMs - _partStartMs) / 1000.0, independent);
         }
 
@@ -344,10 +342,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         }
 
         string name = _playlist!.NextSegmentName(".m4s");
-        using (var file = File.Create(Path.Combine(_directory!, name)))
-        {
-            file.Write(_segmentStream.GetBuffer(), 0, (int)_segmentStream.Length);
-        }
+        _storage!.WriteBlob(name, _segmentStream.GetBuffer().AsSpan(0, (int)_segmentStream.Length));
         _playlist.AddSegment(name, (endTsMs - _segmentStartMs) / 1000.0);
 
         _segmentStream.SetLength(0);
@@ -361,8 +356,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             return;
         }
 
-        _directory = context.ResolveStreamDirectory();
-        Directory.CreateDirectory(_directory);
+        _storage = context.ResolveStreamStorage();
 
         CmafVideoTrack? videoTrack = _videoConfig is not null
             ? new CmafVideoTrack
@@ -383,7 +377,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             : null;
 
         _packager = new CmafPackager(videoTrack, audioTrack);
-        File.WriteAllBytes(Path.Combine(_directory, "init.mp4"), _packager.BuildInitSegment());
+        _storage.WriteBlob("init.mp4", _packager.BuildInitSegment());
 
         Action<string, long, int>? onUpdated = null;
         if (context.Registry is { } registry)
@@ -392,9 +386,9 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             onUpdated = live.Publish;
         }
         HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
-        _playlist = new HLSPlaylist(_directory, "init.mp4", _partTarget, onUpdated, resume);
+        _playlist = new HLSPlaylist(_storage, "init.mp4", _partTarget, onUpdated, resume);
         s_logger.ZLogInformation(
-            $"HLS(CMAF) output to {_directory} (video={(videoTrack is null ? "none" : _videoCodec!.Value.ToString())}, audio={(audioTrack is null ? "none" : "AAC")}, lowLatency={_partTarget is not null})");
+            $"HLS(CMAF) output for {context.ResolveStreamKey()} to {context.StorageDescription} (video={(videoTrack is null ? "none" : _videoCodec!.Value.ToString())}, audio={(audioTrack is null ? "none" : "AAC")}, lowLatency={_partTarget is not null})");
     }
 
     /// <summary>Flushes the remaining samples and finalizes the playlist</summary>

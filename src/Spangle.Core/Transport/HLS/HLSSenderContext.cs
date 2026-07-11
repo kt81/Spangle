@@ -32,7 +32,14 @@ public class HLSSenderContext : ISenderContext<HLSSenderContext>
 
     public IReceiverContext? SourceInfo { get; set; }
 
-    /// <summary>Root directory; each stream writes into a subdirectory named after the stream</summary>
+    /// <summary>
+    /// Where the output is stored. Defaults to a <see cref="FileHLSStorage"/> rooted
+    /// at <see cref="OutputDirectory"/>; hosts inject <see cref="MemoryHLSStorage"/>
+    /// (or their own backend) to serve without touching disk.
+    /// </summary>
+    public IHLSStorage? Storage { get; set; }
+
+    /// <summary>Root directory of the default file storage when <see cref="Storage"/> is not set</summary>
     public string OutputDirectory { get; set; } = "hls-out";
 
     /// <summary>Minimum segment duration in seconds; segments are cut at the first keyframe after this</summary>
@@ -64,12 +71,15 @@ public class HLSSenderContext : ISenderContext<HLSSenderContext>
     }
 
     /// <summary>
-    /// The sanitized stream name used as the directory name and the registry key.
+    /// The sanitized stream name used as the storage/registry key.
     /// Must be called after media started flowing (the stream name is known by then).
     /// </summary>
     internal string ResolveStreamKey() => StreamKeys.Sanitize(SourceInfo?.StreamName);
 
-    /// <inheritdoc cref="ResolveStreamKey"/>
-    internal string ResolveStreamDirectory() => Path.Combine(OutputDirectory, ResolveStreamKey());
+    /// <summary>The storage area of this stream (see <see cref="Storage"/> for the default).</summary>
+    internal IHLSStreamStorage ResolveStreamStorage() =>
+        (Storage ??= new FileHLSStorage(OutputDirectory)).GetStream(ResolveStreamKey());
 
+    /// <summary>For logs: which backend the output goes to.</summary>
+    internal string StorageDescription => (Storage ?? (object)$"file:{OutputDirectory}").ToString()!;
 }

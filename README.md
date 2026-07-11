@@ -74,6 +74,9 @@ Roadmap
 - [x] SRT→TS-HLS passthrough: source TS packets are re-segmented as-is (cuts at
       random-access PES starts, cached PAT/PMT injected per segment) instead of
       demux+remux; on by default, `Hls.TsPassthrough: false` restores the old path
+- [x] In-memory HLS output (`IHLSStorage`): the live window is served straight from
+      process memory by default — nothing touches disk, works on read-only
+      filesystems; `Hls.Storage: File` keeps the output on disk as an archive
 
 ### Mid term — features
 

@@ -24,7 +24,7 @@ internal sealed class HLSPlaylist
 
     internal readonly record struct SegmentEntry(string Name, double Duration, bool Discontinuity);
 
-    private readonly string _directory;
+    private readonly IHLSStreamStorage _storage;
     private readonly string? _mapUri;
     private readonly double? _partTargetDuration;
     private readonly Action<string, long, int>? _onUpdated;
@@ -36,10 +36,10 @@ internal sealed class HLSPlaylist
     private int _sequence;
     private bool _pendingDiscontinuity;
 
-    public HLSPlaylist(string directory, string? mapUri = null, double? partTargetDuration = null,
+    public HLSPlaylist(IHLSStreamStorage storage, string? mapUri = null, double? partTargetDuration = null,
         Action<string, long, int>? onUpdated = null, HLSPlaylistHandover? resume = null)
     {
-        _directory = directory;
+        _storage = storage;
         _mapUri = mapUri;
         _partTargetDuration = partTargetDuration;
         _onUpdated = onUpdated;
@@ -107,17 +107,7 @@ internal sealed class HLSPlaylist
         Write(ended: true);
     }
 
-    private void TryDelete(string name)
-    {
-        try
-        {
-            File.Delete(Path.Combine(_directory, name));
-        }
-        catch (IOException e)
-        {
-            s_logger.ZLogWarning($"Failed to delete old file {name}: {e.Message}");
-        }
-    }
+    private void TryDelete(string name) => _storage.DeleteBlob(name);
 
     private void Write(bool ended)
     {
@@ -174,7 +164,7 @@ internal sealed class HLSPlaylist
         }
 
         var text = sb.ToString();
-        File.WriteAllText(Path.Combine(_directory, "playlist.m3u8"), text);
+        _storage.PublishPlaylist(text);
         _onUpdated?.Invoke(text, CurrentMsn, _currentParts.Count - 1);
     }
 

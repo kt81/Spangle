@@ -17,98 +17,84 @@ public class TSPassthroughSegmenterTests
     [Fact]
     public void CutsAtRandomAccessPointsAndInjectsTables()
     {
-        string dir = Path.Combine(Path.GetTempPath(), "spangle-passthrough-" + Guid.NewGuid().ToString("N"));
-        try
+        IHLSStreamStorage storage = new MemoryHLSStorage().GetStream("test");
+
+        // A "foreign" TS: tables once at the head only, keyframes 2.5s apart
+        var muxer = new M2TSWriter { VideoCodec = VideoCodec.H264 };
+        var ts = new ArrayBufferWriter<byte>();
+        muxer.WriteProgramTables(ts);
+        muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_keyAu,
+            pts: 0, dts: null, randomAccess: true, withPcr: true);
+        muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_pAu,
+            pts: 90_000, dts: null, randomAccess: false, withPcr: true);
+        muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_keyAu,
+            pts: 225_000, dts: null, randomAccess: true, withPcr: true);
+
+        var segmenter = new TSPassthroughSegmenter(storage, targetDuration: 2.0);
+        ReadOnlySpan<byte> written = ts.WrittenSpan;
+        for (var i = 0; i < written.Length; i += M2TSWriter.PacketSize)
         {
-            // A "foreign" TS: tables once at the head only, keyframes 2.5s apart
-            var muxer = new M2TSWriter { VideoCodec = VideoCodec.H264 };
-            var ts = new ArrayBufferWriter<byte>();
-            muxer.WriteProgramTables(ts);
-            muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_keyAu,
-                pts: 0, dts: null, randomAccess: true, withPcr: true);
-            muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_pAu,
-                pts: 90_000, dts: null, randomAccess: false, withPcr: true);
-            muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_keyAu,
-                pts: 225_000, dts: null, randomAccess: true, withPcr: true);
-
-            var segmenter = new TSPassthroughSegmenter(dir, targetDuration: 2.0);
-            ReadOnlySpan<byte> written = ts.WrittenSpan;
-            for (var i = 0; i < written.Length; i += M2TSWriter.PacketSize)
-            {
-                segmenter.ProcessPacket(written.Slice(i, M2TSWriter.PacketSize));
-            }
-            segmenter.Complete();
-
-            string playlist = File.ReadAllText(Path.Combine(dir, "playlist.m3u8"));
-            playlist.Should().Contain("#EXTINF:2.500,\nseg00000.ts", "the second keyframe closes the first segment");
-            playlist.Should().Contain("seg00001.ts");
-            playlist.Should().Contain("#EXT-X-ENDLIST");
-
-            // Both segments must start with PAT + PMT + a random-access video packet
-            foreach (string name in (string[])["seg00000.ts", "seg00001.ts"])
-            {
-                byte[] seg = File.ReadAllBytes(Path.Combine(dir, name));
-                (seg.Length % M2TSWriter.PacketSize).Should().Be(0);
-                PidOf(seg, 0).Should().Be(0x0000, $"{name} must start with the injected PAT");
-                PidOf(seg, 1).Should().Be(M2TSWriter.PidPmt, $"{name} continues with the injected PMT");
-                PidOf(seg, 2).Should().Be(M2TSWriter.PidVideo);
-                (seg[2 * M2TSWriter.PacketSize + 1] & 0x40).Should().NotBe(0, "the video packet starts a PES");
-            }
-
-            // Injected PSI continuity counters must be gapless across segments
-            byte patCc0 = (byte)(File.ReadAllBytes(Path.Combine(dir, "seg00000.ts"))[3] & 0x0F);
-            byte patCc1 = (byte)(File.ReadAllBytes(Path.Combine(dir, "seg00001.ts"))[3] & 0x0F);
-            patCc1.Should().Be((byte)((patCc0 + 1) & 0x0F));
+            segmenter.ProcessPacket(written.Slice(i, M2TSWriter.PacketSize));
         }
-        finally
+        segmenter.Complete();
+
+        string playlist = storage.Playlist!;
+        playlist.Should().Contain("#EXTINF:2.500,\nseg00000.ts", "the second keyframe closes the first segment");
+        playlist.Should().Contain("seg00001.ts");
+        playlist.Should().Contain("#EXT-X-ENDLIST");
+
+        // Both segments must start with PAT + PMT + a random-access video packet
+        var segments = new List<byte[]>();
+        foreach (string name in (string[])["seg00000.ts", "seg00001.ts"])
         {
-            if (Directory.Exists(dir))
-            {
-                Directory.Delete(dir, recursive: true);
-            }
+            storage.TryReadBlob(name, out ReadOnlyMemory<byte> segMemory).Should().BeTrue();
+            byte[] seg = segMemory.ToArray();
+            segments.Add(seg);
+            (seg.Length % M2TSWriter.PacketSize).Should().Be(0);
+            PidOf(seg, 0).Should().Be(0x0000, $"{name} must start with the injected PAT");
+            PidOf(seg, 1).Should().Be(M2TSWriter.PidPmt, $"{name} continues with the injected PMT");
+            PidOf(seg, 2).Should().Be(M2TSWriter.PidVideo);
+            (seg[2 * M2TSWriter.PacketSize + 1] & 0x40).Should().NotBe(0, "the video packet starts a PES");
         }
+
+        // Injected PSI continuity counters must be gapless across segments
+        byte patCc0 = (byte)(segments[0][3] & 0x0F);
+        byte patCc1 = (byte)(segments[1][3] & 0x0F);
+        patCc1.Should().Be((byte)((patCc0 + 1) & 0x0F));
     }
 
     [Fact]
     public void DropsTheHeadUntilTheFirstRandomAccessPoint()
     {
-        string dir = Path.Combine(Path.GetTempPath(), "spangle-passthrough-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            // The stream joins mid-GOP: a non-key AU comes before the first keyframe
-            var muxer = new M2TSWriter { VideoCodec = VideoCodec.H264 };
-            var ts = new ArrayBufferWriter<byte>();
-            muxer.WriteProgramTables(ts);
-            muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_pAu,
-                pts: 0, dts: null, randomAccess: false, withPcr: true);
-            muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_keyAu,
-                pts: 90_000, dts: null, randomAccess: true, withPcr: true);
+        IHLSStreamStorage storage = new MemoryHLSStorage().GetStream("test");
 
-            var segmenter = new TSPassthroughSegmenter(dir, targetDuration: 2.0);
-            ReadOnlySpan<byte> written = ts.WrittenSpan;
-            for (var i = 0; i < written.Length; i += M2TSWriter.PacketSize)
-            {
-                segmenter.ProcessPacket(written.Slice(i, M2TSWriter.PacketSize));
-            }
-            segmenter.Complete();
+        // The stream joins mid-GOP: a non-key AU comes before the first keyframe
+        var muxer = new M2TSWriter { VideoCodec = VideoCodec.H264 };
+        var ts = new ArrayBufferWriter<byte>();
+        muxer.WriteProgramTables(ts);
+        muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_pAu,
+            pts: 0, dts: null, randomAccess: false, withPcr: true);
+        muxer.WritePes(ts, M2TSWriter.PidVideo, M2TSWriter.StreamIdVideo, s_keyAu,
+            pts: 90_000, dts: null, randomAccess: true, withPcr: true);
 
-            byte[] seg = File.ReadAllBytes(Path.Combine(dir, "seg00000.ts"));
-            PidOf(seg, 0).Should().Be(0x0000);
-            PidOf(seg, 1).Should().Be(M2TSWriter.PidPmt);
-            // the mid-GOP P-frame must not be in the segment: 2 PSI + the keyframe PES only
-            int videoPackets = Enumerable.Range(2, seg.Length / M2TSWriter.PacketSize - 2)
-                .Count(i => PidOf(seg, i) == M2TSWriter.PidVideo);
-            byte[] source = ts.WrittenSpan.ToArray();
-            int keyframePackets = CountPackets(source, from: 2 + PacketsOf(source, 2)); // packets of the second PES
-            videoPackets.Should().Be(keyframePackets, "only the keyframe access unit is kept");
-        }
-        finally
+        var segmenter = new TSPassthroughSegmenter(storage, targetDuration: 2.0);
+        ReadOnlySpan<byte> written = ts.WrittenSpan;
+        for (var i = 0; i < written.Length; i += M2TSWriter.PacketSize)
         {
-            if (Directory.Exists(dir))
-            {
-                Directory.Delete(dir, recursive: true);
-            }
+            segmenter.ProcessPacket(written.Slice(i, M2TSWriter.PacketSize));
         }
+        segmenter.Complete();
+
+        storage.TryReadBlob("seg00000.ts", out ReadOnlyMemory<byte> segMemory).Should().BeTrue();
+        byte[] seg = segMemory.ToArray();
+        PidOf(seg, 0).Should().Be(0x0000);
+        PidOf(seg, 1).Should().Be(M2TSWriter.PidPmt);
+        // the mid-GOP P-frame must not be in the segment: 2 PSI + the keyframe PES only
+        int videoPackets = Enumerable.Range(2, seg.Length / M2TSWriter.PacketSize - 2)
+            .Count(i => PidOf(seg, i) == M2TSWriter.PidVideo);
+        byte[] source = ts.WrittenSpan.ToArray();
+        int keyframePackets = CountPackets(source, from: 2 + PacketsOf(source, 2)); // packets of the second PES
+        videoPackets.Should().Be(keyframePackets, "only the keyframe access unit is kept");
     }
 
     // =======================================================================

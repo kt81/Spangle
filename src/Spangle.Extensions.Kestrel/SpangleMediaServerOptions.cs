@@ -42,7 +42,14 @@ public class HlsOptions : MediaProtocolOptions
     /// <summary>Segment container: "TS" (MPEG-2 TS) or "fMP4" (CMAF)</summary>
     public string SegmentFormat { get; set; } = "TS";
 
-    /// <summary>Directory where segments and playlists are written</summary>
+    /// <summary>
+    /// Output backend: "Memory" (default; the live window is served from process
+    /// memory, nothing touches disk) or "File" (segments persist under
+    /// <see cref="OutputDirectory"/> as an archive, like before)
+    /// </summary>
+    public string Storage { get; set; } = "Memory";
+
+    /// <summary>Directory where segments and playlists are written (File storage)</summary>
     public string OutputDirectory { get; set; } = "hls-out";
 
     /// <summary>HTTP path prefix the HLS files are served under</summary>
