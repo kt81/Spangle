@@ -48,6 +48,13 @@ public class HttpOptions
 {
     /// <summary>Port for HTTP delivery (HLS files and the test player)</summary>
     [Range(1, 65535)] public int Port { get; set; } = 8080;
+
+    /// <summary>
+    /// Enables POST /api/streams/{key}/metadata: injects timed ID3 metadata into a
+    /// live session. The endpoint has no authentication of its own — protect it at
+    /// the network level or front it with your own middleware.
+    /// </summary>
+    public bool MetadataInjection { get; set; } = true;
 }
 
 public class HlsOptions : MediaProtocolOptions

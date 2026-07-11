@@ -54,6 +54,10 @@ internal sealed class M2TSDemuxer
         public bool  Corrupt;
         public ulong? Pts;
         public ulong? Dts;
+
+        /// <summary>ES byte count of a bounded PES (PES_packet_length > 0); -1 when unbounded (video)</summary>
+        public int ExpectedEsLength = -1;
+
         public readonly ArrayBufferWriter<byte> Assembly = new(16 * 1024);
     }
 
@@ -331,6 +335,11 @@ internal sealed class M2TSDemuxer
                     newTracks[esPid] = _tracks.TryGetValue(esPid, out var ot) ? ot : new TrackState();
                     newTracks[esPid].StreamType = streamType;
                     break;
+                case M2TSStreamType.PesMetadata when HasId3Descriptor(esInfo):
+                    // timed ID3: forwarded verbatim as Data frames
+                    newTracks[esPid] = _tracks.TryGetValue(esPid, out var mt) ? mt : new TrackState();
+                    newTracks[esPid].StreamType = streamType;
+                    break;
                 default:
                     s_logger.ZLogInformation($"Ignoring PMT stream_type 0x{streamType:X2} (PID {esPid})");
                     break;
@@ -346,6 +355,31 @@ internal sealed class M2TSDemuxer
 
         s_logger.ZLogDebug($"PMT mapped: video=0x{videoStreamType:X2} audio=0x{audioStreamType:X2}");
         sink.OnProgramMapped(videoStreamType, videoPid, audioStreamType, audioPid, opusChannels);
+    }
+
+    /// <summary>
+    /// Timed ID3 (HLS): stream_type 0x15 whose metadata_descriptor (0x26) or
+    /// registration descriptor (0x05) identifies the format as "ID3 ".
+    /// </summary>
+    private static bool HasId3Descriptor(ReadOnlySpan<byte> esInfo)
+    {
+        var p = 0;
+        while (p + 2 <= esInfo.Length)
+        {
+            byte tag = esInfo[p];
+            int len = esInfo[p + 1];
+            p += 2;
+            if (p + len > esInfo.Length)
+            {
+                break;
+            }
+            if (tag is 0x26 or 0x05 && esInfo.Slice(p, len).IndexOf("ID3 "u8) >= 0)
+            {
+                return true;
+            }
+            p += len;
+        }
+        return false;
     }
 
     /// <summary>
@@ -438,6 +472,11 @@ internal sealed class M2TSDemuxer
                 return;
             }
 
+            // A bounded PES (audio/metadata) declares its exact ES size; anything the
+            // container appends beyond it (stuffing) must not reach the sink
+            int pesPacketLength = (payload[4] << 8) | payload[5];
+            track.ExpectedEsLength = pesPacketLength > 0 ? pesPacketLength - 3 - headerDataLength : -1;
+
             track.Pts = null;
             track.Dts = null;
             if ((ptsDtsFlags & 0b10) != 0 && headerDataLength >= 5)
@@ -474,7 +513,12 @@ internal sealed class M2TSDemuxer
     {
         if (track.Assembling && !track.Corrupt && track.Assembly.WrittenCount > 0)
         {
-            sink.OnPes(track.StreamType, track.Pts, track.Dts, track.Assembly.WrittenSpan);
+            ReadOnlySpan<byte> es = track.Assembly.WrittenSpan;
+            if (track.ExpectedEsLength >= 0 && es.Length > track.ExpectedEsLength)
+            {
+                es = es[..track.ExpectedEsLength];
+            }
+            sink.OnPes(track.StreamType, track.Pts, track.Dts, es);
         }
         track.Assembly.ResetWrittenCount();
         track.Assembling = false;

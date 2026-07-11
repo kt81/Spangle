@@ -124,6 +124,70 @@ public class TimedMetadataTests
         presentationTime.Should().Be(1234u);
     }
 
+    [Fact]
+    public async Task InjectorStampsQueuedEventsWithTheMediaTimeline()
+    {
+        var dummy = new Pipe();
+        var receiver = new FakeReceiverContext(dummy.Reader, dummy.Writer);
+        var hub = new TimedMetadataHub();
+        var outPipe = new Pipe(new PipeOptions(pauseWriterThreshold: 0, useSynchronizationContext: false));
+        var injector = new TimedMetadataInjector(receiver, hub, CancellationToken.None) { Outlet = outPipe.Writer };
+        injector.BeginSpin();
+
+        byte[] video = [0x00, 0x00, 0x00, 0x01, 0x65];
+        MediaFrameHeader.Write(injector.Intake, MediaFrameKind.Video, MediaFrameFlags.KeyFrame,
+            (uint)VideoCodec.H264, 0, video.Length, 100);
+        injector.Intake.Write(video);
+        await injector.Intake.FlushAsync();
+
+        // registration happens once media flows ("stream" is the fallback key)
+        await WaitUntilAsync(() => hub.TryInject("stream", "song", "Sparkle"));
+
+        MediaFrameHeader.Write(injector.Intake, MediaFrameKind.Video, MediaFrameFlags.None,
+            (uint)VideoCodec.H264, 0, video.Length, 133);
+        injector.Intake.Write(video);
+        await injector.Intake.FlushAsync();
+        await injector.Intake.CompleteAsync();
+
+        var frames = await ReadAllFrames(outPipe.Reader);
+        frames.Should().HaveCount(3);
+        frames[0].Header.Kind.Should().Be(MediaFrameKind.Video);
+        frames[1].Header.Kind.Should().Be(MediaFrameKind.Video);
+
+        (MediaFrameHeader header, byte[] payload) = frames[2];
+        header.Kind.Should().Be(MediaFrameKind.Data);
+        header.DataCodec.Should().Be(DataCodec.Id3);
+        header.Timestamp.Should().Be(133u, "the event is stamped with the frame that carried it out");
+        string text = Encoding.UTF8.GetString(payload);
+        text.Should().Contain("song").And.Contain("Sparkle");
+
+        hub.TryInject("stream", "late", "x").Should().BeFalse("the injector unregisters at completion");
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 300; i++)
+        {
+            if (condition())
+            {
+                return;
+            }
+            await Task.Delay(10);
+        }
+        condition().Should().BeTrue("the condition must hold within the wait budget");
+    }
+
+    private sealed class FakeReceiverContext(PipeReader reader, PipeWriter writer)
+        : ReceiverContextBase<FakeReceiverContext>(reader, writer, CancellationToken.None)
+    {
+        public override string Id => "test";
+        public override System.Net.EndPoint EndPoint { get; } =
+            new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0);
+        public override bool IsCompleted => false;
+        public override ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource) =>
+            ValueTask.CompletedTask;
+    }
+
     // =======================================================================
 
     private static int IndexOf(ReadOnlySpan<byte> data, ReadOnlySpan<byte> pattern) => data.IndexOf(pattern);

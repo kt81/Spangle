@@ -16,6 +16,7 @@ public class RtmpConnectionHandler(
     PublishSessionRegistry publishSessions,
     IPublishAuthorizer publishAuthorizer,
     IHLSStorage storage,
+    Spangle.Spinner.TimedMetadataHub metadataHub,
     ILogger<RtmpConnectionHandler> logger) : ConnectionHandler
 {
     public override async Task OnConnectedAsync(ConnectionContext connection)
@@ -42,11 +43,17 @@ public class RtmpConnectionHandler(
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
-        // The timed-metadata spinner is the first DI-composed pipeline plugin:
-        // AMF0 data events -> ID3 tags the HLS outputs know how to carry
-        IReadOnlyList<Spangle.Spinner.ISpinner>? spinners = options.Value.Rtmp.TimedMetadata
-            ? [new Spangle.Spinner.AmfDataToId3Spinner(ct)]
-            : null;
+        // DI-composed pipeline plugins: AMF0 data events -> ID3 conversion, and the
+        // side door for server-injected metadata (POST /api/streams/{key}/metadata)
+        var spinners = new List<Spangle.Spinner.ISpinner>(2);
+        if (options.Value.Rtmp.TimedMetadata)
+        {
+            spinners.Add(new Spangle.Spinner.AmfDataToId3Spinner(ct));
+        }
+        if (options.Value.Http.MetadataInjection)
+        {
+            spinners.Add(new Spangle.Spinner.TimedMetadataInjector(receiver, metadataHub, ct));
+        }
         using var live = new LiveContext(receiver, hls, ct, mediaSpinners: spinners,
             publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
             audioOnlyFallback: options.Value.Rtmp.AudioOnlyFallbackMs > 0

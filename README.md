@@ -85,7 +85,10 @@ Roadmap
       → `AmfDataToId3Spinner` (the first DI-composed pipeline plugin) → timed ID3
       as stream_type 0x15 PES (TS) / ID3-in-emsg (CMAF); `Rtmp.TimedMetadata: false`
       removes the spinner hop
-- [ ] Timed metadata, server-injected (HTTP API) + ID3 passthrough from TS ingest
+- [x] Timed metadata, server-injected: `POST /api/streams/{key}/metadata`
+      (`{"name":..,"value":..}`) → `TimedMetadataInjector` spinner stamps it onto
+      the media timeline; timed ID3 in the source TS (stream_type 0x15) also passes
+      through from SRT ingest. Not available on the raw TS passthrough path.
 - [x] Audio-only streams over SRT/TS ingest (video-less PMT with the PCR on the
       audio PID; both TS and CMAF outputs cut segments on the audio timeline)
 - [x] Opus audio, end to end on the CMAF path: enhanced-RTMP v2 envelope and

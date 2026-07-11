@@ -15,4 +15,7 @@ internal static class M2TSStreamType
     /// Opus rides here with a registration descriptor "Opus".
     /// </summary>
     public const byte PrivatePes = 0x06;
+
+    /// <summary>Metadata carried in PES packets — timed ID3 for HLS.</summary>
+    public const byte PesMetadata = 0x15;
 }

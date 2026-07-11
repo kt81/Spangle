@@ -10,6 +10,8 @@ Spangle:
     # Passphrase: "correct horse battery staple"  # optional wire encryption (10-79 bytes)
   Http:
     Port: 8080
+    # MetadataInjection: true  # POST /api/streams/{key}/metadata -> timed ID3 in the
+    #                          # output. No built-in auth: protect it at the network level.
   Hls:
     Enabled: true
     # Storage: Memory  # "Memory" (default): the live window is served from process
