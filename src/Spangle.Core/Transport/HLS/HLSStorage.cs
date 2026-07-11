@@ -21,6 +21,58 @@ public interface IHLSStorage
     bool TryGetStream(string streamKey, out IHLSStreamStorage stream);
 }
 
+/// <summary>
+/// Optional capability of a stream storage: blobs that can be read while still being
+/// written (LL-DASH serves in-progress segments over chunked transfer). By design
+/// only the memory backend implements this — a future DVR would serve from memory
+/// while archiving to files, never the other way around.
+/// </summary>
+public interface ILiveBlobStreamStorage
+{
+    /// <summary>Appends to a growing blob, creating it on the first call.</summary>
+    void AppendBlob(string name, ReadOnlySpan<byte> content);
+
+    /// <summary>Seals a growing blob; it becomes a regular blob afterwards.</summary>
+    void CompleteBlob(string name);
+
+    /// <summary>Opens a reader over a blob still being written; false when none grows under the name.</summary>
+    bool TryOpenLiveBlob(string name, out LiveBlobReader reader);
+}
+
+/// <summary>
+/// Sequential reader over a growing blob: yields the chunks written so far, then
+/// awaits future appends, and reports null once the blob is completed.
+/// </summary>
+public sealed class LiveBlobReader
+{
+    private readonly Func<int, (byte[]? Chunk, bool Completed, Task Wait)> _read;
+    private int _index;
+
+    internal LiveBlobReader(Func<int, (byte[]?, bool, Task)> read)
+    {
+        _read = read;
+    }
+
+    /// <summary>The next chunk, or null when the blob is complete.</summary>
+    public async ValueTask<byte[]?> ReadNextAsync(CancellationToken ct)
+    {
+        while (true)
+        {
+            (byte[]? chunk, bool completed, Task wait) = _read(_index);
+            if (chunk is not null)
+            {
+                _index++;
+                return chunk;
+            }
+            if (completed)
+            {
+                return null;
+            }
+            await wait.WaitAsync(ct);
+        }
+    }
+}
+
 /// <summary>The storage area of a single stream (one playlist and its media blobs).</summary>
 public interface IHLSStreamStorage
 {
@@ -56,14 +108,22 @@ public sealed class MemoryHLSStorage : IHLSStorage
 
     public override string ToString() => "memory";
 
-    private sealed class StreamStorage : IHLSStreamStorage
+    private sealed class StreamStorage : IHLSStreamStorage, ILiveBlobStreamStorage
     {
         private readonly ConcurrentDictionary<string, byte[]> _blobs = new();
+        private readonly ConcurrentDictionary<string, GrowingBlob> _growing = new();
         private volatile string? _playlist;
 
         public void WriteBlob(string name, ReadOnlySpan<byte> content) => _blobs[name] = content.ToArray();
 
-        public void DeleteBlob(string name) => _blobs.TryRemove(name, out _);
+        public void DeleteBlob(string name)
+        {
+            _blobs.TryRemove(name, out _);
+            if (_growing.TryRemove(name, out GrowingBlob? orphan))
+            {
+                orphan.Complete(); // release any blocked readers
+            }
+        }
 
         public void PublishPlaylist(string text) => _playlist = text;
 
@@ -79,6 +139,98 @@ public sealed class MemoryHLSStorage : IHLSStorage
         }
 
         public string? Playlist => _playlist;
+
+        // ---- growing blobs (LL-DASH) ----
+
+        public void AppendBlob(string name, ReadOnlySpan<byte> content) =>
+            _growing.GetOrAdd(name, static _ => new GrowingBlob()).Append(content);
+
+        public void CompleteBlob(string name)
+        {
+            if (_growing.TryRemove(name, out GrowingBlob? blob))
+            {
+                // seal first so late readers of the growing handle terminate too
+                _blobs[name] = blob.ToArray();
+                blob.Complete();
+            }
+        }
+
+        public bool TryOpenLiveBlob(string name, out LiveBlobReader reader)
+        {
+            if (_growing.TryGetValue(name, out GrowingBlob? blob))
+            {
+                reader = blob.OpenReader();
+                return true;
+            }
+            reader = null!;
+            return false;
+        }
+
+        private sealed class GrowingBlob
+        {
+            private readonly Lock _lock = new();
+            private readonly List<byte[]> _chunks = new();
+            private bool _completed;
+            private TaskCompletionSource _next = NewTcs();
+
+            private static TaskCompletionSource NewTcs() =>
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public void Append(ReadOnlySpan<byte> content)
+            {
+                TaskCompletionSource previous;
+                lock (_lock)
+                {
+                    _chunks.Add(content.ToArray());
+                    previous = _next;
+                    _next = NewTcs();
+                }
+                previous.SetResult();
+            }
+
+            public void Complete()
+            {
+                TaskCompletionSource previous;
+                lock (_lock)
+                {
+                    _completed = true;
+                    previous = _next;
+                }
+                previous.TrySetResult();
+            }
+
+            public byte[] ToArray()
+            {
+                lock (_lock)
+                {
+                    var total = 0;
+                    foreach (byte[] chunk in _chunks)
+                    {
+                        total += chunk.Length;
+                    }
+                    var all = new byte[total];
+                    var pos = 0;
+                    foreach (byte[] chunk in _chunks)
+                    {
+                        chunk.CopyTo(all, pos);
+                        pos += chunk.Length;
+                    }
+                    return all;
+                }
+            }
+
+            public LiveBlobReader OpenReader() => new(index =>
+            {
+                lock (_lock)
+                {
+                    if (index < _chunks.Count)
+                    {
+                        return (_chunks[index], false, Task.CompletedTask);
+                    }
+                    return (null, _completed, _next.Task);
+                }
+            });
+        }
     }
 }
 

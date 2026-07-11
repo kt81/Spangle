@@ -107,9 +107,13 @@ Roadmap
       limitation); real MSE players (dash.js) play it — verified live
 - [ ] Demuxed CMAF tracks (separate video/audio AdaptationSets and HLS renditions);
       the shared foundation for clean DASH, ABR ladders and MoQ tracks
-- [ ] LL-DASH: chunked-transfer delivery of in-progress segments. By design this
-      requires the memory storage backend (a future DVR would serve from memory
-      while archiving to files; a file-only LL-DASH mode is out of spec)
+- [x] LL-DASH: with `Hls.LowLatency`, the in-progress segment grows part by part in
+      memory and is served over chunked transfer (measured: first byte in ~5ms,
+      response streams until the segment completes); the MPD switches to
+      fixed-duration arithmetic with `availabilityTimeOffset` + `UTCTiming`
+      (`/api/time`). Memory storage backend by design (a future DVR serves from
+      memory while archiving to files; file-only low latency is out of spec).
+      Requires a steady keyframe interval from the encoder
 - [ ] RTSP pull ingest (IP cameras): explicit numbered control flow like the RTMP
       receiver, with vendor dialects as a delegate table; TCP-interleaved first
 - [ ] MoQ (Media over QUIC) ingest/egress: draft target and interop peer to be
