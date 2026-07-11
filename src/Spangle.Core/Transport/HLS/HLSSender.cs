@@ -33,10 +33,13 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
                 if (segmenter is null && result.Buffer.Length > 0)
                 {
                     // Media is flowing, so the stream name is known by now
-                    var directory = context.ResolveStreamDirectory();
-                    HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
-                    segmenter = new HLSSegmenter(directory, context.TargetSegmentDuration, resume);
-                    s_logger.ZLogInformation($"HLS(TS) output to {directory}");
+                    string key = context.ResolveStreamKey();
+                    HLSPlaylistHandover? resume = context.Registry?.TakeHandover(key);
+                    Action<string, long, int>? onUpdated =
+                        context.Registry is { } registry ? registry.GetOrAdd(key).Publish : null;
+                    segmenter = new HLSSegmenter(context.ResolveStreamStorage(), context.TargetSegmentDuration,
+                        resume, onUpdated);
+                    s_logger.ZLogInformation($"HLS(TS) output for {key} to {context.StorageDescription}");
                 }
 
                 var consumed = segmenter is null

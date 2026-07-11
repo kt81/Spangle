@@ -15,6 +15,7 @@ public class RtmpConnectionHandler(
     HLSStreamRegistry registry,
     PublishSessionRegistry publishSessions,
     IPublishAuthorizer publishAuthorizer,
+    IHLSStorage storage,
     ILogger<RtmpConnectionHandler> logger) : ConnectionHandler
 {
     public override async Task OnConnectedAsync(ConnectionContext connection)
@@ -32,6 +33,7 @@ public class RtmpConnectionHandler(
         };
         var hls = new HLSSenderContext(ct)
         {
+            Storage = storage,
             OutputDirectory = hlsOptions.OutputDirectory,
             TargetSegmentDuration = hlsOptions.TargetSegmentDuration,
             SegmentFormat = segmentFormat,

@@ -28,9 +28,13 @@ publisher ──────► *ReceiverContext ──────► CmafHLSSe
 Both receivers (`RtmpReceiverContext`, `SRTReceiverContext`) emit the *same canonical
 MediaFrame form*, so everything downstream is ingest-agnostic.
 
-Files land in `<OutputDirectory>/<sanitized stream name>/`, so multiple publishers
-serve concurrently under `/hls/{stream}/...`. Live playlists are additionally published
-to the in-memory `HLSStreamRegistry` for LL-HLS blocking reload.
+Output goes through `IHLSStorage`, keyed by the sanitized stream name, so multiple
+publishers serve concurrently under `/hls/{stream}/...`. `MemoryHLSStorage` (the
+MediaServer default) keeps the live window in process memory — no disk I/O, and blobs
+the playlist trims are freed; `FileHLSStorage` writes
+`<OutputDirectory>/<stream name>/` and the output doubles as an archive. Live
+playlists are additionally published to the in-memory `HLSStreamRegistry` for LL-HLS
+blocking reload.
 
 - **Receiver** (`IReceiverContext`): speaks the ingest protocol and unwraps its envelope
   completely. Emits self-contained *media frames* (see below). All RTMP/FLV knowledge
@@ -177,9 +181,10 @@ Kestrel listens on two ports from `spanglesettings.yaml`: the RTMP port with a r
 `ConnectionHandler` that runs the pipeline above, and an HTTP port. SRT ingest runs
 beside Kestrel as a hosted service (`SrtIngestService`) since SRT is UDP-based and
 brings its own listener. Live playlists are served from the registry (with blocking
-reload); everything else — segments, parts, init files, ended playlists, the test
-player at `/` — is static file serving with HLS MIME types. Options select the
-segment format and LL-HLS per server.
+reload); segments, parts, init files and ended playlists come from the configured
+`IHLSStorage` — a small middleware for memory storage, static file serving with HLS
+MIME types for file storage. The test player at `/` stays static. Options select the
+segment format, LL-HLS, and the storage backend per server.
 
 ## SRT receiver
 

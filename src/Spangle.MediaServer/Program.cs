@@ -12,28 +12,21 @@ builder.WebHost.ConfigureSpangle();
 
 var app = builder.Build();
 
-// Serve the HLS output directory over HTTP
 var options = app.Services.GetRequiredService<IOptions<SpangleMediaServerOptions>>().Value;
-var hlsDirectory = Path.GetFullPath(options.Hls.OutputDirectory);
-Directory.CreateDirectory(hlsDirectory);
-
-var contentTypes = new FileExtensionContentTypeProvider();
-contentTypes.Mappings[".m3u8"] = "application/vnd.apple.mpegurl";
-contentTypes.Mappings[".ts"] = "video/mp2t";
-contentTypes.Mappings[".m4s"] = "video/iso.segment";
+var storage = app.Services.GetRequiredService<IHLSStorage>();
+var registry = app.Services.GetRequiredService<HLSStreamRegistry>();
+var hlsPathPrefix = options.Hls.RequestPath + "/";
 
 // Serve live playlists from memory, implementing LL-HLS blocking reload
-// (?_HLS_msn=&_HLS_part=). Falls through to static files for ended streams.
-var registry = app.Services.GetRequiredService<HLSStreamRegistry>();
-var playlistPathPrefix = options.Hls.RequestPath + "/";
+// (?_HLS_msn=&_HLS_part=). Falls through to the storage/static serving below.
 app.Use(async (ctx, next) =>
 {
     PathString path = ctx.Request.Path;
     if (path.Value is { } p
-        && p.StartsWith(playlistPathPrefix, StringComparison.OrdinalIgnoreCase)
+        && p.StartsWith(hlsPathPrefix, StringComparison.OrdinalIgnoreCase)
         && p.EndsWith("/playlist.m3u8", StringComparison.OrdinalIgnoreCase))
     {
-        string streamKey = p[playlistPathPrefix.Length..^"/playlist.m3u8".Length];
+        string streamKey = p[hlsPathPrefix.Length..^"/playlist.m3u8".Length];
         if (!streamKey.Contains('/') && registry.TryGet(streamKey, out var live))
         {
             string text;
@@ -61,19 +54,72 @@ app.Use(async (ctx, next) =>
 
 app.UseDefaultFiles();
 app.UseStaticFiles(); // wwwroot (test player)
-app.UseStaticFiles(new StaticFileOptions
+
+if (storage is FileHLSStorage)
 {
-    FileProvider = new PhysicalFileProvider(hlsDirectory),
-    RequestPath = options.Hls.RequestPath,
-    ContentTypeProvider = contentTypes,
-    OnPrepareResponse = static ctx =>
+    // File storage: serve segments straight from disk (sendfile, ranges, archives)
+    var hlsDirectory = Path.GetFullPath(options.Hls.OutputDirectory);
+    Directory.CreateDirectory(hlsDirectory);
+    var contentTypes = new FileExtensionContentTypeProvider();
+    contentTypes.Mappings[".m3u8"] = "application/vnd.apple.mpegurl";
+    contentTypes.Mappings[".ts"] = "video/mp2t";
+    contentTypes.Mappings[".m4s"] = "video/iso.segment";
+    app.UseStaticFiles(new StaticFileOptions
     {
-        // Playlists change every segment; segments themselves are immutable
-        if (ctx.File.Name.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase))
+        FileProvider = new PhysicalFileProvider(hlsDirectory),
+        RequestPath = options.Hls.RequestPath,
+        ContentTypeProvider = contentTypes,
+        OnPrepareResponse = static ctx =>
         {
-            ctx.Context.Response.Headers.CacheControl = "no-cache, no-store";
+            // Playlists change every segment; segments themselves are immutable
+            if (ctx.File.Name.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase))
+            {
+                ctx.Context.Response.Headers.CacheControl = "no-cache, no-store";
+            }
+        },
+    });
+}
+else
+{
+    // Memory storage: serve segments, parts and init files from the storage itself
+    app.Use(async (ctx, next) =>
+    {
+        PathString path = ctx.Request.Path;
+        if (path.Value is { } p && p.StartsWith(hlsPathPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            string rest = p[hlsPathPrefix.Length..];
+            int slash = rest.IndexOf('/');
+            if (slash > 0 && rest.IndexOf('/', slash + 1) < 0)
+            {
+                string streamKey = rest[..slash];
+                string name = rest[(slash + 1)..];
+                if (storage.TryGetStream(streamKey, out var stream))
+                {
+                    if (name.Equals("playlist.m3u8", StringComparison.OrdinalIgnoreCase)
+                        && stream.Playlist is { Length: > 0 } playlist)
+                    {
+                        ctx.Response.ContentType = "application/vnd.apple.mpegurl";
+                        ctx.Response.Headers.CacheControl = "no-cache, no-store";
+                        await ctx.Response.WriteAsync(playlist);
+                        return;
+                    }
+                    if (stream.TryReadBlob(name, out ReadOnlyMemory<byte> blob))
+                    {
+                        ctx.Response.ContentType = Path.GetExtension(name).ToLowerInvariant() switch
+                        {
+                            ".ts" => "video/mp2t",
+                            ".m4s" => "video/iso.segment",
+                            ".mp4" => "video/mp4",
+                            _ => "application/octet-stream",
+                        };
+                        await ctx.Response.Body.WriteAsync(blob, ctx.RequestAborted);
+                        return;
+                    }
+                }
+            }
         }
-    },
-});
+        await next();
+    });
+}
 
 app.Run();
