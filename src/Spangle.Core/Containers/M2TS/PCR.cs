@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Spangle.LusterBits;
 
@@ -8,7 +9,7 @@ namespace Spangle.Containers.M2TS;
 /// </summary>
 [LusterCharm]
 [StructLayout(LayoutKind.Sequential, Pack = 1, Size = Size)]
-internal unsafe partial struct PCR
+internal partial struct PCR
 {
     public const int Size = 6;
 
@@ -17,7 +18,7 @@ internal unsafe partial struct PCR
         BitField(typeof(byte), "Reserved", 6, description: "Reserved bits; all 1 on the wire"),
         BitField(typeof(ushort), "Extension", 9, description: "PCR extension in 27 MHz units"),
     ]
-    private fixed byte _value[Size];
+    private InlineArray6<byte> _value;
 
     /// <summary>The full 27 MHz clock value</summary>
     public ulong Value => Base * 300 + Extension;

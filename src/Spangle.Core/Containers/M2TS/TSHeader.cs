@@ -1,11 +1,12 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Spangle.LusterBits;
 
 namespace Spangle.Containers.M2TS;
 
 [LusterCharm]
 [StructLayout(LayoutKind.Sequential, Pack = Size, Size = Size)]
-internal unsafe partial struct TSHeader
+internal partial struct TSHeader
 {
     public const int Size = 4;
 
@@ -20,7 +21,7 @@ internal unsafe partial struct TSHeader
         BitField(typeof(AdaptationFieldControlType), "AdaptationFieldControl", 2, description: "Adaptation field control"),
         BitField(typeof(byte), "ContinuityCounter", 4, description: "Continuity counter"),
     ]
-    private fixed byte _value[Size];
+    private InlineArray4<byte> _value;
 
     public enum TransportScramblingType : byte
     {

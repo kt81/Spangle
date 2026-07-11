@@ -1,4 +1,6 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Spangle.Interop;
 using Spangle.Transport.Rtmp.ProtocolControlMessage;
 
@@ -130,13 +132,9 @@ internal struct MessageHeader
         }
     }
 
-    public unsafe Span<byte> AsSpan()
-    {
-        fixed (void* p = &this)
-        {
-            return new Span<byte>(p, MaxSize);
-        }
-    }
+    [UnscopedRef]
+    public Span<byte> AsSpan() =>
+        MemoryMarshal.CreateSpan(ref Unsafe.As<MessageHeader, byte>(ref this), MaxSize);
 
     public void SetFmt0(uint timestamp, uint length, MessageType typeId, uint streamId)
     {

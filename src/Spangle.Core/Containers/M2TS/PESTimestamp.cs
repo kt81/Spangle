@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Spangle.LusterBits;
 
@@ -9,7 +10,7 @@ namespace Spangle.Containers.M2TS;
 /// </summary>
 [LusterCharm]
 [StructLayout(LayoutKind.Sequential, Pack = 1, Size = Size)]
-internal unsafe partial struct PESTimestamp
+internal partial struct PESTimestamp
 {
     public const int Size = 5;
 
@@ -26,5 +27,5 @@ internal unsafe partial struct PESTimestamp
         BitField(typeof(ulong), "Value", 15, description: "Timestamp bits 14..0"),
         BitFieldConst("Marker3", 1, 1),
     ]
-    private fixed byte _value[Size];
+    private InlineArray5<byte> _value;
 }

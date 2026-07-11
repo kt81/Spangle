@@ -235,6 +235,10 @@ dotnet_code_quality.ca1711.allowed_suffixes = Flags
 # Unused usings fail the build (needs GenerateDocumentationFile, see props).
 dotnet_diagnostic.IDE0005.severity = warning
 
+# Fixed buffers are banned: every wire struct is InlineArray-backed since
+# LusterBits 1.2.0 (safe spans, bounds checks, no unsafe context).
+dotnet_diagnostic.MA0189.severity = warning
+
 # C++ Files
 [*.{cpp,h,in}]
 curly_bracket_next_line = true
