@@ -1,0 +1,46 @@
+@inherits LayoutComponentBase
+@inject ConsoleApiClient Api
+
+<div class="shell">
+    <aside class="sidebar">
+        <div class="brand">Spangle<span class="brand-accent">✨</span></div>
+        <nav>
+            <NavLink href="" Match="NavLinkMatch.All">Streams</NavLink>
+            <NavLink href="logs">Logs</NavLink>
+            <NavLink href="server">Server</NavLink>
+        </nav>
+        <div class="sidebar-foot muted">@_version</div>
+    </aside>
+    <main class="content">
+        @if (Api.Unauthorized)
+        {
+            <div class="token-bar">
+                <span>This server requires a management token.</span>
+                <input type="password" placeholder="Bearer token" @bind="_tokenInput"/>
+                <button class="btn" @onclick="ApplyToken">Apply</button>
+            </div>
+        }
+        @Body
+    </main>
+</div>
+
+@code {
+    private string _tokenInput = "";
+    private string _version = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        ServerInfo? info = await Api.GetServerAsync(CancellationToken.None);
+        if (info is not null)
+        {
+            _version = "v" + info.Version.Split('+')[0];
+        }
+    }
+
+    private void ApplyToken()
+    {
+        // memory only: the default deployment is loopback without a token,
+        // and a persisted token would outlive the operator's intent
+        Api.Token = _tokenInput;
+    }
+}

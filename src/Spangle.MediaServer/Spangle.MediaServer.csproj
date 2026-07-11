@@ -17,7 +17,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Spangle.Extensions.Kestrel\Spangle.Extensions.Kestrel.csproj" />
+    <ProjectReference Include="..\Spangle.Console\Spangle.Console.csproj" />
   </ItemGroup>
 
 </Project>

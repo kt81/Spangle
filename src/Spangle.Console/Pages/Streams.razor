@@ -1,0 +1,232 @@
+@page "/"
+@using System.Collections.Generic
+@implements IDisposable
+@inject ConsoleApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Streams - Spangle Console</PageTitle>
+
+<h1>Live streams <span class="live-dot @(_connected ? "on" : "off")" title="@(_connected ? "live" : "reconnecting…")"></span></h1>
+
+@if (_streams.Count == 0)
+{
+    <p class="muted">No live sessions. Publish something:</p>
+    <pre class="hint">ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440 \
+    -c:v libx264 -g 60 -pix_fmt yuv420p -c:a aac -f flv rtmp://localhost:1935/live/test</pre>
+}
+else
+{
+    <table class="grid">
+        <thead>
+        <tr>
+            <th>Stream</th>
+            <th>Source</th>
+            <th>Media</th>
+            <th>Ingest</th>
+            <th>Viewers</th>
+            <th>Uptime</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (StreamStats s in _streams)
+        {
+            <tr>
+                <td>
+                    <div class="stream-key">@s.StreamKey</div>
+                    @if (s.StreamName != s.StreamKey)
+                    {
+                        <div class="muted small">@s.StreamName</div>
+                    }
+                </td>
+                <td>
+                    <span class="badge proto">@s.Protocol</span>
+                    <div class="muted small">@s.RemoteEndPoint</div>
+                </td>
+                <td>
+                    @if (s.VideoCodec is not null)
+                    {
+                        <span class="badge codec">@s.VideoCodec</span>
+                        @if (s.Width > 0)
+                        {
+                            <span class="muted small">@(s.Width)×@(s.Height)</span>
+                        }
+                    }
+                    @if (s.AudioCodec is not null)
+                    {
+                        <span class="badge codec">@s.AudioCodec</span>
+                    }
+                    @if (s.IsAudioOnly)
+                    {
+                        <span class="badge audio-only">AUDIO ONLY</span>
+                    }
+                </td>
+                <td>
+                    <div>@Fmt.Bitrate(s.IngestBitrateBps) <span class="muted small">(@Fmt.Bytes(s.BytesReceived))</span></div>
+                    <svg class="spark" viewBox="0 0 120 24" preserveAspectRatio="none">
+                        <polyline points="@Fmt.SparklinePoints(History(s.StreamKey), 120, 24)"/>
+                    </svg>
+                </td>
+                <td>
+                    <div title="parked LL-HLS blocking reloads">@s.ActiveWaiters waiting</div>
+                    <div class="muted small">@s.PlaylistRequestsPerMinute req/min</div>
+                </td>
+                <td>@Fmt.Uptime(s.UptimeSeconds)</td>
+                <td class="actions">
+                    <button class="btn" @onclick="() => TogglePreview(s.StreamKey)">Preview</button>
+                    <button class="btn" @onclick="() => ToggleMetadata(s.StreamKey)">Metadata</button>
+                    @if (_confirmingStop == s.StreamKey)
+                    {
+                        <button class="btn danger" @onclick="() => StopAsync(s.StreamKey)">Confirm stop</button>
+                    }
+                    else
+                    {
+                        <button class="btn" @onclick="() => _confirmingStop = s.StreamKey">Stop</button>
+                    }
+                </td>
+            </tr>
+            @if (_previewKey == s.StreamKey && _playerBase is not null)
+            {
+                <tr class="expand">
+                    <td colspan="7">
+                        <iframe class="preview" src="@($"{_playerBase}?s={Uri.EscapeDataString(s.StreamKey)}")"
+                                title="preview of @s.StreamKey"></iframe>
+                    </td>
+                </tr>
+            }
+            @if (_metadataKey == s.StreamKey)
+            {
+                <tr class="expand">
+                    <td colspan="7">
+                        <div class="metadata-form">
+                            <input placeholder="name (e.g. onTextData)" @bind="_metadataName"/>
+                            <input placeholder="value" @bind="_metadataValue"/>
+                            <button class="btn" @onclick="() => InjectAsync(s.StreamKey)">Inject timed ID3</button>
+                            <span class="muted">@_metadataResult</span>
+                        </div>
+                    </td>
+                </tr>
+            }
+        }
+        </tbody>
+    </table>
+}
+
+@code {
+    private const int SparkSamples = 60;
+
+    private readonly CancellationTokenSource _cts = new();
+    private IReadOnlyList<StreamStats> _streams = [];
+    private readonly Dictionary<string, List<long>> _history = new(StringComparer.Ordinal);
+    private bool _connected;
+    private string? _previewKey;
+    private string? _metadataKey;
+    private string? _confirmingStop;
+    private string _metadataName = "";
+    private string _metadataValue = "";
+    private string _metadataResult = "";
+    private string? _playerBase;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ServerInfo? info = await Api.GetServerAsync(_cts.Token);
+        if (info is not null)
+        {
+            // the preview player is the test player served from the delivery port
+            _playerBase = $"//{new Uri(Nav.BaseUri).Host}:{info.HttpPort}/index.html";
+        }
+        _ = FollowAsync(); // background SSE loop; the page renders immediately
+    }
+
+    private async Task FollowAsync()
+    {
+        while (!_cts.IsCancellationRequested)
+        {
+            try
+            {
+                await foreach (List<StreamStats> stats in
+                               Api.SubscribeAsync<List<StreamStats>>("api/manage/streams/live", _cts.Token))
+                {
+                    _connected = true;
+                    Apply(stats);
+                    StateHasChanged();
+                }
+            }
+            catch (Exception)
+            {
+                // server restart or network blip: retry until disposed
+            }
+            _connected = false;
+            StateHasChanged();
+            try
+            {
+                await Task.Delay(2000, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private void Apply(List<StreamStats> stats)
+    {
+        _streams = stats;
+        var liveKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (StreamStats s in stats)
+        {
+            liveKeys.Add(s.StreamKey);
+            if (!_history.TryGetValue(s.StreamKey, out List<long>? h))
+            {
+                _history[s.StreamKey] = h = new List<long>(SparkSamples);
+            }
+            h.Add(s.IngestBitrateBps);
+            if (h.Count > SparkSamples)
+            {
+                h.RemoveAt(0);
+            }
+        }
+        foreach (string gone in _history.Keys.Where(k => !liveKeys.Contains(k)).ToList())
+        {
+            _history.Remove(gone);
+        }
+        if (_confirmingStop is { } pending && !liveKeys.Contains(pending))
+        {
+            _confirmingStop = null;
+        }
+    }
+
+    private IReadOnlyList<long> History(string key) =>
+        _history.TryGetValue(key, out List<long>? h) ? h : [];
+
+    private void TogglePreview(string key)
+    {
+        _previewKey = _previewKey == key ? null : key;
+        _metadataKey = null;
+    }
+
+    private void ToggleMetadata(string key)
+    {
+        _metadataKey = _metadataKey == key ? null : key;
+        _previewKey = null;
+        _metadataResult = "";
+    }
+
+    private async Task StopAsync(string key)
+    {
+        _confirmingStop = null;
+        await Api.KickAsync(key, _cts.Token);
+    }
+
+    private async Task InjectAsync(string key)
+    {
+        bool ok = await Api.InjectMetadataAsync(key, _metadataName, _metadataValue, _cts.Token);
+        _metadataResult = ok ? "injected ✓" : "failed ✗";
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

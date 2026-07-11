@@ -51,6 +51,11 @@
         }
     }
 
+    // ?s=name preselects the stream (used by the console's preview iframe)
+    const preset = new URLSearchParams(location.search).get('s');
+    if (preset) {
+        document.getElementById('stream').value = preset;
+    }
     document.getElementById('play').addEventListener('click', play);
     play();
 </script>

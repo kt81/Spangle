@@ -121,8 +121,15 @@ Roadmap
       (`/api/time`). Memory storage backend by design (a future DVR serves from
       memory while archiving to files; file-only low latency is out of spec).
       Requires a steady keyframe interval from the encoder
-- [ ] Web console (multi-server control, monitoring, settings) — next up,
-      to solidify the product's operational foundation
+- [x] Web console v1 + management API: `http://localhost:8081/console/` —
+      live sessions (codecs, measured ingest bitrate with sparklines, viewers,
+      uptime), preview player, operator stop, timed-metadata injection, a log
+      viewer (live tail, level/category/text filters) and server info. Blazor
+      WASM, no JS beyond the players. Everything the console shows rides
+      `/api/manage/*` (REST + SSE) on a dedicated management port — loopback
+      by default; binding wider requires `Management.Token` (Bearer). Curl
+      works as well as the UI does. Multi-server aggregation comes later on
+      the same API
 
 ### Backlog — decided, parked until kickoff
 
