@@ -18,15 +18,19 @@
 <script>
     const stream = new URLSearchParams(location.search).get('s') || 'test';
     const player = dashjs.MediaPlayer().create();
+    player.updateSettings({ streaming: { lowLatencyEnabled: true } });
     player.initialize(document.querySelector('#v'), `/hls/${stream}/manifest.mpd`, true);
+    window.player = player;
 
     const log = document.querySelector('#log');
     let lastError = 'none';
     player.on('error', e => lastError = JSON.stringify(e.error));
     setInterval(() => {
         const v = document.querySelector('#v');
+        let latency = '-';
+        try { latency = player.getCurrentLiveLatency(); } catch {}
         log.textContent = `stream=${stream} t=${v.currentTime.toFixed(2)} ready=${v.readyState}`
-            + ` mediaError=${v.error ? v.error.code : 'none'} playerError=${lastError}`;
+            + ` latency=${latency}s mediaError=${v.error ? v.error.code : 'none'} playerError=${lastError}`;
     }, 500);
 </script>
 </body>

@@ -22,6 +22,14 @@ internal sealed class DashManifest(IHLSStreamStorage storage, string initName)
 
     public double TargetSegmentDuration { get; set; } = 2.0;
 
+    /// <summary>
+    /// Enables LL-DASH signaling: fixed-duration SegmentTemplate arithmetic with
+    /// availabilityTimeOffset, so players fetch the in-progress segment (served over
+    /// chunked transfer) one part after it starts. Requires a near-constant segment
+    /// duration, i.e. a steady keyframe interval from the encoder.
+    /// </summary>
+    public double? PartTargetDuration { get; set; }
+
     private long _bandwidth = 1_000_000;
     private readonly StringBuilder _sb = new(2048);
 
@@ -61,6 +69,19 @@ internal sealed class DashManifest(IHLSStreamStorage storage, string initName)
         sb.Append($" maxSegmentDuration=\"{Pt(maxSegment)}\"");
         sb.Append($" minBufferTime=\"{Pt(TargetSegmentDuration)}\">\n");
 
+        bool lowLatency = PartTargetDuration is not null && !ended;
+        if (lowLatency)
+        {
+            // clients must share the server clock to compute the live edge
+            sb.Append("  <UTCTiming schemeIdUri=\"urn:mpeg:dash:utc:http-xsdate:2014\" value=\"/api/time\"/>\n");
+            sb.Append("  <ServiceDescription id=\"0\">\n");
+            sb.Append($"    <Latency target=\"{(long)(TargetSegmentDuration * 1500)}\"");
+            sb.Append($" min=\"{(long)(PartTargetDuration!.Value * 2000)}\"");
+            sb.Append($" max=\"{(long)(TargetSegmentDuration * 4000)}\"/>\n");
+            sb.Append("    <PlaybackRate min=\"0.96\" max=\"1.04\"/>\n");
+            sb.Append("  </ServiceDescription>\n");
+        }
+
         sb.Append("  <Period id=\"0\" start=\"PT0S\">\n");
 
         // The output is muxed CMAF: one AdaptationSet carries every track
@@ -69,16 +90,32 @@ internal sealed class DashManifest(IHLSStreamStorage storage, string initName)
             new[] { VideoCodecString, AudioCodecString }.Where(static c => c is not null));
         sb.Append($"    <AdaptationSet mimeType=\"{mimeType}\" codecs=\"{codecs}\" segmentAlignment=\"true\">\n");
 
-        int startNumber = sequence - window.Count;
-        sb.Append($"      <SegmentTemplate timescale=\"1000\" initialization=\"{initName}\"");
-        sb.Append($" media=\"seg$Number%05d$.m4s\" startNumber=\"{startNumber}\">\n");
-        sb.Append("        <SegmentTimeline>\n");
-        foreach (HLSPlaylist.SegmentEntry entry in window)
+        if (lowLatency)
         {
-            sb.Append($"          <S t=\"{(long)(entry.Start * 1000)}\" d=\"{(long)(entry.Duration * 1000)}\"/>\n");
+            // Fixed-duration arithmetic: number 0 covers media time [0, d), so the
+            // in-progress segment is addressable before it completes. The offset
+            // makes it available one part after its start.
+            double ato = TargetSegmentDuration - PartTargetDuration!.Value;
+            sb.Append($"      <SegmentTemplate timescale=\"1000\" initialization=\"{initName}\"");
+            sb.Append($" media=\"seg$Number%05d$.m4s\" startNumber=\"0\"");
+            sb.Append($" duration=\"{(long)(TargetSegmentDuration * 1000)}\"");
+            sb.Append(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $" availabilityTimeOffset=\"{ato:0.###}\""));
+            sb.Append(" availabilityTimeComplete=\"false\"/>\n");
         }
-        sb.Append("        </SegmentTimeline>\n");
-        sb.Append("      </SegmentTemplate>\n");
+        else
+        {
+            int startNumber = sequence - window.Count;
+            sb.Append($"      <SegmentTemplate timescale=\"1000\" initialization=\"{initName}\"");
+            sb.Append($" media=\"seg$Number%05d$.m4s\" startNumber=\"{startNumber}\">\n");
+            sb.Append("        <SegmentTimeline>\n");
+            foreach (HLSPlaylist.SegmentEntry entry in window)
+            {
+                sb.Append($"          <S t=\"{(long)(entry.Start * 1000)}\" d=\"{(long)(entry.Duration * 1000)}\"/>\n");
+            }
+            sb.Append("        </SegmentTimeline>\n");
+            sb.Append("      </SegmentTemplate>\n");
+        }
 
         sb.Append($"      <Representation id=\"1\" bandwidth=\"{_bandwidth}\"");
         if (VideoCodecString is not null && Width > 0)

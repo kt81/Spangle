@@ -104,6 +104,8 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     private readonly double? _partTarget = context.LowLatency ? context.PartTargetDuration : null;
 
     private IHLSStreamStorage? _storage;
+    private ILiveBlobStreamStorage? _liveBlobs;
+    private bool _currentSegmentAppended;
     private HLSPlaylist? _playlist;
     private CmafPackager? _packager;
     private Transport.DASH.DashManifest? _dash;
@@ -377,13 +379,23 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
         if (_partTarget is not null)
         {
+            ReadOnlySpan<byte> fragment =
+                _segmentStream.GetBuffer().AsSpan((int)fragmentStart, (int)(_segmentStream.Length - fragmentStart));
+
+            // LL-DASH: the fragment also grows the in-progress segment blob, which
+            // the HTTP layer serves over chunked transfer before it completes
+            if (_liveBlobs is not null)
+            {
+                _liveBlobs.AppendBlob(_playlist!.NextSegmentName(".m4s"), fragment);
+                _currentSegmentAppended = true;
+            }
+
             // audio-only parts are always independent (every AAC frame is a sync point)
             bool independent = _videoConfig is null
                 ? _audioMeta.Count > 0
                 : _videoMeta.Count > 0 && _videoMeta[0].Sync;
             string partName = _playlist!.NextPartName();
-            _storage!.WriteBlob(partName,
-                _segmentStream.GetBuffer().AsSpan((int)fragmentStart, (int)(_segmentStream.Length - fragmentStart)));
+            _storage!.WriteBlob(partName, fragment);
             _playlist.AddPart(partName, (endTsMs - _partStartMs) / 1000.0, independent);
         }
 
@@ -404,7 +416,16 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         }
 
         string name = _playlist!.NextSegmentName(".m4s");
-        _storage!.WriteBlob(name, _segmentStream.GetBuffer().AsSpan(0, (int)_segmentStream.Length));
+        if (_currentSegmentAppended)
+        {
+            // the fragments were already appended part by part; seal the blob
+            _liveBlobs!.CompleteBlob(name);
+            _currentSegmentAppended = false;
+        }
+        else
+        {
+            _storage!.WriteBlob(name, _segmentStream.GetBuffer().AsSpan(0, (int)_segmentStream.Length));
+        }
         _dash?.UpdateBandwidth(_segmentStream.Length, (endTsMs - _segmentStartMs) / 1000.0);
         _playlist.AddSegment(name, (endTsMs - _segmentStartMs) / 1000.0);
 
@@ -470,9 +491,14 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             var live = registry.GetOrAdd(context.ResolveStreamKey());
             onUpdated = live.Publish;
         }
+        // LL-DASH needs blobs readable while they grow; only the memory backend
+        // provides that (by design — file-only low latency is out of spec)
+        _liveBlobs = _partTarget is not null ? _storage as ILiveBlobStreamStorage : null;
+
         // DASH rides on the same CMAF segments: one more manifest, zero more media
         _dash = new Transport.DASH.DashManifest(_storage, "init.mp4")
         {
+            PartTargetDuration = _liveBlobs is not null ? _partTarget : null,
             VideoCodecString = videoTrack is null
                 ? null
                 : _videoCodec switch

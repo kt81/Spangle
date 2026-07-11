@@ -88,6 +88,10 @@ if (options.Http.MetadataInjection)
         });
 }
 
+// Clock endpoint for DASH UTCTiming (LL players compute the live edge from it)
+app.MapGet("/api/time", () =>
+    Results.Text(DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"), "text/plain"));
+
 app.UseDefaultFiles();
 app.UseStaticFiles(); // wwwroot (test player)
 
@@ -141,17 +145,33 @@ else
                         await ctx.Response.WriteAsync(playlist);
                         return;
                     }
+
+                    string extension = Path.GetExtension(name).ToLowerInvariant();
+                    string contentType = extension switch
+                    {
+                        ".ts" => "video/mp2t",
+                        ".m4s" => "video/iso.segment",
+                        ".mp4" => "video/mp4",
+                        ".mpd" => "application/dash+xml",
+                        _ => "application/octet-stream",
+                    };
+
+                    // LL-DASH: a segment still being written streams out chunk by
+                    // chunk (chunked transfer) until the writer completes it
+                    if (stream is ILiveBlobStreamStorage live && live.TryOpenLiveBlob(name, out var reader))
+                    {
+                        ctx.Response.ContentType = contentType;
+                        while (await reader.ReadNextAsync(ctx.RequestAborted) is { } chunk)
+                        {
+                            await ctx.Response.Body.WriteAsync(chunk, ctx.RequestAborted);
+                            await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+                        }
+                        return;
+                    }
+
                     if (stream.TryReadBlob(name, out ReadOnlyMemory<byte> blob))
                     {
-                        string extension = Path.GetExtension(name).ToLowerInvariant();
-                        ctx.Response.ContentType = extension switch
-                        {
-                            ".ts" => "video/mp2t",
-                            ".m4s" => "video/iso.segment",
-                            ".mp4" => "video/mp4",
-                            ".mpd" => "application/dash+xml",
-                            _ => "application/octet-stream",
-                        };
+                        ctx.Response.ContentType = contentType;
                         if (extension == ".mpd")
                         {
                             ctx.Response.Headers.CacheControl = "no-cache, no-store";
