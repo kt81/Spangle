@@ -89,9 +89,11 @@ Roadmap
       Opus-over-TS (SRT) ingest → 'Opus' sample entry + dOps output. The TS output
       drops Opus with a warning (no interoperable HLS/TS mapping exists) — except
       SRT passthrough, which carries the source's Opus PES verbatim
-- [ ] Audio-only over RTMP (no in-protocol way to declare "no video is coming",
-      needs a policy such as a timeout)
-- [ ] LL-HLS playlist delta updates (`_HLS_skip`)
+- [x] Audio-only over RTMP: with no in-protocol way to declare "no video is
+      coming", a session with audio but no video codec is wired audio-only after
+      `Rtmp.AudioOnlyFallbackMs` (default 3s; 0 disables)
+- [x] LL-HLS playlist delta updates (`?_HLS_skip=YES` → `EXT-X-SKIP`); pays off
+      with a larger `Hls.PlaylistWindow`
 - [ ] DASH / LL-DASH (low priority)
 - [ ] RTSP ingest (very low priority)
 

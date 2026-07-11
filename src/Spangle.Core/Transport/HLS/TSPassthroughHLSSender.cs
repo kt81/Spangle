@@ -38,10 +38,10 @@ public class TSPassthroughHLSSender : ISender<HLSSenderContext>, IDisposable
                 {
                     string key = context.ResolveStreamKey();
                     HLSPlaylistHandover? resume = context.Registry?.TakeHandover(key);
-                    Action<string, long, int>? onUpdated =
+                    Action<string, string?, long, int>? onUpdated =
                         context.Registry is { } registry ? registry.GetOrAdd(key).Publish : null;
                     segmenter = new TSPassthroughSegmenter(context.ResolveStreamStorage(),
-                        context.TargetSegmentDuration, resume, onUpdated);
+                        context.TargetSegmentDuration, resume, onUpdated, context.PlaylistWindow);
                     s_logger.ZLogInformation($"HLS(TS passthrough) output for {key} to {context.StorageDescription}");
                 }
 
@@ -157,12 +157,12 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
     private ulong _waitStart90k;
 
     public TSPassthroughSegmenter(IHLSStreamStorage storage, double targetDuration, HLSPlaylistHandover? resume = null,
-        Action<string, long, int>? onUpdated = null)
+        Action<string, string?, long, int>? onUpdated = null, int windowSize = 6)
     {
         _storage = storage;
         _targetDuration = targetDuration;
         _maxSegment90k = (ulong)(targetDuration * ForcedCutFactor * 90000.0);
-        _playlist = new HLSPlaylist(storage, onUpdated: onUpdated, resume: resume);
+        _playlist = new HLSPlaylist(storage, onUpdated: onUpdated, resume: resume, windowSize: windowSize);
     }
 
     public void ProcessPacket(ReadOnlySpan<byte> packet)

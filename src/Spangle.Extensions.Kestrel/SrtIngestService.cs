@@ -73,6 +73,7 @@ public sealed class SrtIngestService(
             Storage = storage,
             OutputDirectory = hlsOptions.OutputDirectory,
             TargetSegmentDuration = hlsOptions.TargetSegmentDuration,
+            PlaylistWindow = hlsOptions.PlaylistWindow,
             SegmentFormat = segmentFormat,
             LowLatency = hlsOptions.LowLatency && segmentFormat == HLSSegmentFormat.Fmp4,
             PartTargetDuration = hlsOptions.PartTargetDuration,

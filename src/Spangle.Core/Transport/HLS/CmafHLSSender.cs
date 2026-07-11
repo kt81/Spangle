@@ -422,14 +422,14 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         _packager = new CmafPackager(videoTrack, audioTrack);
         _storage.WriteBlob("init.mp4", _packager.BuildInitSegment());
 
-        Action<string, long, int>? onUpdated = null;
+        Action<string, string?, long, int>? onUpdated = null;
         if (context.Registry is { } registry)
         {
             var live = registry.GetOrAdd(context.ResolveStreamKey());
             onUpdated = live.Publish;
         }
         HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
-        _playlist = new HLSPlaylist(_storage, "init.mp4", _partTarget, onUpdated, resume);
+        _playlist = new HLSPlaylist(_storage, "init.mp4", _partTarget, onUpdated, resume, context.PlaylistWindow);
         s_logger.ZLogInformation(
             $"HLS(CMAF) output for {context.ResolveStreamKey()} to {context.StorageDescription} (video={(videoTrack is null ? "none" : _videoCodec!.Value.ToString())}, audio={(audioTrack is null ? "none" : _audioCodec!.Value.ToString())}, lowLatency={_partTarget is not null})");
     }

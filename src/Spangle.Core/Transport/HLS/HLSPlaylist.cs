@@ -20,14 +20,19 @@ internal sealed class HLSPlaylist
 {
     private static readonly ILogger<HLSPlaylist> s_logger = SpangleLogManager.GetLogger<HLSPlaylist>();
 
-    private const int WindowSize = 6;
+    /// <summary>
+    /// RFC 8216bis 6.2.5.1: a delta must retain everything within CAN-SKIP-UNTIL of
+    /// the playlist end, and CAN-SKIP-UNTIL must be at least 6 target durations.
+    /// </summary>
+    private const int SkipUntilTargetDurations = 6;
 
     internal readonly record struct SegmentEntry(string Name, double Duration, bool Discontinuity);
 
     private readonly IHLSStreamStorage _storage;
     private readonly string? _mapUri;
     private readonly double? _partTargetDuration;
-    private readonly Action<string, long, int>? _onUpdated;
+    private readonly int _windowSize;
+    private readonly Action<string, string?, long, int>? _onUpdated;
 
     private readonly List<SegmentEntry> _window = new();
     private readonly List<(string Name, double Duration, bool Independent)> _currentParts = new();
@@ -38,11 +43,13 @@ internal sealed class HLSPlaylist
     private int _targetDurationCeil;
 
     public HLSPlaylist(IHLSStreamStorage storage, string? mapUri = null, double? partTargetDuration = null,
-        Action<string, long, int>? onUpdated = null, HLSPlaylistHandover? resume = null)
+        Action<string, string?, long, int>? onUpdated = null, HLSPlaylistHandover? resume = null,
+        int windowSize = 6)
     {
         _storage = storage;
         _mapUri = mapUri;
         _partTargetDuration = partTargetDuration;
+        _windowSize = windowSize;
         _onUpdated = onUpdated;
 
         if (resume is not null)
@@ -91,7 +98,7 @@ internal sealed class HLSPlaylist
         _sequence++;
         _window.Add(new SegmentEntry(name, duration, _pendingDiscontinuity));
         _pendingDiscontinuity = false;
-        while (_window.Count > WindowSize)
+        while (_window.Count > _windowSize)
         {
             SegmentEntry oldest = _window[0];
             _window.RemoveAt(0);
@@ -123,13 +130,60 @@ internal sealed class HLSPlaylist
         double windowMax = _window.Count > 0 ? _window.Max(static w => w.Duration) : _partTargetDuration ?? 1.0;
         _targetDurationCeil = Math.Max(_targetDurationCeil, (int)Math.Ceiling(windowMax));
 
+        var text = Render(ended, skipCount: 0);
+        string? delta = RenderDelta(ended);
+        _storage.PublishPlaylist(text);
+        _onUpdated?.Invoke(text, delta, CurrentMsn, _currentParts.Count - 1);
+    }
+
+    /// <summary>
+    /// The delta-update variant (`?_HLS_skip=YES`): everything older than
+    /// CAN-SKIP-UNTIL collapses into one EXT-X-SKIP line. Null when there is nothing
+    /// to skip, in a non-LL playlist, or when a discontinuity falls into the skipped
+    /// range (skipping across one needs DISCONTINUITY-SEQUENCE bookkeeping we don't
+    /// track — the full playlist is always a valid response).
+    /// </summary>
+    private string? RenderDelta(bool ended)
+    {
+        if (_partTargetDuration is null || _window.Count == 0)
+        {
+            return null;
+        }
+
+        double keep = SkipUntilTargetDurations * (double)_targetDurationCeil;
+        double tail = 0;
+        int firstKept = _window.Count;
+        while (firstKept > 0 && tail < keep)
+        {
+            firstKept--;
+            tail += _window[firstKept].Duration;
+        }
+        if (firstKept == 0)
+        {
+            return null; // the whole window is within the keep range
+        }
+        for (var i = 0; i <= firstKept; i++)
+        {
+            // a discontinuity inside (or right at the edge of) the skipped range
+            if (_window[i].Discontinuity)
+            {
+                return null;
+            }
+        }
+        return Render(ended, firstKept);
+    }
+
+    private string Render(bool ended, int skipCount)
+    {
         StringBuilder sb = _sb.Clear();
         sb.Append("#EXTM3U\n");
-        sb.Append(_mapUri is null ? "#EXT-X-VERSION:3\n" : "#EXT-X-VERSION:6\n");
+        // EXT-X-SKIP requires protocol version 9
+        sb.Append(skipCount > 0 ? "#EXT-X-VERSION:9\n" : _mapUri is null ? "#EXT-X-VERSION:3\n" : "#EXT-X-VERSION:6\n");
         sb.Append($"#EXT-X-TARGETDURATION:{_targetDurationCeil}\n");
         if (_partTargetDuration is { } partTarget)
         {
-            sb.Append($"#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={partTarget * 3:F3}\n");
+            sb.Append($"#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={partTarget * 3:F3}");
+            sb.Append($",CAN-SKIP-UNTIL={SkipUntilTargetDurations * (double)_targetDurationCeil:F1}\n");
             sb.Append($"#EXT-X-PART-INF:PART-TARGET={partTarget:F3}\n");
         }
         sb.Append($"#EXT-X-MEDIA-SEQUENCE:{_sequence - _window.Count}\n");
@@ -137,8 +191,12 @@ internal sealed class HLSPlaylist
         {
             sb.Append($"#EXT-X-MAP:URI=\"{_mapUri}\"\n");
         }
+        if (skipCount > 0)
+        {
+            sb.Append($"#EXT-X-SKIP:SKIPPED-SEGMENTS={skipCount}\n");
+        }
 
-        for (var i = 0; i < _window.Count; i++)
+        for (int i = skipCount; i < _window.Count; i++)
         {
             SegmentEntry entry = _window[i];
             if (entry.Discontinuity)
@@ -168,9 +226,7 @@ internal sealed class HLSPlaylist
             sb.Append("#EXT-X-ENDLIST\n");
         }
 
-        var text = sb.ToString();
-        _storage.PublishPlaylist(text);
-        _onUpdated?.Invoke(text, CurrentMsn, _currentParts.Count - 1);
+        return sb.ToString();
     }
 
     private static void AppendParts(StringBuilder sb, List<(string Name, double Duration, bool Independent)> parts)

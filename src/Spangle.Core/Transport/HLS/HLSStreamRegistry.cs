@@ -31,6 +31,7 @@ public sealed class HLSStreamRegistry
     {
         private readonly Lock _lock = new();
         private string _text = "";
+        private string? _delta;
         private long _msn = -1;
         private int _part = -1;
         private TaskCompletionSource _next = NewTcs();
@@ -38,13 +39,17 @@ public sealed class HLSStreamRegistry
         private static TaskCompletionSource NewTcs() =>
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        /// <summary>Publishes a new playlist state and wakes all blocked readers.</summary>
-        public void Publish(string text, long msn, int part)
+        /// <summary>
+        /// Publishes a new playlist state and wakes all blocked readers.
+        /// <paramref name="delta"/> is the EXT-X-SKIP variant, when one exists.
+        /// </summary>
+        public void Publish(string text, string? delta, long msn, int part)
         {
             TaskCompletionSource previous;
             lock (_lock)
             {
                 _text = text;
+                _delta = delta;
                 _msn = msn;
                 _part = part;
                 previous = _next;
@@ -55,9 +60,12 @@ public sealed class HLSStreamRegistry
 
         /// <summary>
         /// Returns the playlist, blocking until the given media sequence number / part
-        /// is available (LL-HLS blocking reload) or the timeout elapses.
+        /// is available (LL-HLS blocking reload) or the timeout elapses. With
+        /// <paramref name="skip"/> (`_HLS_skip`), the delta update is preferred when
+        /// one exists — the full playlist is always a valid answer otherwise.
         /// </summary>
-        public async ValueTask<string> WaitForAsync(long msn, int part, TimeSpan timeout, CancellationToken ct)
+        public async ValueTask<string> WaitForAsync(long msn, int part, bool skip, TimeSpan timeout,
+            CancellationToken ct)
         {
             var deadline = DateTime.UtcNow + timeout;
             while (true)
@@ -67,7 +75,7 @@ public sealed class HLSStreamRegistry
                 {
                     if (_msn > msn || (_msn == msn && _part >= part))
                     {
-                        return _text;
+                        return Pick(skip);
                     }
                     waitTask = _next.Task;
                 }
@@ -77,7 +85,7 @@ public sealed class HLSStreamRegistry
                 {
                     lock (_lock)
                     {
-                        return _text; // give up blocking; serve the current state
+                        return Pick(skip); // give up blocking; serve the current state
                     }
                 }
                 try
@@ -88,22 +96,23 @@ public sealed class HLSStreamRegistry
                 {
                     lock (_lock)
                     {
-                        return _text;
+                        return Pick(skip);
                     }
                 }
             }
         }
 
-        public string Current
+        public string GetCurrent(bool skip)
         {
-            get
+            lock (_lock)
             {
-                lock (_lock)
-                {
-                    return _text;
-                }
+                return Pick(skip);
             }
         }
+
+        public string Current => GetCurrent(skip: false);
+
+        private string Pick(bool skip) => skip ? _delta ?? _text : _text;
 
         /// <summary>The media sequence number of the newest published playlist state.</summary>
         public long CurrentMsn

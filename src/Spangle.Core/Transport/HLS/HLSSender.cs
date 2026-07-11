@@ -35,10 +35,10 @@ public class HLSSender : ISender<HLSSenderContext>, IDisposable
                     // Media is flowing, so the stream name is known by now
                     string key = context.ResolveStreamKey();
                     HLSPlaylistHandover? resume = context.Registry?.TakeHandover(key);
-                    Action<string, long, int>? onUpdated =
+                    Action<string, string?, long, int>? onUpdated =
                         context.Registry is { } registry ? registry.GetOrAdd(key).Publish : null;
                     segmenter = new HLSSegmenter(context.ResolveStreamStorage(), context.TargetSegmentDuration,
-                        resume, onUpdated);
+                        resume, onUpdated, context.PlaylistWindow);
                     s_logger.ZLogInformation($"HLS(TS) output for {key} to {context.StorageDescription}");
                 }
 

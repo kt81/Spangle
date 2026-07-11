@@ -29,6 +29,11 @@ app.Use(async (ctx, next) =>
         string streamKey = p[hlsPathPrefix.Length..^"/playlist.m3u8".Length];
         if (!streamKey.Contains('/') && registry.TryGet(streamKey, out var live))
         {
+            // _HLS_skip=YES|v2 requests a playlist delta update (EXT-X-SKIP)
+            string? skipValue = ctx.Request.Query["_HLS_skip"];
+            bool skip = "YES".Equals(skipValue, StringComparison.OrdinalIgnoreCase)
+                        || "v2".Equals(skipValue, StringComparison.OrdinalIgnoreCase);
+
             string text;
             if (long.TryParse(ctx.Request.Query["_HLS_msn"], out long msn))
             {
@@ -40,11 +45,11 @@ app.Use(async (ctx, next) =>
                     return;
                 }
                 _ = int.TryParse(ctx.Request.Query["_HLS_part"], out int part);
-                text = await live.WaitForAsync(msn, part, TimeSpan.FromSeconds(15), ctx.RequestAborted);
+                text = await live.WaitForAsync(msn, part, skip, TimeSpan.FromSeconds(15), ctx.RequestAborted);
             }
             else
             {
-                text = live.Current;
+                text = live.GetCurrent(skip);
             }
 
             if (text.Length > 0)

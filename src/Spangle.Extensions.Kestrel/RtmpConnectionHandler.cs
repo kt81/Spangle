@@ -36,13 +36,17 @@ public class RtmpConnectionHandler(
             Storage = storage,
             OutputDirectory = hlsOptions.OutputDirectory,
             TargetSegmentDuration = hlsOptions.TargetSegmentDuration,
+            PlaylistWindow = hlsOptions.PlaylistWindow,
             SegmentFormat = segmentFormat,
             LowLatency = hlsOptions.LowLatency && segmentFormat == HLSSegmentFormat.Fmp4,
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
         using var live = new LiveContext(receiver, hls, ct,
-            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer);
+            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
+            audioOnlyFallback: options.Value.Rtmp.AudioOnlyFallbackMs > 0
+                ? TimeSpan.FromMilliseconds(options.Value.Rtmp.AudioOnlyFallbackMs)
+                : null);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
             : new HLSSender();

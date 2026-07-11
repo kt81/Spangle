@@ -45,6 +45,12 @@ public class HLSSenderContext : ISenderContext<HLSSenderContext>
     /// <summary>Minimum segment duration in seconds; segments are cut at the first keyframe after this</summary>
     public double TargetSegmentDuration { get; set; } = 2.0;
 
+    /// <summary>
+    /// Segments kept in the live playlist (and in storage). Larger windows give
+    /// viewers more rewind and make LL-HLS delta updates (`_HLS_skip`) worthwhile.
+    /// </summary>
+    public int PlaylistWindow { get; set; } = 6;
+
     public HLSSegmentFormat SegmentFormat { get; set; } = HLSSegmentFormat.MpegTs;
 
     /// <summary>Enables LL-HLS partial segments (fMP4 only)</summary>

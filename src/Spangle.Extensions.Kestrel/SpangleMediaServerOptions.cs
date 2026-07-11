@@ -18,6 +18,13 @@ public class SpangleMediaServerOptions
 public class RtmpOptions : MediaProtocolOptions
 {
     [Range(1025, 65535)] public int Port { get; set; } = 1935;
+
+    /// <summary>
+    /// RTMP cannot declare "no video is coming", so a session with audio but no video
+    /// codec after this many milliseconds is treated as audio-only (radio publishers).
+    /// 0 disables the fallback.
+    /// </summary>
+    [Range(0, 60_000)] public int AudioOnlyFallbackMs { get; set; } = 3000;
 }
 
 public class SrtOptions : MediaProtocolOptions
@@ -57,6 +64,12 @@ public class HlsOptions : MediaProtocolOptions
 
     /// <summary>Minimum segment duration in seconds; segments are cut at the first keyframe after this</summary>
     [Range(0.5, 60.0)] public double TargetSegmentDuration { get; set; } = 2.0;
+
+    /// <summary>
+    /// Segments kept in the live playlist. Larger windows give viewers more rewind
+    /// and make LL-HLS delta updates (?_HLS_skip=YES) actually skip something.
+    /// </summary>
+    [Range(3, 3600)] public int PlaylistWindow { get; set; } = 6;
 
     /// <summary>Enables LL-HLS partial segments and blocking playlist reload (fMP4 only)</summary>
     public bool LowLatency { get; set; }
