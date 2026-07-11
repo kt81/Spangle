@@ -42,7 +42,12 @@ public class RtmpConnectionHandler(
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
-        using var live = new LiveContext(receiver, hls, ct,
+        // The timed-metadata spinner is the first DI-composed pipeline plugin:
+        // AMF0 data events -> ID3 tags the HLS outputs know how to carry
+        IReadOnlyList<Spangle.Spinner.ISpinner>? spinners = options.Value.Rtmp.TimedMetadata
+            ? [new Spangle.Spinner.AmfDataToId3Spinner(ct)]
+            : null;
+        using var live = new LiveContext(receiver, hls, ct, mediaSpinners: spinners,
             publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
             audioOnlyFallback: options.Value.Rtmp.AudioOnlyFallbackMs > 0
                 ? TimeSpan.FromMilliseconds(options.Value.Rtmp.AudioOnlyFallbackMs)

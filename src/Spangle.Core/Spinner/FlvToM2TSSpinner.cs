@@ -88,6 +88,9 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
                     case MediaFrameKind.Audio:
                         ProcessAudioFrame(in header, payload);
                         break;
+                    case MediaFrameKind.Data:
+                        ProcessDataFrame(in header, payload);
+                        break;
                     default:
                         throw new InvalidDataException($"Unknown media frame kind: {header.Kind}");
                 }
@@ -243,6 +246,32 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
         Span<byte> one = stackalloc byte[1];
         buff.Slice(0, 1).CopyTo(one);
         return one[0];
+    }
+
+    #endregion
+
+    #region Timed metadata (ID3)
+
+    private void ProcessDataFrame(in MediaFrameHeader frameHeader, ReadOnlySequence<byte> payload)
+    {
+        if ((DataCodec)frameHeader.Codec != DataCodec.Id3)
+        {
+            // e.g. raw AMF0 events when no converting spinner is in the chain
+            s_logger.ZLogTrace($"Dropping non-ID3 data frame: {(DataCodec)frameHeader.Codec}");
+            return;
+        }
+
+        // Announced in the PMT from the next program table emission on
+        _tsWriter.HasTimedId3 = true;
+
+        _esBuffer.ResetWrittenCount();
+        payload.CopyTo(_esBuffer.GetSpan((int)payload.Length));
+        _esBuffer.Advance((int)payload.Length);
+
+        ulong pts = frameHeader.Timestamp * 90ul;
+        _tsWriter.WritePes(Outlet, M2TSWriter.PidData, M2TSWriter.StreamIdPrivate1,
+            _esBuffer.WrittenSpan, pts, null, randomAccess: false, withPcr: false);
+        _esBuffer.ResetWrittenCount();
     }
 
     #endregion

@@ -30,6 +30,16 @@ internal readonly struct CmafAudioTrack
     public required ushort ChannelCount { get; init; }
 }
 
+/// <summary>A timed-metadata event carried as an emsg box alongside a fragment.</summary>
+internal readonly struct CmafEvent
+{
+    /// <summary>Presentation time on the media timeline, in milliseconds</summary>
+    public required ulong TimeMs { get; init; }
+
+    /// <summary>A complete ID3v2 tag</summary>
+    public required ReadOnlyMemory<byte> Id3 { get; init; }
+}
+
 internal readonly struct CmafSample
 {
     public required ReadOnlyMemory<byte> Data { get; init; }
@@ -105,7 +115,7 @@ internal sealed class CmafPackager(CmafVideoTrack? video, CmafAudioTrack? audio)
     public void BuildFragment(
         ulong videoBaseTime, IReadOnlyList<CmafSample> videoSamples,
         ulong audioBaseTime, IReadOnlyList<CmafSample> audioSamples,
-        Stream output)
+        Stream output, IReadOnlyList<CmafEvent>? events = null)
     {
         var w = _fragmentWriter;
         w.Reset();
@@ -116,6 +126,14 @@ internal sealed class CmafPackager(CmafVideoTrack? video, CmafAudioTrack? audio)
         w.WriteFourCc("msdh");
         w.WriteFourCc("msix");
         w.End();
+
+        if (events is { Count: > 0 })
+        {
+            foreach (CmafEvent e in events)
+            {
+                WriteEmsg(w, e);
+            }
+        }
 
         long moofStart = w.Length;
         long videoOffsetPatch = -1;
@@ -467,6 +485,34 @@ internal sealed class CmafPackager(CmafVideoTrack? video, CmafAudioTrack? audio)
         w.WriteUInt32(0x00010000); w.WriteUInt32(0); w.WriteUInt32(0);
         w.WriteUInt32(0); w.WriteUInt32(0x00010000); w.WriteUInt32(0);
         w.WriteUInt32(0); w.WriteUInt32(0); w.WriteUInt32(0x40000000);
+    }
+
+    /// <summary>
+    /// DASH Event Message box (ISO 23009-1 5.10.3.3) v1, with the ID3-in-emsg scheme
+    /// used by HLS/CMAF timed metadata ("https://aomedia.org/emsg/ID3").
+    /// </summary>
+    private void WriteEmsg(BoxWriter w, in CmafEvent e)
+    {
+        w.BeginFull("emsg", 1, 0);
+        w.WriteUInt32(1000);      // timescale: milliseconds
+        w.WriteUInt64(e.TimeMs);  // presentation_time
+        w.WriteUInt32(0);         // event_duration: point event
+        w.WriteUInt32(_emsgId++);
+        WriteNulTerminated(w, "https://aomedia.org/emsg/ID3"); // scheme_id_uri
+        WriteNulTerminated(w, "");                             // value
+        w.WriteBytes(e.Id3.Span);                              // message_data: the ID3 tag
+        w.End();
+    }
+
+    private uint _emsgId = 1;
+
+    private static void WriteNulTerminated(BoxWriter w, string value)
+    {
+        foreach (char c in value)
+        {
+            w.WriteUInt8((byte)c);
+        }
+        w.WriteUInt8(0);
     }
 
     private static void WriteTfhd(BoxWriter w, uint trackId)

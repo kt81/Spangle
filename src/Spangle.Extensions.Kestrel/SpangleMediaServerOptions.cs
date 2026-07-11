@@ -25,6 +25,12 @@ public class RtmpOptions : MediaProtocolOptions
     /// 0 disables the fallback.
     /// </summary>
     [Range(0, 60_000)] public int AudioOnlyFallbackMs { get; set; } = 3000;
+
+    /// <summary>
+    /// Converts AMF0 data events (onTextData, cue points, ...) into timed ID3
+    /// metadata carried in the HLS output. Adds one spinner hop to the pipeline.
+    /// </summary>
+    public bool TimedMetadata { get; set; } = true;
 }
 
 public class SrtOptions : MediaProtocolOptions

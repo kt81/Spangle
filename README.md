@@ -81,8 +81,11 @@ Roadmap
 
 ### Mid term — features
 
-- [ ] Timed metadata end-to-end: AMF events → data frames → ID3 (TS) / emsg (CMAF);
-      the Spinner plugin point exists for exactly this
+- [x] Timed metadata, source-driven: RTMP data events (onTextData, cue points, ...)
+      → `AmfDataToId3Spinner` (the first DI-composed pipeline plugin) → timed ID3
+      as stream_type 0x15 PES (TS) / ID3-in-emsg (CMAF); `Rtmp.TimedMetadata: false`
+      removes the spinner hop
+- [ ] Timed metadata, server-injected (HTTP API) + ID3 passthrough from TS ingest
 - [x] Audio-only streams over SRT/TS ingest (video-less PMT with the PCR on the
       audio PID; both TS and CMAF outputs cut segments on the audio timeline)
 - [x] Opus audio, end to end on the CMAF path: enhanced-RTMP v2 envelope and

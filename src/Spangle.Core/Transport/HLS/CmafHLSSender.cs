@@ -149,6 +149,9 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         public uint Duration; // in the audio timescale (sample rate)
     }
 
+    // Timed-metadata events awaiting the next fragment (rare; one alloc per event)
+    private readonly List<CmafEvent> _pendingEvents = new();
+
     public void ProcessFrame(in MediaFrameHeader header, ReadOnlySequence<byte> payload)
     {
         switch (header.Kind)
@@ -158,6 +161,16 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
                 break;
             case MediaFrameKind.Audio:
                 ProcessAudioFrame(in header, payload);
+                break;
+            case MediaFrameKind.Data:
+                if ((DataCodec)header.Codec == DataCodec.Id3)
+                {
+                    _pendingEvents.Add(new CmafEvent { TimeMs = header.Timestamp, Id3 = payload.ToArray() });
+                }
+                else
+                {
+                    s_logger.ZLogTrace($"Dropping non-ID3 data frame: {(DataCodec)header.Codec}");
+                }
                 break;
             default:
                 throw new InvalidDataException($"Unknown media frame kind: {header.Kind}");
@@ -353,7 +366,13 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             : 0;
 
         long fragmentStart = _segmentStream.Length;
-        _packager!.BuildFragment(_partStartMs * 90ul, video, audioBaseTime, audio, _segmentStream);
+        CmafEvent[]? events = null;
+        if (_pendingEvents.Count > 0)
+        {
+            events = _pendingEvents.ToArray();
+            _pendingEvents.Clear();
+        }
+        _packager!.BuildFragment(_partStartMs * 90ul, video, audioBaseTime, audio, _segmentStream, events);
 
         if (_partTarget is not null)
         {
