@@ -164,27 +164,7 @@ internal class RtmpNetStream
         Context.ConnectionState = ReceivingState.Terminated;
     }
 
-    public void OnSetDataFrame(
-        ref ReadOnlySequence<byte> buff)
-    {
-        string eventName = ParseString(ref buff);
-        switch (eventName)
-        {
-            case SetDataFrameEvents.OnMetaData:
-                OnMetaData(ref buff);
-                break;
-            default:
-#if DEBUG
-                // Throws error in dev env
-                throw new NotImplementedException($"The event name {eventName} is not implemented.");
-#else
-                _logger.ZLogWarning($"The event name {eventName} is not implemented.");
-                break;
-#endif
-        }
-    }
-
-    private void OnMetaData(ref ReadOnlySequence<byte> buff)
+    internal void OnMetaData(ref ReadOnlySequence<byte> buff)
     {
         object? obj = Parse(ref buff);
         if (obj is not AmfObject data)

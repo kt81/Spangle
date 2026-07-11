@@ -47,8 +47,9 @@ blocking reload.
   - *interception (the plugin point)* — `LiveContext` accepts an ordered list of
     MediaFrame→MediaFrame spinners that are inserted between the receiver and the
     terminal stage, regardless of the output format. This is where cross-cutting
-    processing plugs in later, e.g. turning AMF data events into timed metadata
-    (ID3 for TS, `emsg` for CMAF), filtering, or on-the-fly transforms.
+    processing plugs in: `AmfDataToId3Spinner` (the first such plugin) turns AMF data
+    events into timed ID3 metadata; filtering or on-the-fly transforms follow the
+    same shape.
 - **Sender** (`ISender`): delivers to viewers. `HLSSender` cuts the TS stream into segments
   and maintains a playlist; `CmafHLSSender` muxes MediaFrames itself. HTTP delivery is
   plain static file serving plus the in-memory playlist endpoint.
@@ -84,6 +85,10 @@ Payloads at this boundary:
 - Audio `Config`: the AudioSpecificConfig (AAC, 2+ bytes) or the OpusHead
   identification header (Opus, 19+ bytes)
 - Audio frame: one raw AAC frame or one Opus packet
+- Data frame (timed metadata): an AMF0 event as emitted by the RTMP receiver
+  (`DataCodec.Amf0`), or — canonical, after `AmfDataToId3Spinner` — a complete ID3v2
+  tag (`DataCodec.Id3`) that the outputs carry as stream_type 0x15 PES (TS) or
+  ID3-in-emsg (CMAF)
 
 Because each frame is self-contained (codec, timestamps, flags), a spinner needs no
 side-channel and no knowledge of the ingest protocol.

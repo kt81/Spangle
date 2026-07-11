@@ -19,9 +19,13 @@ public sealed class M2TSWriter
     public const ushort PidPmt   = 0x1000;
     public const ushort PidVideo = 0x0100;
     public const ushort PidAudio = 0x0101;
+    public const ushort PidData  = 0x0102;
 
     public const byte StreamIdVideo = 0xE0;
     public const byte StreamIdAudio = 0xC0;
+
+    /// <summary>private_stream_1: carries timed ID3 metadata (stream_type 0x15)</summary>
+    public const byte StreamIdPrivate1 = 0xBD;
 
     private const byte StreamTypeH264    = M2TSStreamType.H264;
     private const byte StreamTypeH265    = M2TSStreamType.H265;
@@ -33,6 +37,7 @@ public sealed class M2TSWriter
     private byte _ccPmt;
     private byte _ccVideo;
     private byte _ccAudio;
+    private byte _ccData;
 
     private bool _hasAudio;
     private bool _hasVideo = true;
@@ -53,6 +58,26 @@ public sealed class M2TSWriter
                 return;
             }
             _hasVideo = value;
+            _pmtVersion = (byte)((_pmtVersion + 1) & 0x1F);
+        }
+    }
+
+    private bool _hasTimedId3;
+
+    /// <summary>
+    /// Adds the timed ID3 metadata stream (stream_type 0x15) to the PMT.
+    /// The PMT version is incremented when this changes.
+    /// </summary>
+    public bool HasTimedId3
+    {
+        get => _hasTimedId3;
+        set
+        {
+            if (_hasTimedId3 == value)
+            {
+                return;
+            }
+            _hasTimedId3 = value;
             _pmtVersion = (byte)((_pmtVersion + 1) & 0x1F);
         }
     }
@@ -106,7 +131,7 @@ public sealed class M2TSWriter
     /// </summary>
     public void WriteProgramTables(IBufferWriter<byte> outlet)
     {
-        Span<byte> section = stackalloc byte[32];
+        Span<byte> section = stackalloc byte[64];
         int len = BuildPat(section);
         WritePsiPacket(outlet, PidPat, section[..len], ref _ccPat);
         len = BuildPmt(section);
@@ -213,6 +238,8 @@ public sealed class M2TSWriter
                 return ref _ccVideo;
             case PidAudio:
                 return ref _ccAudio;
+            case PidData:
+                return ref _ccData;
             default:
                 throw new ArgumentOutOfRangeException(nameof(pid), pid, "Unknown PID");
         }
@@ -240,6 +267,10 @@ public sealed class M2TSWriter
     {
         int streamCount = (_hasVideo ? 1 : 0) + (_hasAudio ? 1 : 0);
         int sectionLength = 9 + streamCount * 5 + 4;
+        if (_hasTimedId3)
+        {
+            sectionLength += 5 + 15; // ES entry + metadata_descriptor
+        }
         ushort pcrPid = _hasVideo ? PidVideo : PidAudio;
         s[0] = 0x02;                              // table_id: PMT
         s[1] = 0xB0;
@@ -268,6 +299,24 @@ public sealed class M2TSWriter
             s[pos++] = unchecked((byte)PidAudio);
             s[pos++] = 0xF0;
             s[pos++] = 0x00;
+        }
+        if (_hasTimedId3)
+        {
+            // Timed ID3 (HLS): stream_type 0x15 "metadata carried in PES packets"
+            // with the ISO 13818-1 2.6.58 metadata_descriptor identifying ID3
+            s[pos++] = 0x15;
+            s[pos++] = 0xE0 | (PidData >> 8);
+            s[pos++] = unchecked((byte)PidData);
+            s[pos++] = 0xF0;
+            s[pos++] = 15;                        // ES_info_length
+            s[pos++] = 0x26;                      // metadata_descriptor
+            s[pos++] = 13;
+            s[pos++] = 0xFF; s[pos++] = 0xFF;     // metadata_application_format: identified by ID
+            s[pos++] = (byte)'I'; s[pos++] = (byte)'D'; s[pos++] = (byte)'3'; s[pos++] = (byte)' ';
+            s[pos++] = 0xFF;                      // metadata_format: identified by ID
+            s[pos++] = (byte)'I'; s[pos++] = (byte)'D'; s[pos++] = (byte)'3'; s[pos++] = (byte)' ';
+            s[pos++] = 0x00;                      // metadata_service_id
+            s[pos++] = 0x0F;                      // no decoder config + reserved
         }
 
         WriteCrc32(s, pos);

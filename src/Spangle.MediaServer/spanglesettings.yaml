@@ -2,6 +2,8 @@ Spangle:
   Rtmp:
     Enabled: true
     Port: 1935
+    # AudioOnlyFallbackMs: 3000  # audio with no video in sight becomes audio-only (0 = off)
+    # TimedMetadata: true        # AMF data events -> timed ID3 in the HLS output
   Srt:
     Enabled: true
     Port: 9998

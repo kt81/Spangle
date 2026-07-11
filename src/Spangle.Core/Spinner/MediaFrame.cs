@@ -7,6 +7,9 @@ public enum MediaFrameKind : byte
 {
     Video = 0,
     Audio = 1,
+
+    /// <summary>Timed metadata (see <see cref="DataCodec"/>); synchronized to the media timeline</summary>
+    Data = 2,
 }
 
 [Flags]
@@ -57,6 +60,7 @@ public struct MediaFrameHeader
 
     public readonly VideoCodec VideoCodec => (VideoCodec)Codec;
     public readonly AudioCodec AudioCodec => (AudioCodec)Codec;
+    public readonly DataCodec DataCodec => (DataCodec)Codec;
 
     public static void Write(PipeWriter writer, MediaFrameKind kind, MediaFrameFlags flags, uint codec,
         int compositionTimeMs, int length, uint timestamp)
