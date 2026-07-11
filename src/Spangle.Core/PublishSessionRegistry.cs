@@ -27,14 +27,15 @@ internal sealed class PublishGate(
     string protocol,
     string sessionId,
     EndPoint remoteEndPoint,
-    Action kick) : IPublishGate
+    Action<bool> kick,
+    IReceiverContext? receiver = null) : IPublishGate
 {
     private string? _openedName;
 
     public async ValueTask<bool> TryOpenAsync(string streamName, CancellationToken ct)
     {
         bool opened = await registry.TryOpenAsync(authorizer, protocol, streamName, remoteEndPoint,
-            sessionId, kick, ct).ConfigureAwait(false);
+            sessionId, kick, receiver, ct).ConfigureAwait(false);
         if (opened)
         {
             _openedName = streamName;
@@ -66,19 +67,31 @@ public sealed class PublishSessionRegistry
 
     private readonly ConcurrentDictionary<string, Session> _sessions = new(StringComparer.Ordinal);
 
-    private sealed class Session(string id, Action kick)
+    private sealed class Session(
+        string id, string streamName, string protocol, EndPoint remoteEndPoint, Action<bool> kick,
+        IReceiverContext? receiver)
     {
         public string Id { get; } = id;
+        public string StreamName { get; } = streamName;
+        public string Protocol { get; } = protocol;
+        public EndPoint RemoteEndPoint { get; } = remoteEndPoint;
         public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
-        public Action Kick { get; } = kick;
+
+        /// <summary>Ends the session; true = handover (the successor continues the playlist)</summary>
+        public Action<bool> Kick { get; } = kick;
+
+        /// <summary>Weakly held: monitoring must never keep a dead session alive</summary>
+        public WeakReference<IReceiverContext>? Receiver { get; } =
+            receiver is null ? null : new WeakReference<IReceiverContext>(receiver);
+
         public TaskCompletionSource Ended { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     internal async ValueTask<bool> TryOpenAsync(IPublishAuthorizer authorizer, string protocol, string streamName,
-        EndPoint remoteEndPoint, string sessionId, Action kick, CancellationToken ct)
+        EndPoint remoteEndPoint, string sessionId, Action<bool> kick, IReceiverContext? receiver, CancellationToken ct)
     {
         string key = StreamKeys.Sanitize(streamName);
-        var self = new Session(sessionId, kick);
+        var self = new Session(sessionId, streamName, protocol, remoteEndPoint, kick, receiver);
 
         // a kicked session needs a moment to unregister; retry a few times
         for (var attempt = 0; attempt < 3; attempt++)
@@ -115,7 +128,7 @@ public sealed class PublishSessionRegistry
 
                 case PublishDecision.Takeover when existing is not null:
                     s_logger.ZLogInformation($"Takeover of '{key}': {existing.Id} -> {sessionId}");
-                    existing.Kick();
+                    existing.Kick(true);
                     try
                     {
                         await existing.Ended.Task.WaitAsync(s_takeoverTimeout, ct).ConfigureAwait(false);
@@ -153,5 +166,51 @@ public sealed class PublishSessionRegistry
             _sessions.TryRemove(new KeyValuePair<string, Session>(key, session));
             session.Ended.TrySetResult();
         }
+    }
+
+    /// <summary>
+    /// Snapshots every live publish session for monitoring. Codec and byte counters
+    /// come from the session's receiver context when it is still alive.
+    /// </summary>
+    public IReadOnlyList<PublishSessionInfo> ListSessions()
+    {
+        var list = new List<PublishSessionInfo>(_sessions.Count);
+        foreach ((string key, Session session) in _sessions)
+        {
+            IReceiverContext? receiver = null;
+            session.Receiver?.TryGetTarget(out receiver);
+            list.Add(new PublishSessionInfo
+            {
+                StreamKey = key,
+                StreamName = session.StreamName,
+                SessionId = session.Id,
+                Protocol = session.Protocol,
+                RemoteEndPoint = session.RemoteEndPoint.ToString() ?? "",
+                StartedAt = session.StartedAt,
+                VideoCodec = receiver?.VideoCodec,
+                AudioCodec = receiver?.AudioCodec,
+                VideoWidth = receiver?.VideoWidth ?? 0,
+                VideoHeight = receiver?.VideoHeight ?? 0,
+                IsAudioOnly = receiver?.IsAudioOnly ?? false,
+                BytesReceived = receiver?.BytesReceived ?? 0,
+            });
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Ends the session publishing under <paramref name="streamKey"/> (already-sanitized
+    /// key as listed by <see cref="ListSessions"/>). The output is finalized normally
+    /// (ENDLIST written) — this is an operator stop, not a takeover.
+    /// </summary>
+    public bool TryKick(string streamKey)
+    {
+        if (!_sessions.TryGetValue(streamKey, out Session? session))
+        {
+            return false;
+        }
+        s_logger.ZLogInformation($"Operator kick of '{streamKey}' ({session.Protocol} session {session.Id})");
+        session.Kick(false);
+        return true;
     }
 }

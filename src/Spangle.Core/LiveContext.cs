@@ -56,7 +56,7 @@ public sealed class LiveContext : IDisposable
             _publishGate = new PublishGate(publishSessions,
                 publishAuthorizer ?? new DefaultPublishAuthorizer(),
                 protocol, receiverContext.Id, receiverContext.EndPoint,
-                kick: () => Shutdown(handover: true));
+                kick: Shutdown, receiver: receiverContext);
             receiverContext.PublishGate = _publishGate;
         }
     }

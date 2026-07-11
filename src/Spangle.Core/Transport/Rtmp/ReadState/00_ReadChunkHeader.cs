@@ -53,6 +53,7 @@ internal abstract class ReadChunkHeader
             }
         }
 
+        context.AddBytesReceived(result.Buffer.Length - buffer.Length);
         reader.AdvanceTo(buffer.Start, buffer.End);
 
         if (result.IsCompleted && !context.IsCompleted)

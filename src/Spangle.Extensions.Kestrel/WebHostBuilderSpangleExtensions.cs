@@ -30,6 +30,12 @@ public static class WebHostBuilderSpangleExtensions
             listenOptions => { listenOptions.UseConnectionHandler<RtmpConnectionHandler>(); });
         // Explicit Listen* calls override URL-based configuration, so HTTP must be explicit too
         options.ListenAnyIP(opt.Value.Http.Port);
+        // The management surface (console + control API) never shares the delivery port
+        ManagementOptions management = opt.Value.Management;
+        if (management.Enabled)
+        {
+            options.Listen(System.Net.IPAddress.Parse(management.BindAddress), management.Port);
+        }
         var loggerFactory = options.ApplicationServices.GetService<ILoggerFactory>();
         if (loggerFactory != null)
         {

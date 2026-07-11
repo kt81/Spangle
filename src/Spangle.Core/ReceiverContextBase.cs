@@ -75,6 +75,14 @@ public abstract class ReceiverContextBase<TSelf>(PipeReader reader, PipeWriter w
 
     public abstract ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource);
 
+    private long _bytesReceived;
+
+    /// <inheritdoc cref="IReceiverContext.BytesReceived"/>
+    public long BytesReceived => Volatile.Read(ref _bytesReceived);
+
+    /// <summary>Adds transport bytes to the session counter (called by the receive loop).</summary>
+    protected internal void AddBytesReceived(long count) => Interlocked.Add(ref _bytesReceived, count);
+
     public override string ToString()
     {
         return ZString.Format("{0}({1} from {2})", GetType().Name, Id, EndPoint.ToString());

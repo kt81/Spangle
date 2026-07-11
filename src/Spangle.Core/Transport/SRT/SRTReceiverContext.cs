@@ -115,6 +115,7 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
                 buff = buff.Slice(M2TSWriter.PacketSize);
             }
 
+            AddBytesReceived(result.Buffer.Length - buff.Length);
             reader.AdvanceTo(buff.Start, result.Buffer.End);
 
             if ((wrotePackets || adapter is { HasPendingFrames: true }) && MediaOutlet is not null)

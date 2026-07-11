@@ -1,5 +1,7 @@
+using System.Net;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Spangle.Extensions.Kestrel.Management;
 using Spangle.Transport.HLS;
 
 namespace Spangle.Extensions.Kestrel.DependencyInjection;
@@ -13,6 +15,18 @@ public static class SpangleServiceCollectionExtensions
         services.AddOptions<SpangleMediaServerOptions>()
             .BindConfiguration(SpangleMediaServerOptions.SectionPath)
             .ValidateDataAnnotations()
+            .Validate(static options =>
+                {
+                    ManagementOptions management = options.Management;
+                    if (!management.Enabled || !string.IsNullOrEmpty(management.Token))
+                    {
+                        return true;
+                    }
+                    // fail fast instead of silently exposing an unauthenticated control API
+                    return IPAddress.TryParse(management.BindAddress, out IPAddress? address)
+                           && IPAddress.IsLoopback(address);
+                },
+                "Management.Token is required when Management.BindAddress is not a loopback address")
             .ValidateOnStart();
         services.AddSingleton<RtmpConnectionHandler>();
         services.AddSingleton<HLSStreamRegistry>();
@@ -31,5 +45,18 @@ public static class SpangleServiceCollectionExtensions
                 : new MemoryHLSStorage();
         });
         services.AddHostedService<SrtIngestService>();
+
+        // Management surface: log capture, delivery counters, and the stats join
+        services.AddSingleton<SpangleLogBuffer>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILoggerProvider, SpangleLogBufferProvider>());
+        // Information by default: per-chunk Trace logging would flush everything an
+        // operator cares about out of the ring within seconds. Per-request ASP.NET
+        // noise (one entry per served segment) is cut for the same reason. Override
+        // with Logging:SpangleBuffer:LogLevel in configuration.
+        services.AddLogging(static logging => logging
+            .AddFilter<SpangleLogBufferProvider>(category: null, LogLevel.Information)
+            .AddFilter<SpangleLogBufferProvider>("Microsoft.AspNetCore", LogLevel.Warning));
+        services.AddSingleton<ViewerStatsRegistry>();
+        services.AddSingleton<ManagementStatsService>();
     }
 }
