@@ -35,6 +35,7 @@ public sealed class LiveContext : IDisposable
         _cancellationToken = cancellationToken;
         _mediaSpinners = mediaSpinners ?? [];
         receiverContext.VideoCodecSet += OnVideoCodecSet;
+        receiverContext.AudioCodecSet += OnAudioCodecSet;
 
         if (publishSessions is not null)
         {
@@ -70,13 +71,37 @@ public sealed class LiveContext : IDisposable
         _lifetimeCancellationTokenSource.Cancel();
     }
 
+    private bool _pipelineWired;
+
+    private void OnVideoCodecSet(VideoCodec _) => WirePipeline();
+
     /// <summary>
-    /// Wires the pipeline once the video codec is known:
+    /// An audio-only source never raises <see cref="IReceiverContext.VideoCodecSet"/>,
+    /// so the audio codec is the wiring trigger — but only when the source has
+    /// declared itself audio-only; otherwise the video codec event stays authoritative
+    /// (audio usually arrives first and the output must not start without video).
+    /// </summary>
+    private void OnAudioCodecSet(AudioCodec _)
+    {
+        if (ReceiverContext.IsAudioOnly)
+        {
+            WirePipeline();
+        }
+    }
+
+    /// <summary>
+    /// Wires the pipeline once the leading codec is known:
     /// receiver → [media spinners...] → terminal (a format-converting spinner, or
     /// the sender itself when it consumes MediaFrames directly).
     /// </summary>
-    private void OnVideoCodecSet(VideoCodec _)
+    private void WirePipeline()
     {
+        if (_pipelineWired)
+        {
+            return;
+        }
+        _pipelineWired = true;
+
         var intake = DetermineTerminalIntake();
 
         // Wire the interceptor chain back to front

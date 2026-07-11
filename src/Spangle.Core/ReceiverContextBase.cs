@@ -34,7 +34,27 @@ public abstract class ReceiverContextBase<TSelf>(PipeReader reader, PipeWriter w
         }
     }
 
-    public AudioCodec? AudioCodec { get; set; }
+    private AudioCodec? _audioCodec;
+
+    public AudioCodec? AudioCodec
+    {
+        get { return _audioCodec; }
+        set
+        {
+            if (value == null)
+            {
+                throw new ArgumentNullException(nameof(AudioCodec));
+            }
+            if (_audioCodec == value)
+            {
+                return;
+            }
+            _audioCodec = value;
+            AudioCodecSet?.Invoke(value.Value);
+        }
+    }
+
+    public bool IsAudioOnly { get; set; }
 
     public virtual string? StreamName => null;
 

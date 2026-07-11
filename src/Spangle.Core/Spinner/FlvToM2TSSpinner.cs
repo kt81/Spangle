@@ -34,6 +34,12 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
     /// <summary>ADTS header template built from the AudioSpecificConfig; bytes 3..5 are patched per frame.</summary>
     private byte[]? _adtsTemplate;
 
+    // ---- Audio-only mode (the source declared no video track) ----
+    /// <summary>90kHz PTS of the last PAT/PMT emission; tables repeat about once a second.</summary>
+    private ulong _lastTablesPts;
+    private bool  _tablesWritten;
+    private const ulong TablesInterval90k = 90_000; // 1 second
+
     private readonly ArrayBufferWriter<byte> _esBuffer = new(4096);
     private readonly M2TSWriter _tsWriter = new();
 
@@ -278,8 +284,25 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
 
         ulong pts = frameHeader.Timestamp * 90ul;
         _tsWriter.HasAudio = true;
+
+        bool audioOnly = context.IsAudioOnly;
+        if (audioOnly)
+        {
+            // No video keyframes exist to carry the program tables and the PCR, so the
+            // audio track does: tables about once a second (the segmenter cuts at PAT
+            // boundaries) and a PCR + random_access_indicator on every audio PES
+            // (every AAC frame is a sync point).
+            _tsWriter.HasVideo = false;
+            if (!_tablesWritten || pts - _lastTablesPts >= TablesInterval90k)
+            {
+                _tsWriter.WriteProgramTables(Outlet);
+                _lastTablesPts = pts;
+                _tablesWritten = true;
+            }
+        }
+
         _tsWriter.WritePes(Outlet, M2TSWriter.PidAudio, M2TSWriter.StreamIdAudio,
-            _esBuffer.WrittenSpan, pts, null, randomAccess: false, withPcr: false);
+            _esBuffer.WrittenSpan, pts, null, randomAccess: audioOnly, withPcr: audioOnly);
         _esBuffer.Clear();
     }
 

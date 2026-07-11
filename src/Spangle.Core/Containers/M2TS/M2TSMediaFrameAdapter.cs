@@ -58,8 +58,13 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
             case M2TSStreamType.H265:
                 context.VideoCodec = VideoCodec.H265;
                 break;
+            case 0 when audioStreamType == M2TSStreamType.AdtsAac:
+                // declare before AudioCodec below: setting the codec triggers the wiring
+                context.IsAudioOnly = true;
+                s_logger.ZLogInformation($"The TS program is audio-only");
+                break;
             case 0:
-                s_logger.ZLogError($"The TS program has no video track; audio-only ingest is not supported yet");
+                s_logger.ZLogError($"The TS program maps no usable track");
                 break;
             default:
                 if (!_videoUnsupportedLogged)

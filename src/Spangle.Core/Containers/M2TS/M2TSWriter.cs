@@ -35,8 +35,27 @@ public sealed class M2TSWriter
     private byte _ccAudio;
 
     private bool _hasAudio;
+    private bool _hasVideo = true;
     private byte _pmtVersion;
     private VideoCodec _videoCodec = Spangle.VideoCodec.H264;
+
+    /// <summary>
+    /// Removes the video stream from the PMT for audio-only programs; the PCR moves to
+    /// the audio PID. The PMT version is incremented when this changes.
+    /// </summary>
+    public bool HasVideo
+    {
+        get => _hasVideo;
+        set
+        {
+            if (_hasVideo == value)
+            {
+                return;
+            }
+            _hasVideo = value;
+            _pmtVersion = (byte)((_pmtVersion + 1) & 0x1F);
+        }
+    }
 
     /// <summary>
     /// Adds the audio stream to the PMT. The PMT version is incremented when this changes.
@@ -217,8 +236,9 @@ public sealed class M2TSWriter
 
     private int BuildPmt(Span<byte> s)
     {
-        int streamCount = _hasAudio ? 2 : 1;
+        int streamCount = (_hasVideo ? 1 : 0) + (_hasAudio ? 1 : 0);
         int sectionLength = 9 + streamCount * 5 + 4;
+        ushort pcrPid = _hasVideo ? PidVideo : PidAudio;
         s[0] = 0x02;                              // table_id: PMT
         s[1] = 0xB0;
         s[2] = (byte)sectionLength;
@@ -226,16 +246,19 @@ public sealed class M2TSWriter
         s[5] = (byte)(0xC1 | (_pmtVersion << 1)); // reserved + version + current_next
         s[6] = 0x00;
         s[7] = 0x00;
-        s[8] = 0xE0 | (PidVideo >> 8);            // PCR PID = video PID
-        s[9] = unchecked((byte)PidVideo);
+        s[8] = (byte)(0xE0 | (pcrPid >> 8));      // PCR PID: video, or audio when video is absent
+        s[9] = unchecked((byte)pcrPid);
         s[10] = 0xF0; s[11] = 0x00;               // program_info_length = 0
 
         var pos = 12;
-        s[pos++] = VideoStreamType;
-        s[pos++] = 0xE0 | (PidVideo >> 8);
-        s[pos++] = unchecked((byte)PidVideo);
-        s[pos++] = 0xF0;
-        s[pos++] = 0x00;                          // ES_info_length = 0
+        if (_hasVideo)
+        {
+            s[pos++] = VideoStreamType;
+            s[pos++] = 0xE0 | (PidVideo >> 8);
+            s[pos++] = unchecked((byte)PidVideo);
+            s[pos++] = 0xF0;
+            s[pos++] = 0x00;                      // ES_info_length = 0
+        }
         if (_hasAudio)
         {
             s[pos++] = StreamTypeAdtsAac;

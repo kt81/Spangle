@@ -40,9 +40,10 @@ internal readonly struct CmafSample
 
 /// <summary>
 /// Builds CMAF-style fragmented MP4: one init segment (ftyp+moov) and
-/// media segments (styp+moof+mdat) with one video track and an optional audio track.
+/// media segments (styp+moof+mdat) with an optional video track and an optional
+/// audio track (at least one must be present).
 /// </summary>
-internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
+internal sealed class CmafPackager(CmafVideoTrack? video, CmafAudioTrack? audio)
 {
     public const uint VideoTrackId = 1;
     public const uint AudioTrackId = 2;
@@ -69,13 +70,19 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
 
         w.Begin("moov");
         WriteMvhd(w);
-        WriteVideoTrak(w);
+        if (video is not null)
+        {
+            WriteVideoTrak(w, video.Value);
+        }
         if (audio is not null)
         {
             WriteAudioTrak(w, audio.Value);
         }
         w.Begin("mvex");
-        WriteTrex(w, VideoTrackId);
+        if (video is not null)
+        {
+            WriteTrex(w, VideoTrackId);
+        }
         if (audio is not null)
         {
             WriteTrex(w, AudioTrackId);
@@ -106,7 +113,7 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
         w.End();
 
         long moofStart = w.Length;
-        long videoOffsetPatch;
+        long videoOffsetPatch = -1;
         long audioOffsetPatch = -1;
 
         w.Begin("moof");
@@ -115,23 +122,25 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
         w.WriteUInt32(_sequenceNumber++);
         w.End();
 
-        // Video traf
-        w.Begin("traf");
-        WriteTfhd(w, VideoTrackId);
-        WriteTfdt(w, videoBaseTime);
-        // trun v1 (signed composition offsets): data-offset | duration | size | flags | cts
-        w.BeginFull("trun", 1, 0x000F01);
-        w.WriteUInt32((uint)videoSamples.Count);
-        videoOffsetPatch = w.ReserveUInt32();
-        foreach (var s in videoSamples)
+        if (video is not null)
         {
-            w.WriteUInt32(s.Duration);
-            w.WriteUInt32((uint)s.Data.Length);
-            w.WriteUInt32(s.IsSync ? SampleFlagsSync : SampleFlagsNonSync);
-            w.WriteInt32(s.CompositionOffset);
+            w.Begin("traf");
+            WriteTfhd(w, VideoTrackId);
+            WriteTfdt(w, videoBaseTime);
+            // trun v1 (signed composition offsets): data-offset | duration | size | flags | cts
+            w.BeginFull("trun", 1, 0x000F01);
+            w.WriteUInt32((uint)videoSamples.Count);
+            videoOffsetPatch = w.ReserveUInt32();
+            foreach (var s in videoSamples)
+            {
+                w.WriteUInt32(s.Duration);
+                w.WriteUInt32((uint)s.Data.Length);
+                w.WriteUInt32(s.IsSync ? SampleFlagsSync : SampleFlagsNonSync);
+                w.WriteInt32(s.CompositionOffset);
+            }
+            w.End(); // trun
+            w.End(); // traf
         }
-        w.End(); // trun
-        w.End(); // traf
 
         if (audio is not null && audioSamples.Count > 0)
         {
@@ -170,7 +179,10 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
 
         // data_offset is relative to the start of the moof box
         var mdatPayloadOffset = (uint)(mdatStart - moofStart + 8);
-        w.PatchUInt32(videoOffsetPatch, mdatPayloadOffset);
+        if (videoOffsetPatch >= 0)
+        {
+            w.PatchUInt32(videoOffsetPatch, mdatPayloadOffset);
+        }
         if (audioOffsetPatch >= 0)
         {
             w.PatchUInt32(audioOffsetPatch, (uint)(mdatPayloadOffset + videoBytes));
@@ -197,7 +209,7 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
         w.End();
     }
 
-    private void WriteVideoTrak(BoxWriter w)
+    private static void WriteVideoTrak(BoxWriter w, CmafVideoTrack video)
     {
         w.Begin("trak");
 
@@ -238,7 +250,7 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
         w.Begin("stbl");
         w.BeginFull("stsd", 0, 0);
         w.WriteUInt32(1);
-        WriteVideoSampleEntry(w);
+        WriteVideoSampleEntry(w, video);
         w.End(); // stsd
         WriteEmptySampleTables(w);
         w.End(); // stbl
@@ -248,7 +260,7 @@ internal sealed class CmafPackager(CmafVideoTrack video, CmafAudioTrack? audio)
         w.End(); // trak
     }
 
-    private void WriteVideoSampleEntry(BoxWriter w)
+    private static void WriteVideoSampleEntry(BoxWriter w, CmafVideoTrack video)
     {
         (string sampleEntry, string configBox) = video.Codec switch
         {

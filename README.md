@@ -78,7 +78,10 @@ Roadmap
 
 - [ ] Timed metadata end-to-end: AMF events → data frames → ID3 (TS) / emsg (CMAF);
       the Spinner plugin point exists for exactly this
-- [ ] Opus audio (CMAF path), audio-only streams
+- [x] Audio-only streams over SRT/TS ingest (video-less PMT with the PCR on the
+      audio PID; both TS and CMAF outputs cut segments on the audio timeline)
+- [ ] Opus audio (CMAF path); audio-only over RTMP (no in-protocol way to declare
+      "no video is coming", needs a policy such as a timeout)
 - [ ] LL-HLS playlist delta updates (`_HLS_skip`)
 - [ ] DASH / LL-DASH (low priority)
 - [ ] RTSP ingest (very low priority)
