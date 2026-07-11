@@ -106,6 +106,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     private IHLSStreamStorage? _storage;
     private HLSPlaylist? _playlist;
     private CmafPackager? _packager;
+    private Transport.DASH.DashManifest? _dash;
 
     // Track configuration (arrives as Config frames before coded frames)
     private VideoCodec? _videoCodec;
@@ -404,6 +405,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
         string name = _playlist!.NextSegmentName(".m4s");
         _storage!.WriteBlob(name, _segmentStream.GetBuffer().AsSpan(0, (int)_segmentStream.Length));
+        _dash?.UpdateBandwidth(_segmentStream.Length, (endTsMs - _segmentStartMs) / 1000.0);
         _playlist.AddSegment(name, (endTsMs - _segmentStartMs) / 1000.0);
 
         _segmentStream.SetLength(0);
@@ -419,13 +421,34 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
         _storage = context.ResolveStreamStorage();
 
+        // MSE rejects a 0x0 coded size, so when the source provided no dimension
+        // metadata, read them from the parameter sets inside the config record
+        uint width = context.SourceInfo?.VideoWidth ?? 0;
+        uint height = context.SourceInfo?.VideoHeight ?? 0;
+        if (_videoConfig is not null && width == 0)
+        {
+            try
+            {
+                (width, height) = _videoCodec switch
+                {
+                    VideoCodec.H264 => Codecs.AVC.AvcSps.ParseDimensionsFromRecord(_videoConfig),
+                    VideoCodec.H265 => Codecs.HEVC.HvcCBuilder.ParseDimensionsFromRecord(_videoConfig),
+                    _ => (0u, 0u),
+                };
+            }
+            catch (InvalidDataException e)
+            {
+                s_logger.ZLogWarning($"Could not derive video dimensions from the config record: {e.Message}");
+            }
+        }
+
         CmafVideoTrack? videoTrack = _videoConfig is not null
             ? new CmafVideoTrack
             {
                 Codec = _videoCodec!.Value,
                 ConfigRecord = _videoConfig,
-                Width = context.SourceInfo?.VideoWidth ?? 0,
-                Height = context.SourceInfo?.VideoHeight ?? 0,
+                Width = width,
+                Height = height,
             }
             : null;
         CmafAudioTrack? audioTrack = _audioConfig is not null
@@ -447,8 +470,29 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             var live = registry.GetOrAdd(context.ResolveStreamKey());
             onUpdated = live.Publish;
         }
+        // DASH rides on the same CMAF segments: one more manifest, zero more media
+        _dash = new Transport.DASH.DashManifest(_storage, "init.mp4")
+        {
+            VideoCodecString = videoTrack is null
+                ? null
+                : _videoCodec switch
+                {
+                    VideoCodec.H264 => CodecStrings.FromAvcC(_videoConfig),
+                    VideoCodec.H265 => CodecStrings.FromHvcC(_videoConfig),
+                    VideoCodec.AV1 => CodecStrings.FromAv1C(_videoConfig),
+                    _ => null,
+                },
+            AudioCodecString = audioTrack is null
+                ? null
+                : CodecStrings.FromAudio(_audioCodec!.Value, _audioConfig),
+            Width = width,
+            Height = height,
+            TargetSegmentDuration = context.TargetSegmentDuration,
+        };
+
         HLSPlaylistHandover? resume = context.Registry?.TakeHandover(context.ResolveStreamKey());
-        _playlist = new HLSPlaylist(_storage, "init.mp4", _partTarget, onUpdated, resume, context.PlaylistWindow);
+        _playlist = new HLSPlaylist(_storage, "init.mp4", _partTarget, onUpdated, resume,
+            context.PlaylistWindow, _dash);
         s_logger.ZLogInformation(
             $"HLS(CMAF) output for {context.ResolveStreamKey()} to {context.StorageDescription} (video={(videoTrack is null ? "none" : _videoCodec!.Value.ToString())}, audio={(audioTrack is null ? "none" : _audioCodec!.Value.ToString())}, lowLatency={_partTarget is not null})");
     }

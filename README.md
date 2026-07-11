@@ -100,8 +100,20 @@ Roadmap
       `Rtmp.AudioOnlyFallbackMs` (default 3s; 0 disables)
 - [x] LL-HLS playlist delta updates (`?_HLS_skip=YES` → `EXT-X-SKIP`); pays off
       with a larger `Hls.PlaylistWindow`
-- [ ] DASH / LL-DASH (low priority)
-- [ ] RTSP ingest (very low priority)
+- [x] DASH v1: a live-profile MPD (SegmentTimeline) over the same CMAF segments the
+      HLS side serves — one publisher session, two manifests, zero extra media.
+      `/hls/{stream}/manifest.mpd`, test player at `/dash.html?s={stream}`.
+      Note: ffmpeg's dash demuxer cannot read muxed representations (its own
+      limitation); real MSE players (dash.js) play it — verified live
+- [ ] Demuxed CMAF tracks (separate video/audio AdaptationSets and HLS renditions);
+      the shared foundation for clean DASH, ABR ladders and MoQ tracks
+- [ ] LL-DASH: chunked-transfer delivery of in-progress segments. By design this
+      requires the memory storage backend (a future DVR would serve from memory
+      while archiving to files; a file-only LL-DASH mode is out of spec)
+- [ ] RTSP pull ingest (IP cameras): explicit numbered control flow like the RTMP
+      receiver, with vendor dialects as a delegate table; TCP-interleaved first
+- [ ] MoQ (Media over QUIC) ingest/egress: draft target and interop peer to be
+      pinned at kickoff; raw QUIC first, WebTransport for browsers after
 
 ### Long term — goals of effort
 

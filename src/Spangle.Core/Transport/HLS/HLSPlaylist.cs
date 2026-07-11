@@ -7,9 +7,11 @@ namespace Spangle.Transport.HLS;
 
 /// <summary>
 /// The live-playlist state a kicked session hands to its successor (takeover):
-/// the successor continues the media sequence and the sliding window.
+/// the successor continues the media sequence, the sliding window, and — for DASH —
+/// the wall-clock anchor of the shared timeline.
 /// </summary>
-internal sealed record HLSPlaylistHandover(int Sequence, IReadOnlyList<HLSPlaylist.SegmentEntry> Window);
+internal sealed record HLSPlaylistHandover(
+    int Sequence, IReadOnlyList<HLSPlaylist.SegmentEntry> Window, DateTime? AvailabilityStart = null);
 
 /// <summary>
 /// Maintains a live M3U8 media playlist with a sliding window:
@@ -26,13 +28,16 @@ internal sealed class HLSPlaylist
     /// </summary>
     private const int SkipUntilTargetDurations = 6;
 
-    internal readonly record struct SegmentEntry(string Name, double Duration, bool Discontinuity);
+    /// <summary><paramref name="Start"/>: media-timeline start in seconds (the DASH S@t anchor)</summary>
+    internal readonly record struct SegmentEntry(string Name, double Duration, bool Discontinuity, double Start = 0);
 
     private readonly IHLSStreamStorage _storage;
     private readonly string? _mapUri;
     private readonly double? _partTargetDuration;
     private readonly int _windowSize;
     private readonly Action<string, string?, long, int>? _onUpdated;
+
+    private readonly Transport.DASH.DashManifest? _dash;
 
     private readonly List<SegmentEntry> _window = new();
     private readonly List<(string Name, double Duration, bool Independent)> _currentParts = new();
@@ -41,16 +46,19 @@ internal sealed class HLSPlaylist
     private int _sequence;
     private bool _pendingDiscontinuity;
     private int _targetDurationCeil;
+    private double _nextStart;
+    private DateTime? _availabilityStart;
 
     public HLSPlaylist(IHLSStreamStorage storage, string? mapUri = null, double? partTargetDuration = null,
         Action<string, string?, long, int>? onUpdated = null, HLSPlaylistHandover? resume = null,
-        int windowSize = 6)
+        int windowSize = 6, Transport.DASH.DashManifest? dash = null)
     {
         _storage = storage;
         _mapUri = mapUri;
         _partTargetDuration = partTargetDuration;
         _windowSize = windowSize;
         _onUpdated = onUpdated;
+        _dash = dash;
 
         if (resume is not null)
         {
@@ -59,12 +67,18 @@ internal sealed class HLSPlaylist
             _sequence = resume.Sequence;
             _window.AddRange(resume.Window);
             _pendingDiscontinuity = true;
+            _availabilityStart = resume.AvailabilityStart;
+            if (_window.Count > 0)
+            {
+                SegmentEntry last = _window[^1];
+                _nextStart = last.Start + last.Duration;
+            }
             s_logger.ZLogInformation($"Resuming playlist at media sequence {_sequence} (takeover)");
         }
     }
 
     /// <summary>Snapshot for handing the live playlist over to a successor session.</summary>
-    public HLSPlaylistHandover ExportHandover() => new(_sequence, _window.ToArray());
+    public HLSPlaylistHandover ExportHandover() => new(_sequence, _window.ToArray(), _availabilityStart);
 
     /// <summary>The media sequence number of the segment currently being produced</summary>
     public long CurrentMsn => _sequence;
@@ -96,8 +110,11 @@ internal sealed class HLSPlaylist
         _currentParts.Clear();
 
         _sequence++;
-        _window.Add(new SegmentEntry(name, duration, _pendingDiscontinuity));
+        _window.Add(new SegmentEntry(name, duration, _pendingDiscontinuity, _nextStart));
+        _nextStart += duration;
         _pendingDiscontinuity = false;
+        // the wall clock at which media time zero became available (DASH anchor)
+        _availabilityStart ??= DateTime.UtcNow - TimeSpan.FromSeconds(duration);
         while (_window.Count > _windowSize)
         {
             SegmentEntry oldest = _window[0];
@@ -134,6 +151,11 @@ internal sealed class HLSPlaylist
         string? delta = RenderDelta(ended);
         _storage.PublishPlaylist(text);
         _onUpdated?.Invoke(text, delta, CurrentMsn, _currentParts.Count - 1);
+
+        if (_dash is not null && _window.Count > 0 && _availabilityStart is { } ast)
+        {
+            _dash.Publish(_window, _sequence, ended, ast);
+        }
     }
 
     /// <summary>

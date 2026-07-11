@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Spangle DASH test player</title>
+    <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 1rem; }
+        video { width: min(960px, 100%); background: #000; }
+        pre { color: #8f8; }
+    </style>
+</head>
+<body>
+<h1>Spangle DASH test player</h1>
+<p>Plays <code>/hls/{stream}/manifest.mpd</code> — pass <code>?s=streamkey</code> (default: <code>test</code>)</p>
+<video id="v" controls autoplay muted></video>
+<pre id="log">loading...</pre>
+<script>
+    const stream = new URLSearchParams(location.search).get('s') || 'test';
+    const player = dashjs.MediaPlayer().create();
+    player.initialize(document.querySelector('#v'), `/hls/${stream}/manifest.mpd`, true);
+
+    const log = document.querySelector('#log');
+    let lastError = 'none';
+    player.on('error', e => lastError = JSON.stringify(e.error));
+    setInterval(() => {
+        const v = document.querySelector('#v');
+        log.textContent = `stream=${stream} t=${v.currentTime.toFixed(2)} ready=${v.readyState}`
+            + ` mediaError=${v.error ? v.error.code : 'none'} playerError=${lastError}`;
+    }, 500);
+</script>
+</body>
+</html>

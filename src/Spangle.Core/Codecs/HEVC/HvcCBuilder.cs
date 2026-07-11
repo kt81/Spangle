@@ -75,6 +75,33 @@ internal static class HvcCBuilder
         return pos + 5 + nalu.Length;
     }
 
+    /// <summary>
+    /// Display dimensions from a complete hvcC record (for sources that provide the
+    /// record but no other size metadata, e.g. enhanced-RTMP without onMetaData).
+    /// </summary>
+    public static (uint Width, uint Height) ParseDimensionsFromRecord(ReadOnlySpan<byte> hvcc)
+    {
+        int numArrays = hvcc[22];
+        var pos = 23;
+        for (var a = 0; a < numArrays; a++)
+        {
+            byte nalType = (byte)(hvcc[pos] & 0x3F);
+            int numNalus = (hvcc[pos + 1] << 8) | hvcc[pos + 2];
+            pos += 3;
+            for (var n = 0; n < numNalus; n++)
+            {
+                int length = (hvcc[pos] << 8) | hvcc[pos + 1];
+                if (nalType == 33)
+                {
+                    SpsSummary summary = ParseSps(hvcc.Slice(pos + 2, length));
+                    return (summary.Width, summary.Height);
+                }
+                pos += 2 + length;
+            }
+        }
+        throw new InvalidDataException("The hvcC record contains no SPS");
+    }
+
     // =======================================================================
     // SPS parsing (ITU-T H.265 7.3.2.2.1), up to the bit depths
 
@@ -82,8 +109,8 @@ internal static class HvcCBuilder
     {
         // strip the 2-byte NAL header, unescape the RBSP
         Span<byte> rbsp = sps.Length <= 256 ? stackalloc byte[sps.Length] : new byte[sps.Length];
-        int rbspLength = UnescapeRbsp(sps[2..], rbsp);
-        var r = new BitReader(rbsp[..rbspLength]);
+        int rbspLength = RbspBitReader.Unescape(sps[2..], rbsp);
+        var r = new RbspBitReader(rbsp[..rbspLength]);
 
         r.ReadBits(4); // sps_video_parameter_set_id
         var maxSubLayersMinus1 = (byte)r.ReadBits(3);
@@ -155,62 +182,4 @@ internal static class HvcCBuilder
             maxSubLayersMinus1, temporalIdNested, width, height);
     }
 
-    /// <summary>Removes emulation prevention bytes (00 00 03 → 00 00).</summary>
-    private static int UnescapeRbsp(ReadOnlySpan<byte> source, Span<byte> dest)
-    {
-        var written = 0;
-        var zeros = 0;
-        for (var i = 0; i < source.Length; i++)
-        {
-            byte b = source[i];
-            if (zeros >= 2 && b == 0x03)
-            {
-                zeros = 0;
-                continue; // skip the emulation prevention byte
-            }
-            zeros = b == 0 ? zeros + 1 : 0;
-            dest[written++] = b;
-        }
-        return written;
-    }
-
-    /// <summary>MSB-first bit reader with Exp-Golomb support.</summary>
-    private ref struct BitReader(ReadOnlySpan<byte> data)
-    {
-        private readonly ReadOnlySpan<byte> _data = data;
-        private int _bitPos;
-
-        public bool ReadBit()
-        {
-            int byteIndex = _bitPos >> 3;
-            int bitIndex = 7 - (_bitPos & 7);
-            _bitPos++;
-            return ((_data[byteIndex] >> bitIndex) & 1) != 0;
-        }
-
-        public ulong ReadBits(int count)
-        {
-            ulong value = 0;
-            for (var i = 0; i < count; i++)
-            {
-                value = (value << 1) | (ReadBit() ? 1UL : 0UL);
-            }
-            return value;
-        }
-
-        /// <summary>ue(v): unsigned Exp-Golomb</summary>
-        public ulong ReadUe()
-        {
-            var leadingZeros = 0;
-            while (!ReadBit())
-            {
-                leadingZeros++;
-                if (leadingZeros > 32)
-                {
-                    throw new InvalidDataException("Broken Exp-Golomb code in SPS");
-                }
-            }
-            return (1UL << leadingZeros) - 1 + ReadBits(leadingZeros);
-        }
-    }
 }

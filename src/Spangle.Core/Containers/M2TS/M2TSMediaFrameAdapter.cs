@@ -158,6 +158,15 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
 
         if ((parameterSetsChanged || !_videoConfigSent) && _sps is not null && _pps is not null)
         {
+            try
+            {
+                // the fMP4 sample entry needs real dimensions (MSE rejects 0x0)
+                (context.VideoWidth, context.VideoHeight) = Codecs.AVC.AvcSps.ParseDimensions(_sps);
+            }
+            catch (InvalidDataException e)
+            {
+                s_logger.ZLogWarning($"Could not read the SPS dimensions: {e.Message}");
+            }
             WriteFrame(MediaFrameKind.Video, MediaFrameFlags.Config, (uint)VideoCodec.H264, 0,
                 BuildAvcC(_sps, _pps), tsMs);
             _videoConfigSent = true;
