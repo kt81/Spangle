@@ -11,10 +11,7 @@ internal sealed partial class RtspControlFlow
     {
         bool serverHasGetParameter =
             _serverPublicMethods?.Contains("GET_PARAMETER", StringComparison.OrdinalIgnoreCase) == true;
-        bool useGetParameter =
-            dialect.KeepAlive == RtspKeepAliveMethod.GetParameter && serverHasGetParameter;
-
-        string method = useGetParameter ? "GET_PARAMETER" : "OPTIONS";
+        string method = dialect.KeepAliveMethod(serverHasGetParameter);
         await SendAsync(method, baseUri, decorate: null, ct).ConfigureAwait(false);
     }
 

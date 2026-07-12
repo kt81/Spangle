@@ -155,8 +155,9 @@ Roadmap
       RTMP receiver (`00_Options` → `01_Describe` → `02_Setup` → `03_Play` +
       keepalive), TCP-interleaved RTP, H.264/H.265 (RFC 6184/7798) and AAC
       (RFC 3640) depacketization into the canonical MediaFrame form, Basic/Digest
-      auth, RTP-Info/RTCP timeline anchoring, per-firmware quirks in a `RtspDialect`
-      table, and one auto-reconnecting loop per source
+      auth, RTP-Info/RTCP timeline anchoring, per-firmware quirks as overridable
+      `RtspDialect` hooks (resolved through an extensible registry, custom dialects
+      via DI), and one auto-reconnecting loop per source
 - [x] RTSP push (listen server): with `Rtsp.Listen`, Spangle binds a port (default
       8554) and accepts clients that ANNOUNCE/SETUP/RECORD (ffmpeg's default
       `-f rtsp` push). A push is a publish, so it rides the same

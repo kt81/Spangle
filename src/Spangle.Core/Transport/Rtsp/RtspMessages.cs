@@ -5,13 +5,16 @@ using System.Text;
 namespace Spangle.Transport.Rtsp;
 
 /// <summary>An outgoing RTSP/1.0 request (this server is the client — pull ingest).</summary>
-internal sealed class RtspRequest(string method, string uri)
+internal sealed class RtspRequest(string method, string uri) : IRtspRequestBuilder
 {
     public string Method { get; } = method;
     public string Uri { get; } = uri;
     public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public int CSeq { get; set; }
+
+    /// <inheritdoc/>
+    public void SetHeader(string name, string value) => Headers[name] = value;
 
     public void WriteTo(IBufferWriter<byte> writer)
     {

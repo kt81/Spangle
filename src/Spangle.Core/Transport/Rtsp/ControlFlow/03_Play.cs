@@ -13,13 +13,7 @@ internal sealed partial class RtspControlFlow
     /// </summary>
     private async ValueTask PlayAsync(CancellationToken ct)
     {
-        RtspMessage response = await SendAsync("PLAY", baseUri, request =>
-        {
-            if (!dialect.OmitPlayRange)
-            {
-                request.Headers["Range"] = "npt=0.000-";
-            }
-        }, ct).ConfigureAwait(false);
+        RtspMessage response = await SendAsync("PLAY", baseUri, dialect.ConfigurePlay, ct).ConfigureAwait(false);
 
         ApplyRtpInfo(response.Header("RTP-Info"));
         s_logger.ZLogInformation($"RTSP PLAY ok; media flowing");

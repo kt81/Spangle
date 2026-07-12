@@ -62,7 +62,7 @@ internal sealed partial class RtspControlFlow(
                 request.Headers["Authorization"] = auth;
             }
             decorate?.Invoke(request);
-            dialect.DecorateRequest?.Invoke(request);
+            dialect.DecorateRequest(request);
 
             RtspMessage response = await connection.ExchangeAsync(request, ct).ConfigureAwait(false);
             if (response.StatusCode == 401 && authenticator.TryAccept(response.Header("WWW-Authenticate"), attempt == 0))
@@ -79,20 +79,8 @@ internal sealed partial class RtspControlFlow(
         throw new RtspProtocolException($"{method} {uri} failed: authentication rejected");
     }
 
-    private string ControlUri(SdpMedia media)
-    {
-        string? control = media.Control ?? _sdp?.SessionControl;
-        if (string.IsNullOrEmpty(control) || control == "*")
-        {
-            return baseUri;
-        }
-        if (control.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
-        {
-            return control; // absolute control URL
-        }
-        // relative: append to the base, honoring a trailing slash
-        return baseUri.EndsWith('/') ? baseUri + control : $"{baseUri}/{control}";
-    }
+    private string ControlUri(SdpMedia media) =>
+        dialect.ResolveControlUri(baseUri, media.Control, _sdp?.SessionControl);
 
     /// <summary>One SETUP-assigned track: which interleaved channels carry its RTP/RTCP and what it is.</summary>
     internal sealed record TrackChannel(SdpMediaKind Kind, int RtpChannel, int RtcpChannel);

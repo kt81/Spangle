@@ -74,6 +74,9 @@ public static class SpangleServiceCollectionExtensions
                 ? new FileHLSStorage(hls.OutputDirectory)
                 : new MemoryHLSStorage();
         });
+        // RTSP vendor dialects: built-ins are seeded by the registry; apps add their own
+        // with services.AddSingleton<RtspDialect, MyDialect>() (a same-named one overrides)
+        services.TryAddSingleton<Spangle.Transport.Rtsp.RtspDialectRegistry>();
         services.AddHostedService<SrtIngestService>();
         services.AddHostedService<RtspIngestService>();
         services.AddHostedService<HlsEvictionService>();

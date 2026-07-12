@@ -19,6 +19,7 @@ public sealed class RtspIngestService(
     PublishSessionRegistry publishSessions,
     IPublishAuthorizer publishAuthorizer,
     IHLSStorage storage,
+    RtspDialectRegistry dialects,
     ILogger<RtspIngestService> logger) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -36,7 +37,7 @@ public sealed class RtspIngestService(
 
     private async Task RunSourceAsync(RtspSourceOptions source, CancellationToken ct)
     {
-        RtspDialect dialect = RtspDialect.Resolve(source.Dialect, out bool known);
+        RtspDialect dialect = dialects.Resolve(source.Dialect, out bool known);
         if (!known)
         {
             logger.ZLogWarning($"Unknown RTSP dialect `{source.Dialect}` for `{source.Name}`; using the default");
