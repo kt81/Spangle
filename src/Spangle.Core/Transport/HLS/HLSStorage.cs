@@ -73,6 +73,21 @@ public sealed class LiveBlobReader
     }
 }
 
+/// <summary>
+/// Optional capability of a storage backend: dropping streams nobody writes anymore.
+/// Only the memory backend implements this — file storage is an archive by design
+/// and is never cleaned.
+/// </summary>
+public interface IEvictingHLSStorage
+{
+    /// <summary>
+    /// Frees every stream without a write for at least <paramref name="idleFor"/>,
+    /// except those <paramref name="isLive"/> claims a publisher still owns.
+    /// Returns the number of streams evicted.
+    /// </summary>
+    int EvictIdleStreams(TimeSpan idleFor, Func<string, bool> isLive);
+}
+
 /// <summary>The storage area of a single stream (one playlist and its media blobs).</summary>
 public interface IHLSStreamStorage
 {
@@ -94,9 +109,10 @@ public interface IHLSStreamStorage
 /// <summary>
 /// Keeps the live window in process memory. Blobs the playlist trims are freed, so
 /// a stream holds roughly its sliding window (a few MB); after the stream ends its
-/// final window stays servable until the same stream key publishes again.
+/// final window stays servable until it is evicted (see <see cref="EvictIdleStreams"/>)
+/// or the same stream key publishes again.
 /// </summary>
-public sealed class MemoryHLSStorage : IHLSStorage
+public sealed class MemoryHLSStorage : IHLSStorage, IEvictingHLSStorage
 {
     private readonly ConcurrentDictionary<string, IHLSStreamStorage> _streams = new(StringComparer.Ordinal);
 
@@ -106,6 +122,29 @@ public sealed class MemoryHLSStorage : IHLSStorage
     public bool TryGetStream(string streamKey, out IHLSStreamStorage stream) =>
         _streams.TryGetValue(streamKey, out stream!);
 
+    public int EvictIdleStreams(TimeSpan idleFor, Func<string, bool> isLive)
+    {
+        ArgumentNullException.ThrowIfNull(isLive);
+        var evicted = 0;
+        long now = Environment.TickCount64;
+        foreach ((string key, IHLSStreamStorage stream) in _streams)
+        {
+            if (stream is not StreamStorage storage
+                || now - storage.LastWriteTicks < idleFor.TotalMilliseconds
+                || isLive(key))
+            {
+                continue;
+            }
+            // value-checked removal: a concurrent re-publish replaced the entry, leave it be
+            if (_streams.TryRemove(new KeyValuePair<string, IHLSStreamStorage>(key, stream)))
+            {
+                storage.Drop();
+                evicted++;
+            }
+        }
+        return evicted;
+    }
+
     public override string ToString() => "memory";
 
     private sealed class StreamStorage : IHLSStreamStorage, ILiveBlobStreamStorage
@@ -113,8 +152,29 @@ public sealed class MemoryHLSStorage : IHLSStorage
         private readonly ConcurrentDictionary<string, byte[]> _blobs = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, GrowingBlob> _growing = new(StringComparer.Ordinal);
         private volatile string? _playlist;
+        private long _lastWriteTicks = Environment.TickCount64;
 
-        public void WriteBlob(string name, ReadOnlySpan<byte> content) => _blobs[name] = content.ToArray();
+        internal long LastWriteTicks => Volatile.Read(ref _lastWriteTicks);
+
+        private void Touch() => Volatile.Write(ref _lastWriteTicks, Environment.TickCount64);
+
+        /// <summary>Frees everything after eviction; blocked LL-DASH readers are released.</summary>
+        internal void Drop()
+        {
+            foreach (GrowingBlob blob in _growing.Values)
+            {
+                blob.Complete();
+            }
+            _growing.Clear();
+            _blobs.Clear();
+            _playlist = null;
+        }
+
+        public void WriteBlob(string name, ReadOnlySpan<byte> content)
+        {
+            Touch();
+            _blobs[name] = content.ToArray();
+        }
 
         public void DeleteBlob(string name)
         {
@@ -125,7 +185,11 @@ public sealed class MemoryHLSStorage : IHLSStorage
             }
         }
 
-        public void PublishPlaylist(string text) => _playlist = text;
+        public void PublishPlaylist(string text)
+        {
+            Touch();
+            _playlist = text;
+        }
 
         public bool TryReadBlob(string name, out ReadOnlyMemory<byte> content)
         {
@@ -142,8 +206,11 @@ public sealed class MemoryHLSStorage : IHLSStorage
 
         // ---- growing blobs (LL-DASH) ----
 
-        public void AppendBlob(string name, ReadOnlySpan<byte> content) =>
+        public void AppendBlob(string name, ReadOnlySpan<byte> content)
+        {
+            Touch();
             _growing.GetOrAdd(name, static _ => new GrowingBlob()).Append(content);
+        }
 
         public void CompleteBlob(string name)
         {

@@ -60,6 +60,7 @@ public static class SpangleServiceCollectionExtensions
                 : new MemoryHLSStorage();
         });
         services.AddHostedService<SrtIngestService>();
+        services.AddHostedService<HlsEvictionService>();
 
         // Management surface: log capture, delivery counters, and the stats join
         services.AddSingleton<SpangleLogBuffer>();

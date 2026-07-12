@@ -48,3 +48,5 @@ Spangle:
     # TsPassthrough: true  # SRT→TS-HLS re-segments the source TS as-is (half the
     #                      # container work); set false to force demux+remux, e.g.
     #                      # when MediaFrame spinner plugins must run on SRT sessions
+    # EndedStreamTtlSeconds: 300  # memory storage frees an ended stream's final window
+    #                             # after this long (0 = keep until the key publishes again)
