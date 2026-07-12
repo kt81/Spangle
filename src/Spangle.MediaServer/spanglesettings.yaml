@@ -31,6 +31,10 @@ Spangle:
     # Tls:                     # HTTPS here keeps the token off the wire in cleartext
     #   Enabled: true
     #   CertificatePath: cert.pfx
+  # Publish:
+  #   AllowedStreamNames:      # exact-match allowlist for publishers (RTMP name /
+  #     - my-stream-key        # SRT streamid); empty = allow all. A custom
+  #     - another-key          # IPublishAuthorizer in DI overrides this entirely.
   Hls:
     Enabled: true
     # Storage: Memory  # "Memory" (default): the live window is served from process
