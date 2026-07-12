@@ -168,6 +168,9 @@ public sealed class PublishSessionRegistry
         }
     }
 
+    /// <summary>True while a publish session owns the given (sanitized) stream key.</summary>
+    public bool IsLive(string streamKey) => _sessions.ContainsKey(streamKey);
+
     /// <summary>
     /// Snapshots every live publish session for monitoring. Codec and byte counters
     /// come from the session's receiver context when it is still alive.

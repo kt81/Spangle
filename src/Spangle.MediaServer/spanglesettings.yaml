@@ -4,14 +4,23 @@ Spangle:
     Port: 1935
     # AudioOnlyFallbackMs: 3000  # audio with no video in sight becomes audio-only (0 = off)
     # TimedMetadata: true        # AMF data events -> timed ID3 in the HLS output
+    # Tls:                       # RTMPS (publishers connect with rtmps://)
+    #   Enabled: true
+    #   CertificatePath: cert.pfx        # PKCS#12; or a PEM cert with KeyPath
+    #   CertificatePassword: ""
+    #   KeyPath: cert.key                # set for a PEM cert/key pair
   Srt:
     Enabled: true
     Port: 9998
     # Passphrase: "correct horse battery staple"  # optional wire encryption (10-79 bytes)
   Http:
     Port: 8080
-    # MetadataInjection: true  # POST /api/streams/{key}/metadata -> timed ID3 in the
-    #                          # output. No built-in auth: protect it at the network level.
+    # MetadataInjection: true       # POST /api/streams/{key}/metadata -> timed ID3 in the
+    #                               # output. Token below, or protect it at the network level.
+    # MetadataInjectionToken: ""    # Bearer token for metadata injection on this public port
+    # Tls:                          # HTTPS for HLS/DASH delivery (same shape as Rtmp.Tls)
+    #   Enabled: true
+    #   CertificatePath: cert.pfx
   Management:
     # The control API (and web console) listens on its own port, never on the
     # delivery port. Binding beyond loopback requires Token.
@@ -19,6 +28,13 @@ Spangle:
     Port: 8081
     # BindAddress: 127.0.0.1   # e.g. 0.0.0.0 to manage remotely (Token required)
     # Token: ""                # Bearer token for every /api/manage request
+    # Tls:                     # HTTPS here keeps the token off the wire in cleartext
+    #   Enabled: true
+    #   CertificatePath: cert.pfx
+  # Publish:
+  #   AllowedStreamNames:      # exact-match allowlist for publishers (RTMP name /
+  #     - my-stream-key        # SRT streamid); empty = allow all. A custom
+  #     - another-key          # IPublishAuthorizer in DI overrides this entirely.
   Hls:
     Enabled: true
     # Storage: Memory  # "Memory" (default): the live window is served from process
@@ -32,3 +48,5 @@ Spangle:
     # TsPassthrough: true  # SRT→TS-HLS re-segments the source TS as-is (half the
     #                      # container work); set false to force demux+remux, e.g.
     #                      # when MediaFrame spinner plugins must run on SRT sessions
+    # EndedStreamTtlSeconds: 300  # memory storage frees an ended stream's final window
+    #                             # after this long (0 = keep until the key publishes again)

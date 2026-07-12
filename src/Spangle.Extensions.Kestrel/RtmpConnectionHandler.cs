@@ -26,6 +26,7 @@ public class RtmpConnectionHandler(
         var ct = cts.Token;
 
         var receiver = connection.CreateRtmpReceiverContext(ct);
+        receiver.Bandwidth = options.Value.Rtmp.Bandwidth;
         var hlsOptions = options.Value.Hls;
         var segmentFormat = hlsOptions.SegmentFormat.ToLowerInvariant() switch
         {

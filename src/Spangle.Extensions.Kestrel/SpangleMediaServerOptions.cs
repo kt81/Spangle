@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Spangle.Extensions.Kestrel;
 
@@ -14,6 +15,21 @@ public class SpangleMediaServerOptions
     public HlsOptions Hls { get; set; } = new();
     public HttpOptions Http { get; set; } = new();
     public ManagementOptions Management { get; set; } = new();
+    public PublishOptions Publish { get; set; } = new();
+}
+
+/// <summary>
+/// Publish authorization policy. The default stays allow-all + last-wins; listing
+/// stream names here switches the built-in authorizer to an exact-match allowlist.
+/// A custom <see cref="IPublishAuthorizer"/> registered in DI always wins over both.
+/// </summary>
+public class PublishOptions
+{
+    /// <summary>
+    /// Stream names (RTMP publish names / SRT streamids) allowed to publish.
+    /// Empty keeps the allow-all policy.
+    /// </summary>
+    public IList<string> AllowedStreamNames { get; } = [];
 }
 
 /// <summary>
@@ -37,6 +53,40 @@ public class ManagementOptions
     /// (<c>Authorization: Bearer ...</c>). Mandatory for non-loopback binds.
     /// </summary>
     public string? Token { get; set; }
+
+    /// <summary>
+    /// TLS for the management port. Without it the Bearer token travels in
+    /// cleartext, so anything beyond loopback should turn this on.
+    /// </summary>
+    public TlsOptions Tls { get; set; } = new();
+}
+
+/// <summary>
+/// TLS for one listener. Plaintext until <see cref="Enabled"/> is set, then
+/// <see cref="CertificatePath"/> is a PKCS#12/PFX file (with
+/// <see cref="CertificatePassword"/> if the file has one) — or a PEM
+/// certificate when <see cref="KeyPath"/> points at the PEM private key.
+/// </summary>
+public class TlsOptions
+{
+    public bool Enabled { get; set; }
+
+    public string? CertificatePath { get; set; }
+
+    public string? CertificatePassword { get; set; }
+
+    public string? KeyPath { get; set; }
+
+    internal X509Certificate2 LoadCertificate()
+    {
+        if (string.IsNullOrEmpty(CertificatePath))
+        {
+            throw new InvalidOperationException("Tls.CertificatePath is required when Tls.Enabled");
+        }
+        return string.IsNullOrEmpty(KeyPath)
+            ? X509CertificateLoader.LoadPkcs12FromFile(CertificatePath, CertificatePassword)
+            : X509Certificate2.CreateFromPemFile(CertificatePath, KeyPath);
+    }
 }
 
 public class RtmpOptions : MediaProtocolOptions
@@ -55,6 +105,15 @@ public class RtmpOptions : MediaProtocolOptions
     /// metadata carried in the HLS output. Adds one spinner hop to the pipeline.
     /// </summary>
     public bool TimedMetadata { get; set; } = true;
+
+    /// <summary>
+    /// Announced to publishers as WindowAcknowledgementSize / SetPeerBandwidth (bytes)
+    /// during the connect sequence.
+    /// </summary>
+    [Range(1, uint.MaxValue)] public uint Bandwidth { get; set; } = 1_500_000;
+
+    /// <summary>RTMPS: TLS on the RTMP listener (publishers connect with rtmps://)</summary>
+    public TlsOptions Tls { get; set; } = new();
 }
 
 public class SrtOptions : MediaProtocolOptions
@@ -75,10 +134,20 @@ public class HttpOptions
 
     /// <summary>
     /// Enables POST /api/streams/{key}/metadata: injects timed ID3 metadata into a
-    /// live session. The endpoint has no authentication of its own — protect it at
-    /// the network level or front it with your own middleware.
+    /// live session. Set <see cref="MetadataInjectionToken"/> to require a Bearer
+    /// token; without one, protect the endpoint at the network level instead.
     /// </summary>
     public bool MetadataInjection { get; set; } = true;
+
+    /// <summary>
+    /// Bearer token required on metadata injection requests when set
+    /// (<c>Authorization: Bearer ...</c>). The endpoint lives on the public
+    /// delivery port, so set this anywhere the port is reachable by viewers.
+    /// </summary>
+    public string? MetadataInjectionToken { get; set; }
+
+    /// <summary>HTTPS for the delivery port (HLS/DASH and the test player)</summary>
+    public TlsOptions Tls { get; set; } = new();
 }
 
 public class HlsOptions : MediaProtocolOptions
@@ -120,6 +189,14 @@ public class HlsOptions : MediaProtocolOptions
 
     /// <summary>Target duration of LL-HLS partial segments in seconds</summary>
     [Range(0.1, 5.0)] public double PartTargetDuration { get; set; } = 0.5;
+
+    /// <summary>
+    /// How long an ended stream's final window stays servable from memory storage,
+    /// in seconds, before it is freed. 0 keeps every ended stream until the same
+    /// key publishes again — memory then grows with the number of distinct stream
+    /// keys ever published. File storage is an archive and is never cleaned.
+    /// </summary>
+    [Range(0, 604_800)] public int EndedStreamTtlSeconds { get; set; } = 300;
 }
 
 public abstract class MediaProtocolOptions

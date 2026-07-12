@@ -33,7 +33,8 @@ public static class NALFileFormat
             1 => BufferMarshal.As<byte>(lenBuff),
             2 => BufferMarshal.As<BigEndianUInt16>(lenBuff).HostValue,
             4 => BufferMarshal.As<BigEndianUInt32>(lenBuff).HostValue,
-            _ => throw new InvalidDataException(),
+            _ => throw new InvalidDataException(
+                $"NALU length size must be 1, 2 or 4 bytes; the decoder configuration declared {lengthSize}"),
         };
 
         buff = buff.Slice(lenBuff.End);

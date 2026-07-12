@@ -163,7 +163,7 @@ public sealed class SRTReceiverContext : ReceiverContextBase<SRTReceiverContext>
     /// found; <paramref name="needMoreData"/> distinguishes "a candidate exists but
     /// there aren't enough bytes to verify it yet" (keep the tail for the next read).
     /// </summary>
-    private static bool TryResync(ref ReadOnlySequence<byte> buff, out bool needMoreData)
+    internal static bool TryResync(ref ReadOnlySequence<byte> buff, out bool needMoreData)
     {
         ReadOnlySequence<byte> search = buff.Slice(1);
         Span<byte> next = stackalloc byte[1]; // hoisted: stackalloc in a loop grows the stack per iteration

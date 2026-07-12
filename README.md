@@ -45,8 +45,8 @@ $ ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequenc
 ```
 
 Configuration lives in `src/Spangle.MediaServer/spanglesettings.yaml`
-(ports, segment format TS/fMP4, LL-HLS, SRT passphrase), overridable with
-`SMS_`-prefixed environment variables.
+(ports, segment format TS/fMP4, LL-HLS, SRT passphrase, TLS per listener,
+publish allowlist), overridable with `SMS_`-prefixed environment variables.
 
 Family
 ------
@@ -83,6 +83,18 @@ Roadmap
       errors (CI builds Release, so the gate holds there too). The deliberate
       exceptions live in `.editorconfig`, each with a written reason —
       spec-mirroring enums, numbered protocol-flow files, wire-struct fields
+- [x] TLS on every listener that lacked it: HTTPS for HLS/DASH delivery
+      (`Http.Tls`), HTTPS for the management port so the Bearer token never
+      travels in cleartext (`Management.Tls`), and RTMPS (`Rtmp.Tls`) —
+      PKCS#12 or PEM cert/key, plaintext stays the default
+- [x] Publish allowlist out of the box: `Publish.AllowedStreamNames` switches
+      the built-in authorizer from allow-all to an exact-match allowlist
+      (a custom `IPublishAuthorizer` in DI still overrides everything); the
+      metadata-injection endpoint on the public port takes an optional Bearer
+      token (`Http.MetadataInjectionToken`)
+- [x] Ended streams no longer hold memory forever: memory storage frees a
+      stream's final window after `Hls.EndedStreamTtlSeconds` (default 300;
+      0 restores keep-until-republish), skipping keys a publisher still owns
 
 ### Mid term — features
 

@@ -32,7 +32,10 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     // =======================================================================
 
-    // TODO 設定とかからもらう
+    /// <summary>
+    /// Announced to the peer as WindowAcknowledgementSize / SetPeerBandwidth during
+    /// the connect sequence. Hosts override this from configuration (Rtmp.Bandwidth).
+    /// </summary>
     public uint Bandwidth      = 1500000;
 
     /// <summary>
