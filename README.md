@@ -164,11 +164,16 @@ Roadmap
       `IPublishAuthorizer`/takeover path as RTMP/SRT; the stream key is the ANNOUNCE
       URL's last path segment (`/live/key` → `/hls/key/…`). The depacketizers,
       timeline and adapter are shared with the pull receiver (`RtspMediaFrameAdapter<T>`
-      is generic over the receiver). UDP transport and ONVIF discovery are the parked
-      follow-ons
+      is generic over the receiver)
 
 ### Backlog — decided, parked until kickoff
 
+- RTSP over UDP transport (RTP/RTCP on their own sockets, both pull and push);
+  TCP-interleaved is the default and remains the fallback
+- ONVIF camera discovery/onboarding — deliberately **not** in this repo or the media
+  library: it is a SOAP/WS-\* control-plane concern that sits above the media plane.
+  If built, it lives as a separate optional library/repo that discovers cameras and
+  emits `Rtsp.Sources` entries; the media core never depends on it
 - MoQ (Media over QUIC) ingest/egress: draft target and interop peer to be
   pinned at kickoff; raw QUIC first, WebTransport for browsers after
 
