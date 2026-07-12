@@ -2,8 +2,6 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Spangle.Spinner;
@@ -107,23 +105,12 @@ public static class SpangleManagementEndpoints
             return null; // loopback-only bind is enforced by options validation
         }
 
-        const string prefix = "Bearer ";
-        string auth = ctx.Request.Headers.Authorization.ToString();
-        if (auth.StartsWith(prefix, StringComparison.Ordinal)
-            && FixedTimeEquals(auth.AsSpan(prefix.Length).Trim(), opt.Token))
+        if (TokenGate.Matches(ctx.Request.Headers.Authorization.ToString(), opt.Token))
         {
             return null;
         }
         ctx.Response.Headers.WWWAuthenticate = "Bearer";
         return Results.Unauthorized();
-    }
-
-    private static bool FixedTimeEquals(ReadOnlySpan<char> provided, string expected)
-    {
-        Span<byte> providedUtf8 = provided.Length <= 64 ? stackalloc byte[256] : new byte[provided.Length * 4];
-        int written = Encoding.UTF8.GetBytes(provided, providedUtf8);
-        byte[] expectedUtf8 = Encoding.UTF8.GetBytes(expected);
-        return CryptographicOperations.FixedTimeEquals(providedUtf8[..written], expectedUtf8);
     }
 
     private static async IAsyncEnumerable<IReadOnlyList<StreamStatsDto>> StatsFeedAsync(

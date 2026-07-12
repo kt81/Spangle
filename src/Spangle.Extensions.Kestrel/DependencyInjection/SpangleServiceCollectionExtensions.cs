@@ -27,6 +27,13 @@ public static class SpangleServiceCollectionExtensions
                            && IPAddress.IsLoopback(address);
                 },
                 "Management.Token is required when Management.BindAddress is not a loopback address")
+            .Validate(static options =>
+                {
+                    // a TLS block without a certificate is a misconfiguration, not "plaintext please"
+                    static bool Ok(TlsOptions tls) => !tls.Enabled || !string.IsNullOrEmpty(tls.CertificatePath);
+                    return Ok(options.Rtmp.Tls) && Ok(options.Http.Tls) && Ok(options.Management.Tls);
+                },
+                "Tls.CertificatePath is required wherever Tls.Enabled is set")
             .ValidateOnStart();
         services.AddSingleton<RtmpConnectionHandler>();
         services.AddSingleton<HLSStreamRegistry>();
