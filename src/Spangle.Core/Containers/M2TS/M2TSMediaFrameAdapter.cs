@@ -168,7 +168,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
                 s_logger.ZLogWarning($"Could not read the SPS dimensions: {e.Message}");
             }
             WriteFrame(MediaFrameKind.Video, MediaFrameFlags.Config, (uint)VideoCodec.H264, 0,
-                BuildAvcC(_sps, _pps), tsMs);
+                Codecs.AVC.AvcCBuilder.Build(_sps, _pps), tsMs);
             _videoConfigSent = true;
         }
 
@@ -266,25 +266,6 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
         }
         slot = nalu.ToArray();
         return true;
-    }
-
-    private static byte[] BuildAvcC(ReadOnlySpan<byte> sps, ReadOnlySpan<byte> pps)
-    {
-        // ISO 14496-15 AVCDecoderConfigurationRecord with one SPS and one PPS
-        var avcc = new byte[11 + sps.Length + pps.Length];
-        avcc[0] = 1;       // configurationVersion
-        avcc[1] = sps[1];  // AVCProfileIndication
-        avcc[2] = sps[2];  // profile_compatibility
-        avcc[3] = sps[3];  // AVCLevelIndication
-        avcc[4] = 0xFF;    // reserved(6) + lengthSizeMinusOne = 3 (4-byte lengths)
-        avcc[5] = 0xE1;    // reserved(3) + numOfSequenceParameterSets = 1
-        BinaryPrimitives.WriteUInt16BigEndian(avcc.AsSpan(6), (ushort)sps.Length);
-        sps.CopyTo(avcc.AsSpan(8));
-        int p = 8 + sps.Length;
-        avcc[p] = 1;       // numOfPictureParameterSets
-        BinaryPrimitives.WriteUInt16BigEndian(avcc.AsSpan(p + 1), (ushort)pps.Length);
-        pps.CopyTo(avcc.AsSpan(p + 3));
-        return avcc;
     }
 
     // =======================================================================
