@@ -22,6 +22,8 @@ public sealed record ServerInfoDto
     public required int RtmpPort { get; init; }
     public required bool SrtEnabled { get; init; }
     public required int SrtPort { get; init; }
+    public required bool RtspEnabled { get; init; }
+    public required int RtspSourceCount { get; init; }
     public required int HttpPort { get; init; }
     public required string SegmentFormat { get; init; }
     public required string Storage { get; init; }
@@ -155,6 +157,8 @@ public static class SpangleManagementEndpoints
             RtmpPort = options.Rtmp.Port,
             SrtEnabled = options.Srt.Enabled,
             SrtPort = options.Srt.Port,
+            RtspEnabled = options.Rtsp.Enabled,
+            RtspSourceCount = options.Rtsp.Sources.Count,
             HttpPort = options.Http.Port,
             SegmentFormat = options.Hls.SegmentFormat,
             Storage = options.Hls.Storage,

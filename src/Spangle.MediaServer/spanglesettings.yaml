@@ -13,6 +13,17 @@ Spangle:
     Enabled: true
     Port: 9998
     # Passphrase: "correct horse battery staple"  # optional wire encryption (10-79 bytes)
+  # Rtsp:
+  #   # Pull ingest: Spangle connects out to each source (IP cameras, other RTSP
+  #   # servers) and republishes it under Name. TCP-interleaved transport.
+  #   Enabled: true
+  #   Sources:
+  #     - Name: camera1                # stream key -> /hls/camera1/playlist.m3u8
+  #       Url: rtsp://user:pass@192.168.1.10:554/stream1
+  #       # UserName: admin            # credentials, if not embedded in Url
+  #       # Password: secret
+  #       # Dialect: LegacyOptionsKeepalive   # for firmwares without GET_PARAMETER
+  #       # ReconnectMaxDelaySeconds: 30
   Http:
     Port: 8080
     # MetadataInjection: true       # POST /api/streams/{key}/metadata -> timed ID3 in the

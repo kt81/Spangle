@@ -48,6 +48,8 @@ public sealed record ServerInfo(
     int RtmpPort,
     bool SrtEnabled,
     int SrtPort,
+    bool RtspEnabled,
+    int RtspSourceCount,
     int HttpPort,
     string SegmentFormat,
     string Storage,

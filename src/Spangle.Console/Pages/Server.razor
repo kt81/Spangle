@@ -36,6 +36,7 @@ else
         <tbody>
         <tr><td>RTMP ingest</td><td>@(_info.RtmpEnabled ? $"port {_info.RtmpPort}" : "disabled")</td></tr>
         <tr><td>SRT ingest</td><td>@(_info.SrtEnabled ? $"port {_info.SrtPort}" : "disabled")</td></tr>
+        <tr><td>RTSP ingest</td><td>@(_info.RtspEnabled ? $"{_info.RtspSourceCount} source(s)" : "disabled")</td></tr>
         <tr><td>HTTP delivery</td><td>port @_info.HttpPort</td></tr>
         <tr><td>Segment format</td><td>@_info.SegmentFormat</td></tr>
         <tr><td>Storage</td><td>@_info.Storage</td></tr>

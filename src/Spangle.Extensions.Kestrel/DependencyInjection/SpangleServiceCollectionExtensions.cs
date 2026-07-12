@@ -34,6 +34,19 @@ public static class SpangleServiceCollectionExtensions
                     return Ok(options.Rtmp.Tls) && Ok(options.Http.Tls) && Ok(options.Management.Tls);
                 },
                 "Tls.CertificatePath is required wherever Tls.Enabled is set")
+            .Validate(static options =>
+                {
+                    RtspOptions rtsp = options.Rtsp;
+                    if (!rtsp.Enabled)
+                    {
+                        return true;
+                    }
+                    // each source needs a name and URL, and names route to distinct outputs
+                    var names = new HashSet<string>(StringComparer.Ordinal);
+                    return rtsp.Sources.All(s =>
+                        !string.IsNullOrWhiteSpace(s.Name) && !string.IsNullOrWhiteSpace(s.Url) && names.Add(s.Name));
+                },
+                "Every Rtsp.Sources entry needs a unique Name and a Url")
             .ValidateOnStart();
         services.AddSingleton<RtmpConnectionHandler>();
         services.AddSingleton<HLSStreamRegistry>();
@@ -60,6 +73,7 @@ public static class SpangleServiceCollectionExtensions
                 : new MemoryHLSStorage();
         });
         services.AddHostedService<SrtIngestService>();
+        services.AddHostedService<RtspIngestService>();
         services.AddHostedService<HlsEvictionService>();
 
         // Management surface: log capture, delivery counters, and the stats join

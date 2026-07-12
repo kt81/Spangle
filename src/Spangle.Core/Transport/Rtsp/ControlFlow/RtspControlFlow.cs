@@ -97,11 +97,3 @@ internal sealed partial class RtspControlFlow(
     /// <summary>One SETUP-assigned track: which interleaved channels carry its RTP/RTCP and what it is.</summary>
     internal sealed record TrackChannel(SdpMediaKind Kind, int RtpChannel, int RtcpChannel);
 }
-
-/// <summary>An RTSP handshake failed in a way that will not resolve by retrying the same request.</summary>
-public sealed class RtspProtocolException : Exception
-{
-    public RtspProtocolException() { }
-    public RtspProtocolException(string message) : base(message) { }
-    public RtspProtocolException(string message, Exception innerException) : base(message, innerException) { }
-}

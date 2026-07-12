@@ -12,10 +12,49 @@ public class SpangleMediaServerOptions
 
     public RtmpOptions Rtmp { get; set; } = new();
     public SrtOptions Srt { get; set; } = new();
+    public RtspOptions Rtsp { get; set; } = new();
     public HlsOptions Hls { get; set; } = new();
     public HttpOptions Http { get; set; } = new();
     public ManagementOptions Management { get; set; } = new();
     public PublishOptions Publish { get; set; } = new();
+}
+
+/// <summary>
+/// RTSP pull ingest: this server connects out to each configured source (an IP
+/// camera or another RTSP server), so unlike RTMP/SRT there is no port to listen
+/// on — the unit of configuration is a list of sources, defined in the settings
+/// file. TCP-interleaved transport (RTP over the RTSP connection).
+/// </summary>
+public class RtspOptions
+{
+    public bool Enabled { get; set; }
+
+    public IList<RtspSourceOptions> Sources { get; } = [];
+}
+
+/// <summary>One RTSP source to pull and republish under <see cref="Name"/>.</summary>
+public class RtspSourceOptions
+{
+    /// <summary>Stream key the source is republished under (served at /hls/{Name}/...).</summary>
+    [Required] public string Name { get; set; } = "";
+
+    /// <summary>The rtsp:// URL. Credentials may be embedded (rtsp://user:pass@host/path) or set below.</summary>
+    [Required]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1056:URI-like properties should not be strings",
+        Justification = "Bound verbatim from the settings file and passed straight to the wire; Uri would drop credentials and query quirks cameras rely on")]
+    public string Url { get; set; } = "";
+
+    /// <summary>Username for RTSP authentication, when not embedded in the URL.</summary>
+    public string? UserName { get; set; }
+
+    /// <summary>Password for RTSP authentication, when not embedded in the URL.</summary>
+    public string? Password { get; set; }
+
+    /// <summary>Vendor dialect name (e.g. "LegacyOptionsKeepalive"); empty uses the default.</summary>
+    public string? Dialect { get; set; }
+
+    /// <summary>Cap on the reconnect backoff after the source drops, in seconds.</summary>
+    [Range(1, 3600)] public int ReconnectMaxDelaySeconds { get; set; } = 30;
 }
 
 /// <summary>
