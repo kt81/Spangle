@@ -106,6 +106,12 @@ public class RtmpOptions : MediaProtocolOptions
     /// </summary>
     public bool TimedMetadata { get; set; } = true;
 
+    /// <summary>
+    /// Announced to publishers as WindowAcknowledgementSize / SetPeerBandwidth (bytes)
+    /// during the connect sequence.
+    /// </summary>
+    [Range(1, uint.MaxValue)] public uint Bandwidth { get; set; } = 1_500_000;
+
     /// <summary>RTMPS: TLS on the RTMP listener (publishers connect with rtmps://)</summary>
     public TlsOptions Tls { get; set; } = new();
 }
