@@ -1,9 +1,9 @@
 # Architecture
 
-Spangle turns live ingest protocols (RTMP and SRT) into web-deliverable streams
-(HLS, LL-HLS/CMAF). This document describes the data flow, the data formats at
-each boundary, and where state lives. It is written for someone implementing or modifying
-this kind of system.
+Spangle turns live ingest protocols (RTMP, SRT push and RTSP pull) into
+web-deliverable streams (HLS, LL-HLS/CMAF, DASH). This document describes the data
+flow, the data formats at each boundary, and where state lives. It is written for
+someone implementing or modifying this kind of system.
 
 ## Pipeline overview
 
@@ -253,6 +253,53 @@ SRT bytes ──► SRTReceiverContext ──► M2TSDemuxer ──► M2TSMedia
   the audio codec, and both output paths cut segments on the audio timeline — the
   TS muxer emits a video-less PMT with the PCR and random-access flags on the audio
   PID, and the CMAF packager builds an audio-only init segment.
+
+## RTSP receiver (pull ingest)
+
+RTSP inverts the direction: the server is the *client*, dialing out to each
+configured source (an IP camera, another RTSP server) rather than listening for
+publishers. Transport is TCP-interleaved — RTP and RTCP ride the RTSP connection
+itself, so there are no extra sockets and no inbound firewall holes.
+
+```
+camera ──RTSP/TCP──► RtspReceiverContext ──► depacketizers ──► RtspMediaFrameAdapter ──► MediaFrame stream
+                     (00_Options → 01_Describe    (RFC 6184        (avcC/hvcC from the
+                      → 02_Setup → 03_Play,         H.264, RFC 7798  SDP or in-band sets;
+                      04_KeepAlive)                 H.265, RFC 3640  raw AAC + ASC)
+                                                    AAC)
+```
+
+- **Control flow** is explicit and numbered, mirroring the RTMP receiver's ReadState
+  files: `ControlFlow/00_Options` (discovers the server's methods, deciding keepalive
+  verb) → `01_Describe` (fetches the SDP) → `02_Setup` (per track, requests
+  `RTP/AVP/TCP;interleaved=a-b` and records the channel pair; the first response fixes
+  the session id and keepalive interval) → `03_Play` (starts the flow; the `RTP-Info`
+  `rtptime` anchors each track's timeline). `04_KeepAlive` refreshes the session with
+  GET_PARAMETER (OPTIONS fallback when the server never advertised it), and TEARDOWN
+  closes it.
+- `RtspConnection` is the wire: one read loop demultiplexes CSeq-matched responses,
+  server-initiated keepalive probes (answered 200), and `$`-framed interleaved RTP/RTCP.
+  The loop runs during the handshake too, since it delivers the responses the handshake
+  awaits.
+- **Depacketizers** rebuild access units per RFC: H.264 (single NAL / STAP-A / FU-A),
+  H.265 (single / AP / FU), AAC-hbr (`mpeg4-generic`, AU-header widths from the fmtp).
+  A sequence-number gap drops the unit under assembly and suppresses output until the
+  next IDR/IRAP, so the decoder never sees references it is missing.
+- `RtspMediaFrameAdapter` normalizes to the same canonical MediaFrame form as every
+  other receiver: length-prefixed NALU samples plus an avcC/hvcC Config frame built
+  from the SDP `sprop-parameter-sets` (or in-band sets, whichever arrives), and raw AAC
+  frames plus an AudioSpecificConfig from the fmtp `config=`. So HLS/CMAF/DASH, spinners
+  and the publish gate all work unchanged — `AvcCBuilder` is shared with the TS adapter.
+- **Timeline**: RTP carries only PTS. Each track maps its 32-bit RTP clock to the
+  session's millisecond timeline, anchored (best first) on PLAY's `RTP-Info` rtptime, an
+  RTCP Sender Report's NTP wallclock, or its own first packet; a shared `RtspTimelineSync`
+  lets the SR path align audio and video onto one zero. IP cameras rarely emit B-frames,
+  so composition time is treated as zero (PTS = DTS).
+- **Host & resilience**: `RtspIngestService` runs one connect/reconnect loop per source
+  with exponential backoff — cameras reboot and links blip, and a pull ingest is expected
+  to recover on its own. Sources come from `Rtsp.Sources` in the settings file (name, URL,
+  optional credentials, vendor dialect). Per-firmware quirks (keepalive verb, whether PLAY
+  may carry a Range) live in one `RtspDialect` table instead of scattered conditionals.
 
 ## Publish authorization & takeover
 

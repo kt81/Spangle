@@ -10,11 +10,12 @@ allocations on modern IO, and top-tier .NET performance.
 Current status
 --------------
 
-Two first-class ingest protocols, one canonical internal form, two output shapes:
+Three ingest protocols, one canonical internal form, two output shapes:
 
-- **Ingest**: RTMP (classic + enhanced; H.264/H.265/AV1 + AAC/Opus) and
+- **Ingest**: RTMP (classic + enhanced; H.264/H.265/AV1 + AAC/Opus),
   **SRT** (MPEG-TS; H.264/H.265 + AAC/Opus, streamid routing, optional passphrase
-  encryption)
+  encryption), and **RTSP** pull (IP cameras; TCP-interleaved, H.264/H.265 + AAC,
+  Basic/Digest auth, auto-reconnect)
 - **Output**: HLS with MPEG-2 TS segments, or CMAF/fMP4 — optionally **LL-HLS**
   (partial segments + blocking playlist reload), served over HTTP with per-stream
   routing (`/hls/{stream}/playlist.m3u8`)
@@ -143,10 +144,17 @@ Roadmap
       works as well as the UI does. Multi-server aggregation comes later on
       the same API
 
+- [x] RTSP pull ingest (IP cameras): the server dials out to each `Rtsp.Sources`
+      entry and republishes it as HLS/CMAF. Explicit numbered control flow like the
+      RTMP receiver (`00_Options` → `01_Describe` → `02_Setup` → `03_Play` +
+      keepalive), TCP-interleaved RTP, H.264/H.265 (RFC 6184/7798) and AAC
+      (RFC 3640) depacketization into the canonical MediaFrame form, Basic/Digest
+      auth, RTP-Info/RTCP timeline anchoring, per-firmware quirks in a `RtspDialect`
+      table, and one auto-reconnecting loop per source. UDP transport, ONVIF
+      discovery and push (ANNOUNCE/RECORD) server mode are the parked follow-ons
+
 ### Backlog — decided, parked until kickoff
 
-- RTSP pull ingest (IP cameras): explicit numbered control flow like the RTMP
-  receiver, with vendor dialects as a delegate table; TCP-interleaved first
 - MoQ (Media over QUIC) ingest/egress: draft target and interop peer to be
   pinned at kickoff; raw QUIC first, WebTransport for browsers after
 
