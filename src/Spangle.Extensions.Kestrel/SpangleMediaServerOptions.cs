@@ -183,6 +183,14 @@ public class HlsOptions : MediaProtocolOptions
 
     /// <summary>Target duration of LL-HLS partial segments in seconds</summary>
     [Range(0.1, 5.0)] public double PartTargetDuration { get; set; } = 0.5;
+
+    /// <summary>
+    /// How long an ended stream's final window stays servable from memory storage,
+    /// in seconds, before it is freed. 0 keeps every ended stream until the same
+    /// key publishes again — memory then grows with the number of distinct stream
+    /// keys ever published. File storage is an archive and is never cleaned.
+    /// </summary>
+    [Range(0, 604_800)] public int EndedStreamTtlSeconds { get; set; } = 300;
 }
 
 public abstract class MediaProtocolOptions
