@@ -92,9 +92,16 @@ app.Use(async (ctx, next) =>
 if (options.Http.MetadataInjection)
 {
     var metadataHub = app.Services.GetRequiredService<Spangle.Spinner.TimedMetadataHub>();
+    string? metadataToken = options.Http.MetadataInjectionToken;
     app.MapPost("/api/streams/{streamKey}/metadata",
         async (string streamKey, HttpRequest request) =>
         {
+            if (!string.IsNullOrEmpty(metadataToken)
+                && !TokenGate.Matches(request.Headers.Authorization.ToString(), metadataToken))
+            {
+                request.HttpContext.Response.Headers.WWWAuthenticate = "Bearer";
+                return Results.Unauthorized();
+            }
             using var body = await JsonDocument.ParseAsync(request.Body, cancellationToken: request.HttpContext.RequestAborted).ConfigureAwait(false);
             if (!body.RootElement.TryGetProperty("name", out JsonElement nameElement)
                 || nameElement.GetString() is not { Length: > 0 } name)

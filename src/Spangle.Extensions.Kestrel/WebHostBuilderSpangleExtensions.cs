@@ -27,19 +27,36 @@ public static class WebHostBuilderSpangleExtensions
     {
         var opt = options.ApplicationServices.GetRequiredService<IOptions<SpangleMediaServerOptions>>();
         options.ListenAnyIP(opt.Value.Rtmp.Port,
-            listenOptions => { listenOptions.UseConnectionHandler<RtmpConnectionHandler>(); });
+            listenOptions =>
+            {
+                // RTMPS: the TLS middleware wraps the raw connection before the handler sees it
+                ApplyTls(listenOptions, opt.Value.Rtmp.Tls);
+                listenOptions.UseConnectionHandler<RtmpConnectionHandler>();
+            });
         // Explicit Listen* calls override URL-based configuration, so HTTP must be explicit too
-        options.ListenAnyIP(opt.Value.Http.Port);
+        options.ListenAnyIP(opt.Value.Http.Port, listenOptions => ApplyTls(listenOptions, opt.Value.Http.Tls));
         // The management surface (console + control API) never shares the delivery port
         ManagementOptions management = opt.Value.Management;
         if (management.Enabled)
         {
-            options.Listen(System.Net.IPAddress.Parse(management.BindAddress), management.Port);
+            options.Listen(System.Net.IPAddress.Parse(management.BindAddress), management.Port,
+                listenOptions => ApplyTls(listenOptions, management.Tls));
         }
         var loggerFactory = options.ApplicationServices.GetService<ILoggerFactory>();
         if (loggerFactory != null)
         {
             SpangleLogManager.SetLoggerFactory(loggerFactory);
         }
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "The certificate must stay alive as long as the listener - the process lifetime")]
+    private static void ApplyTls(ListenOptions listenOptions, TlsOptions tls)
+    {
+        if (!tls.Enabled)
+        {
+            return;
+        }
+        listenOptions.UseHttps(tls.LoadCertificate());
     }
 }
