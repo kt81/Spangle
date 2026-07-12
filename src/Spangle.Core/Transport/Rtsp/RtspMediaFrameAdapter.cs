@@ -21,19 +21,20 @@ namespace Spangle.Transport.Rtsp;
 /// parameter sets (or in-band ones), and raw AAC frames + an AudioSpecificConfig
 /// Config frame from the SDP fmtp.
 /// </summary>
-internal sealed class RtspMediaFrameAdapter
+internal sealed class RtspMediaFrameAdapter<TContext>
+    where TContext : ReceiverContextBase<TContext>
 {
-    private static readonly ILogger<RtspMediaFrameAdapter> s_logger =
-        SpangleLogManager.GetLogger<RtspMediaFrameAdapter>();
+    private static readonly ILogger s_logger =
+        SpangleLogManager.GetLogger<RtspMediaFrameAdapter<TContext>>();
 
-    private readonly ReceiverContextBase<RtspReceiverContext> _context;
+    private readonly ReceiverContextBase<TContext> _context;
     private readonly RtspTimelineSync _sync = new();
     private readonly ArrayBufferWriter<byte> _sample = new(64 * 1024);
 
     private VideoTrack? _video;
     private AudioTrack? _audio;
 
-    public RtspMediaFrameAdapter(ReceiverContextBase<RtspReceiverContext> context)
+    public RtspMediaFrameAdapter(ReceiverContextBase<TContext> context)
     {
         _context = context;
     }

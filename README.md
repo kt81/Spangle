@@ -14,8 +14,9 @@ Three ingest protocols, one canonical internal form, two output shapes:
 
 - **Ingest**: RTMP (classic + enhanced; H.264/H.265/AV1 + AAC/Opus),
   **SRT** (MPEG-TS; H.264/H.265 + AAC/Opus, streamid routing, optional passphrase
-  encryption), and **RTSP** pull (IP cameras; TCP-interleaved, H.264/H.265 + AAC,
-  Basic/Digest auth, auto-reconnect)
+  encryption), and **RTSP** — both pull (IP cameras; auto-reconnect) and push/listen
+  (a client RECORDs to us, e.g. ffmpeg `-f rtsp`); TCP-interleaved, H.264/H.265 + AAC,
+  Basic/Digest auth
 - **Output**: HLS with MPEG-2 TS segments, or CMAF/fMP4 — optionally **LL-HLS**
   (partial segments + blocking playlist reload), served over HTTP with per-stream
   routing (`/hls/{stream}/playlist.m3u8`)
@@ -41,6 +42,11 @@ $ ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequenc
 # ...or via SRT:
 $ ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440 \
     -c:v libx264 -g 60 -pix_fmt yuv420p -c:a aac -f mpegts "srt://localhost:9998?streamid=test"
+
+# ...or push over RTSP (enable Rtsp.Listen first; use -bf 0 for live):
+$ ffmpeg -re -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440 \
+    -c:v libx264 -g 60 -bf 0 -pix_fmt yuv420p -c:a aac \
+    -f rtsp -rtsp_transport tcp rtsp://localhost:8554/live/test
 
 # then open http://localhost:8080/ (test player) or http://localhost:8080/hls/test/playlist.m3u8
 ```
@@ -150,8 +156,15 @@ Roadmap
       keepalive), TCP-interleaved RTP, H.264/H.265 (RFC 6184/7798) and AAC
       (RFC 3640) depacketization into the canonical MediaFrame form, Basic/Digest
       auth, RTP-Info/RTCP timeline anchoring, per-firmware quirks in a `RtspDialect`
-      table, and one auto-reconnecting loop per source. UDP transport, ONVIF
-      discovery and push (ANNOUNCE/RECORD) server mode are the parked follow-ons
+      table, and one auto-reconnecting loop per source
+- [x] RTSP push (listen server): with `Rtsp.Listen`, Spangle binds a port (default
+      8554) and accepts clients that ANNOUNCE/SETUP/RECORD (ffmpeg's default
+      `-f rtsp` push). A push is a publish, so it rides the same
+      `IPublishAuthorizer`/takeover path as RTMP/SRT; the stream key is the ANNOUNCE
+      URL's last path segment (`/live/key` → `/hls/key/…`). The depacketizers,
+      timeline and adapter are shared with the pull receiver (`RtspMediaFrameAdapter<T>`
+      is generic over the receiver). UDP transport and ONVIF discovery are the parked
+      follow-ons
 
 ### Backlog — decided, parked until kickoff
 

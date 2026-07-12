@@ -54,7 +54,7 @@ public sealed class RtspReceiverContext : ReceiverContextBase<RtspReceiverContex
         }
 
         using var connection = new RtspConnection(RemoteReader, RemoteWriter);
-        var adapter = new RtspMediaFrameAdapter(this);
+        var adapter = new RtspMediaFrameAdapter<RtspReceiverContext>(this);
         var flow = new RtspControlFlow(connection, _url, _authenticator, _dialect, adapter);
 
         connection.OnInterleaved = (channel, payload) => OnInterleavedAsync(flow, adapter, channel, payload);
@@ -86,7 +86,7 @@ public sealed class RtspReceiverContext : ReceiverContextBase<RtspReceiverContex
         }
     }
 
-    private async ValueTask OnInterleavedAsync(RtspControlFlow flow, RtspMediaFrameAdapter adapter,
+    private async ValueTask OnInterleavedAsync(RtspControlFlow flow, RtspMediaFrameAdapter<RtspReceiverContext> adapter,
         int channel, ReadOnlySequence<byte> payload)
     {
         if (!flow.Channels.TryGetValue(channel, out RtspControlFlow.TrackChannel? track))

@@ -35,6 +35,16 @@ public static class WebHostBuilderSpangleExtensions
             });
         // Explicit Listen* calls override URL-based configuration, so HTTP must be explicit too
         options.ListenAnyIP(opt.Value.Http.Port, listenOptions => ApplyTls(listenOptions, opt.Value.Http.Tls));
+        // RTSP push server: its own listen port, accepting inbound RECORD sessions
+        RtspListenOptions rtspListen = opt.Value.Rtsp.Listen;
+        if (opt.Value.Rtsp.Enabled && rtspListen.Enabled)
+        {
+            options.ListenAnyIP(rtspListen.Port, listenOptions =>
+            {
+                ApplyTls(listenOptions, rtspListen.Tls);
+                listenOptions.UseConnectionHandler<RtspConnectionHandler>();
+            });
+        }
         // The management surface (console + control API) never shares the delivery port
         ManagementOptions management = opt.Value.Management;
         if (management.Enabled)

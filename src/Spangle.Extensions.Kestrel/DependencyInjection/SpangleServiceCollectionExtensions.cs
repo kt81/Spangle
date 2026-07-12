@@ -31,7 +31,8 @@ public static class SpangleServiceCollectionExtensions
                 {
                     // a TLS block without a certificate is a misconfiguration, not "plaintext please"
                     static bool Ok(TlsOptions tls) => !tls.Enabled || !string.IsNullOrEmpty(tls.CertificatePath);
-                    return Ok(options.Rtmp.Tls) && Ok(options.Http.Tls) && Ok(options.Management.Tls);
+                    return Ok(options.Rtmp.Tls) && Ok(options.Http.Tls) && Ok(options.Management.Tls)
+                           && Ok(options.Rtsp.Listen.Tls);
                 },
                 "Tls.CertificatePath is required wherever Tls.Enabled is set")
             .Validate(static options =>
@@ -49,6 +50,7 @@ public static class SpangleServiceCollectionExtensions
                 "Every Rtsp.Sources entry needs a unique Name and a Url")
             .ValidateOnStart();
         services.AddSingleton<RtmpConnectionHandler>();
+        services.AddSingleton<RtspConnectionHandler>();
         services.AddSingleton<HLSStreamRegistry>();
         services.AddSingleton<PublishSessionRegistry>();
         services.AddSingleton<Spangle.Spinner.TimedMetadataHub>();

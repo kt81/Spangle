@@ -52,6 +52,7 @@ public sealed class LiveContext : IDisposable
                 Transport.Rtmp.RtmpReceiverContext => "RTMP",
                 Transport.SRT.SRTReceiverContext => "SRT",
                 Transport.Rtsp.RtspReceiverContext => "RTSP",
+                Transport.Rtsp.Server.RtspPushReceiverContext => "RTSP",
                 _ => receiverContext.GetType().Name,
             };
             _publishGate = new PublishGate(publishSessions,

@@ -301,6 +301,31 @@ camera ──RTSP/TCP──► RtspReceiverContext ──► depacketizers ─�
   optional credentials, vendor dialect). Per-firmware quirks (keepalive verb, whether PLAY
   may carry a Range) live in one `RtspDialect` table instead of scattered conditionals.
 
+### RTSP push (listen server)
+
+The same building blocks run in reverse for RTSP *push*: with `Rtsp.Listen`, Spangle binds
+a port (default 8554) and accepts clients that publish to it — this is what ffmpeg's default
+rtsp muxer does (`-f rtsp rtsp://host:8554/live/key`).
+
+```
+client ──ANNOUNCE(SDP)/SETUP/RECORD──► RtspConnectionHandler ─► RtspPushReceiverContext ─► (adapter, as above)
+         then interleaved RTP                (Kestrel, like RTMP)   (server control flow)
+```
+
+- **A push is a publish**, so unlike the pull side it fits the RTMP/SRT model exactly: the
+  Kestrel `RtspConnectionHandler` binds the listen port, and each accepted connection is
+  authorized through the same `IPublishAuthorizer` with same-name takeover. The stream key
+  is the **last path segment** of the ANNOUNCE URL (`/live/key` → `key`), served at
+  `/hls/key/...` — predictable, like an RTMP publish name.
+- **Server control flow** mirrors the pull side reactively: `RtspServerControlFlow` answers
+  OPTIONS → ANNOUNCE (parses the client's SDP, wires the tracks) → SETUP per track
+  (TCP-interleaved only) → RECORD (media starts) → TEARDOWN. The publish gate is opened at
+  ANNOUNCE, before the pipeline is wired, so a denied push never produces output.
+- Everything downstream is **shared with the pull receiver**: `RtspMediaFrameAdapter<T>` is
+  generic over the receiver type, so the depacketizers, timeline and canonical-frame
+  emission are identical. RTP carries only a presentation timestamp, so B-frame streams
+  (PTS ≠ DTS) are not reconstructed — live push encoders normally run without B-frames.
+
 ## Publish authorization & takeover
 
 Authorization is first-class: the mechanism lives in the library, the policy in the

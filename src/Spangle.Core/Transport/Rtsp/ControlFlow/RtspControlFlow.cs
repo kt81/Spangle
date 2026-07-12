@@ -17,7 +17,7 @@ internal sealed partial class RtspControlFlow(
     string baseUri,
     RtspAuthenticator authenticator,
     RtspDialect dialect,
-    RtspMediaFrameAdapter adapter)
+    RtspMediaFrameAdapter<RtspReceiverContext> adapter)
 {
     private static readonly ILogger<RtspControlFlow> s_logger = SpangleLogManager.GetLogger<RtspControlFlow>();
 

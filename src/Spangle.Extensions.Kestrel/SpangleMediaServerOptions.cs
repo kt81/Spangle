@@ -30,6 +30,24 @@ public class RtspOptions
     public bool Enabled { get; set; }
 
     public IList<RtspSourceOptions> Sources { get; } = [];
+
+    /// <summary>
+    /// RTSP push server: when enabled, Spangle listens on <see cref="RtspListenOptions.Port"/>
+    /// and accepts clients that ANNOUNCE/RECORD (ffmpeg's default rtsp push). A push is a
+    /// publish, so it goes through the same authorizer/takeover path as RTMP and SRT.
+    /// </summary>
+    public RtspListenOptions Listen { get; set; } = new();
+}
+
+/// <summary>The RTSP push (listen) server: accepts inbound RTSP RECORD sessions.</summary>
+public class RtspListenOptions
+{
+    public bool Enabled { get; set; }
+
+    [Range(1025, 65535)] public int Port { get; set; } = 8554;
+
+    /// <summary>RTSPS: TLS on the RTSP listen port (clients push with rtsps://).</summary>
+    public TlsOptions Tls { get; set; } = new();
 }
 
 /// <summary>One RTSP source to pull and republish under <see cref="Name"/>.</summary>
