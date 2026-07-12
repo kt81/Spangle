@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Spangle.Logging;
+using Spangle.Transport.Rtsp.Rtp;
 using Spangle.Transport.Rtsp.Sdp;
 using ZLogger;
 
@@ -17,7 +18,8 @@ internal sealed partial class RtspControlFlow(
     string baseUri,
     RtspAuthenticator authenticator,
     RtspDialect dialect,
-    RtspMediaFrameAdapter<RtspReceiverContext> adapter)
+    RtspMediaFrameAdapter<RtspReceiverContext> adapter,
+    RtspTransportMode transport = RtspTransportMode.Tcp)
 {
     private static readonly ILogger<RtspControlFlow> s_logger = SpangleLogManager.GetLogger<RtspControlFlow>();
 
@@ -25,8 +27,14 @@ internal sealed partial class RtspControlFlow(
     private string? _sessionId;
     private string? _serverPublicMethods;
 
-    /// <summary>Interleaved channel → track role, filled in by SETUP.</summary>
+    /// <summary>Interleaved channel → track role, filled in by SETUP (TCP transport).</summary>
     private readonly Dictionary<int, TrackChannel> _channels = new();
+
+    /// <summary>Per-track UDP sockets, filled in by SETUP (UDP transport).</summary>
+    private readonly List<UdpTrackBinding> _udpBindings = [];
+
+    /// <summary>The UDP sockets SETUP bound, for the receiver to run its receive loops on.</summary>
+    public IReadOnlyList<UdpTrackBinding> UdpBindings => _udpBindings;
 
     /// <summary>The negotiated RTSP session id (for keepalive/TEARDOWN).</summary>
     public string? SessionId => _sessionId;

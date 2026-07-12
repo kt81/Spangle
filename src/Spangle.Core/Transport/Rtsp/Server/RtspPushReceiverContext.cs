@@ -3,7 +3,6 @@ using System.IO.Pipelines;
 using System.Net;
 using Cysharp.Text;
 using Spangle.Transport.Rtsp.Rtp;
-using Spangle.Transport.Rtsp.Sdp;
 using ZLogger;
 
 namespace Spangle.Transport.Rtsp.Server;
@@ -11,8 +10,9 @@ namespace Spangle.Transport.Rtsp.Server;
 /// <summary>
 /// Accepts an RTSP push (this server is the RTSP server; a client RECORDs to it) and
 /// emits canonical <see cref="Spangle.Spinner.MediaFrameHeader"/> frames, exactly like
-/// the other receivers. TCP-interleaved transport. The publish target is the URL path
-/// of the ANNOUNCE, so unlike the pull receiver this fits the RTMP/SRT publish model:
+/// the other receivers. Transport is whatever the client's SETUP asks for —
+/// TCP-interleaved or UDP (server ports bound per track). The publish target is the URL
+/// path of the ANNOUNCE, so unlike the pull receiver this fits the RTMP/SRT publish model:
 /// one accepted connection = one <see cref="RtspPushReceiverContext"/>, authorized
 /// through <see cref="IPublishGate"/> with same-name takeover.
 /// </summary>
@@ -35,12 +35,16 @@ public sealed class RtspPushReceiverContext : ReceiverContextBase<RtspPushReceiv
         _id = ZString.Format("RTSPPUSH_{0}", endPoint);
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2025:Ensure tasks complete before disposal",
+        Justification = "The UDP receive loops are stopped via udpStop.Cancel() and awaited to completion in the finally before the sockets and the CTS are disposed")]
     public override async ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource)
     {
         using var connection = new RtspServerConnection(RemoteReader, RemoteWriter);
         var adapter = new RtspMediaFrameAdapter<RtspPushReceiverContext>(this);
         var flow = new RtspServerControlFlow(adapter);
         var gateOpened = false;
+        var udpLoops = new List<Task>();
+        using var udpStop = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
 
         connection.OnRequest = async request =>
         {
@@ -64,6 +68,14 @@ public sealed class RtspPushReceiverContext : ReceiverContextBase<RtspPushReceiv
             {
                 _streamName = sn;
             }
+            // RECORD: UDP tracks (if any) start delivering to the ports SETUP bound
+            if (flow.Recording && udpLoops.Count == 0 && flow.UdpTracks.Count > 0)
+            {
+                foreach (UdpServerTrack track in flow.UdpTracks)
+                {
+                    udpLoops.Add(StartUdpTrackAsync(adapter, track, udpStop.Token));
+                }
+            }
             if (flow.TornDown)
             {
                 _completed = true;
@@ -82,12 +94,51 @@ public sealed class RtspPushReceiverContext : ReceiverContextBase<RtspPushReceiv
         finally
         {
             _completed = true;
+            await udpStop.CancelAsync().ConfigureAwait(false); // stop the receive loops first
+            await Task.WhenAll(udpLoops).ConfigureAwait(false);
+            foreach (UdpServerTrack track in flow.UdpTracks)
+            {
+                track.Dispose(); // then close the sockets
+            }
             if (MediaOutlet is not null && adapter.HasPendingFrames)
             {
                 adapter.HasPendingFrames = false;
                 await MediaOutlet.FlushAsync(CancellationToken.None).ConfigureAwait(false);
             }
             Logger.ZLogInformation($"RTSP push connection closed: {_id}");
+        }
+    }
+
+    /// <summary>Runs the RTP (reordered) and RTCP receive loops for one UDP push track.</summary>
+    private Task StartUdpTrackAsync(RtspMediaFrameAdapter<RtspPushReceiverContext> adapter, UdpServerTrack track,
+        CancellationToken ct)
+    {
+        var reorder = new RtpReorderBuffer(windowSize: 128,
+            (buffer, length) => RtpDatagramDispatch.Dispatch(adapter, track.Kind, isRtcp: false,
+                new ReadOnlySpan<byte>(buffer, 0, length)));
+
+        Task rtp = UdpMediaSocketPair.ReceiveLoopAsync(track.Sockets.Rtp, async datagram =>
+        {
+            AddBytesReceived(datagram.Length);
+            reorder.Add(datagram.Span);
+            await FlushPendingAsync(adapter).ConfigureAwait(false);
+        }, ct);
+
+        Task rtcp = UdpMediaSocketPair.ReceiveLoopAsync(track.Sockets.Rtcp, async datagram =>
+        {
+            RtpDatagramDispatch.Dispatch(adapter, track.Kind, isRtcp: true, datagram.Span);
+            await FlushPendingAsync(adapter).ConfigureAwait(false);
+        }, ct);
+
+        return Task.WhenAll(rtp, rtcp);
+    }
+
+    private async ValueTask FlushPendingAsync(RtspMediaFrameAdapter<RtspPushReceiverContext> adapter)
+    {
+        if (MediaOutlet is not null && adapter.HasPendingFrames)
+        {
+            adapter.HasPendingFrames = false;
+            await MediaOutlet.FlushAsync(CancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -104,33 +155,8 @@ public sealed class RtspPushReceiverContext : ReceiverContextBase<RtspPushReceiv
         try
         {
             payload.CopyTo(rented);
-            var datagram = new ReadOnlySpan<byte>(rented, 0, (int)payload.Length);
-
-            if (channel == track.RtcpChannel)
-            {
-                if (RtcpSenderReport.TryFindSenderReport(datagram, out RtcpSenderReport report))
-                {
-                    if (track.Kind == SdpMediaKind.Video)
-                    {
-                        adapter.OnVideoSenderReport(report);
-                    }
-                    else
-                    {
-                        adapter.OnAudioSenderReport(report);
-                    }
-                }
-            }
-            else if (RtpPacket.TryParse(datagram, out RtpPacket rtp))
-            {
-                if (track.Kind == SdpMediaKind.Video)
-                {
-                    adapter.FeedVideo(rtp);
-                }
-                else
-                {
-                    adapter.FeedAudio(rtp);
-                }
-            }
+            RtpDatagramDispatch.Dispatch(adapter, track.Kind, channel == track.RtcpChannel,
+                new ReadOnlySpan<byte>(rented, 0, (int)payload.Length));
         }
         finally
         {

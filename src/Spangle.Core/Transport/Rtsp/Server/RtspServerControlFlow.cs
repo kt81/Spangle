@@ -1,6 +1,8 @@
 using System.Globalization;
+using System.Net;
 using Microsoft.Extensions.Logging;
 using Spangle.Logging;
+using Spangle.Transport.Rtsp.Rtp;
 using Spangle.Transport.Rtsp.Sdp;
 using ZLogger;
 
@@ -23,10 +25,16 @@ internal sealed class RtspServerControlFlow(RtspMediaFrameAdapter<RtspPushReceiv
     private SdpSession? _sdp;
     private int _nextChannel;
 
-    /// <summary>Interleaved channel → track role, filled in by SETUP.</summary>
+    /// <summary>Interleaved channel → track role, filled in by SETUP (TCP transport).</summary>
     private readonly Dictionary<int, TrackChannel> _channels = new();
 
+    /// <summary>Server-bound UDP sockets, filled in by SETUP (UDP transport).</summary>
+    private readonly List<UdpServerTrack> _udpTracks = [];
+
     public IReadOnlyDictionary<int, TrackChannel> Channels => _channels;
+
+    /// <summary>UDP sockets bound for the client to send RTP to; the receiver reads from them.</summary>
+    public IReadOnlyList<UdpServerTrack> UdpTracks => _udpTracks;
 
     /// <summary>Set once RECORD is accepted and media is expected to flow.</summary>
     public bool Recording { get; private set; }
@@ -85,29 +93,68 @@ internal sealed class RtspServerControlFlow(RtspMediaFrameAdapter<RtspPushReceiv
         return RtspResponse.Ok().With("Session", _sessionId);
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "Ownership of the socket pair transfers to the UdpServerTrack in _udpTracks, which the receiver disposes when the session ends")]
     private RtspResponse Setup(RtspMessage request)
     {
         string? transport = request.Header("Transport");
-        if (transport is null || !transport.Contains("TCP", StringComparison.OrdinalIgnoreCase))
+        if (transport is null)
         {
-            // only TCP-interleaved transport is offered (the roadmap's first target)
             return RtspResponse.Status(461, "Unsupported Transport");
         }
-
         SdpMediaKind kind = MatchTrackKind(request.Uri);
-        (int rtp, int rtcp) = ParseInterleaved(transport);
-        if (rtp < 0)
-        {
-            rtp = _nextChannel;
-            rtcp = _nextChannel + 1;
-        }
-        _nextChannel = Math.Max(_nextChannel, rtcp + 1);
-        _channels[rtp] = new TrackChannel(kind, rtp, rtcp);
-        _channels[rtcp] = _channels[rtp];
 
-        string echo = $"RTP/AVP/TCP;unicast;interleaved={rtp}-{rtcp};mode=record";
-        s_logger.ZLogDebug($"RTSP SETUP {kind} on interleaved {rtp}-{rtcp}");
-        return RtspResponse.Ok().With("Session", _sessionId).With("Transport", echo);
+        // TCP-interleaved: RTP rides the RTSP connection
+        if (transport.Contains("interleaved=", StringComparison.OrdinalIgnoreCase))
+        {
+            (int rtp, int rtcp) = ParseInterleaved(transport);
+            if (rtp < 0)
+            {
+                rtp = _nextChannel;
+                rtcp = _nextChannel + 1;
+            }
+            _nextChannel = Math.Max(_nextChannel, rtcp + 1);
+            _channels[rtp] = new TrackChannel(kind, rtp, rtcp);
+            _channels[rtcp] = _channels[rtp];
+
+            string echo = $"RTP/AVP/TCP;unicast;interleaved={rtp}-{rtcp};mode=record";
+            s_logger.ZLogDebug($"RTSP SETUP {kind} on interleaved {rtp}-{rtcp}");
+            return RtspResponse.Ok().With("Session", _sessionId).With("Transport", echo);
+        }
+
+        // UDP: bind our own server ports; the client sends RTP to them after RECORD
+        if (transport.Contains("client_port=", StringComparison.OrdinalIgnoreCase))
+        {
+            (int clientRtp, int clientRtcp) = ParseClientPort(transport);
+            UdpMediaSocketPair sockets = UdpMediaSocketPair.Bind(IPAddress.Any);
+            _udpTracks.Add(new UdpServerTrack(kind, sockets));
+
+            string echo = string.Create(CultureInfo.InvariantCulture,
+                $"RTP/AVP;unicast;client_port={clientRtp}-{clientRtcp};server_port={sockets.RtpPort}-{sockets.RtcpPort};mode=record");
+            s_logger.ZLogDebug($"RTSP SETUP {kind} on UDP server_port {sockets.RtpPort}-{sockets.RtcpPort}");
+            return RtspResponse.Ok().With("Session", _sessionId).With("Transport", echo);
+        }
+
+        return RtspResponse.Status(461, "Unsupported Transport");
+    }
+
+    private static (int Rtp, int Rtcp) ParseClientPort(string transport)
+    {
+        foreach (string part in transport.Split(';', StringSplitOptions.TrimEntries))
+        {
+            if (!part.StartsWith("client_port=", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            string[] pair = part["client_port=".Length..].Split('-');
+            if (pair.Length == 2
+                && int.TryParse(pair[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int rtp)
+                && int.TryParse(pair[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int rtcp))
+            {
+                return (rtp, rtcp);
+            }
+        }
+        return (0, 0);
     }
 
     private RtspResponse Record()
@@ -195,4 +242,12 @@ internal sealed class RtspServerControlFlow(RtspMediaFrameAdapter<RtspPushReceiv
 
     /// <summary>One SETUP-assigned track: which interleaved channels carry its RTP/RTCP.</summary>
     internal sealed record TrackChannel(SdpMediaKind Kind, int RtpChannel, int RtcpChannel);
+}
+
+/// <summary>One UDP-transported push track: the server sockets the client sends RTP/RTCP to.</summary>
+internal sealed class UdpServerTrack(SdpMediaKind kind, UdpMediaSocketPair sockets) : IDisposable
+{
+    public SdpMediaKind Kind => kind;
+    public UdpMediaSocketPair Sockets => sockets;
+    public void Dispose() => sockets.Dispose();
 }

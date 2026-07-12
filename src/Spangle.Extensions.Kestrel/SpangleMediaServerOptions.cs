@@ -71,6 +71,13 @@ public class RtspSourceOptions
     /// <summary>Vendor dialect name (e.g. "LegacyOptionsKeepalive"); empty uses the default.</summary>
     public string? Dialect { get; set; }
 
+    /// <summary>
+    /// RTP transport: "Tcp" (interleaved in the RTSP connection; the robust default) or
+    /// "Udp" (RTP/RTCP on their own sockets; lower latency, sensitive to loss/reordering).
+    /// </summary>
+    public Spangle.Transport.Rtsp.Rtp.RtspTransportMode Transport { get; set; }
+        = Spangle.Transport.Rtsp.Rtp.RtspTransportMode.Tcp;
+
     /// <summary>Cap on the reconnect backoff after the source drops, in seconds.</summary>
     [Range(1, 3600)] public int ReconnectMaxDelaySeconds { get; set; } = 30;
 }

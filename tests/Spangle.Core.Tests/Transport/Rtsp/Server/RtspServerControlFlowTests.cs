@@ -88,7 +88,7 @@ public class RtspServerControlFlowTests
     }
 
     [Fact]
-    public async Task Setup_WithUdpTransport_Returns461()
+    public async Task Setup_WithUdpTransport_BindsServerPortsAndEchoesThem()
     {
         RtspServerControlFlow flow = NewFlow();
         await flow.HandleAsync(BuildAnnounce("rtsp://127.0.0.1/live/cam", VideoSdp()));
@@ -96,9 +96,31 @@ public class RtspServerControlFlowTests
         RtspResponse response = await flow.HandleAsync(BuildSetup(
             "rtsp://127.0.0.1/live/cam/streamid=0", "RTP/AVP;unicast;client_port=5000-5001"));
 
+        response.StatusCode.Should().Be(200);
+        flow.UdpTracks.Should().HaveCount(1, "the UDP track's server sockets were bound");
+        string transport = response.Headers["Transport"];
+        transport.Should().Contain("client_port=5000-5001", "the client's ports are echoed back");
+        transport.Should().Contain("server_port=", "our bound receive ports are advertised");
+        flow.Channels.Should().BeEmpty("UDP transport uses no interleaved channel");
+
+        foreach (var track in flow.UdpTracks)
+        {
+            track.Dispose(); // release the sockets the test bound
+        }
+    }
+
+    [Fact]
+    public async Task Setup_WithNeitherInterleavedNorClientPort_Returns461()
+    {
+        RtspServerControlFlow flow = NewFlow();
+        await flow.HandleAsync(BuildAnnounce("rtsp://127.0.0.1/live/cam", VideoSdp()));
+
+        // a transport with no interleaved= and no client_port= is not something we can serve
+        RtspResponse response = await flow.HandleAsync(BuildSetup(
+            "rtsp://127.0.0.1/live/cam/streamid=0", "RTP/AVP/BOGUS;unicast"));
+
         response.StatusCode.Should().Be(461);
         response.ReasonPhrase.Should().Be("Unsupported Transport");
-        flow.Channels.Should().BeEmpty("a rejected SETUP wires no channel");
     }
 
     [Fact]

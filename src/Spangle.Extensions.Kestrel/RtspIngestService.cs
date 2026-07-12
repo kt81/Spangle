@@ -92,7 +92,7 @@ public sealed class RtspIngestService(
         PipeWriter writer = PipeWriter.Create(stream);
 
         var receiver = new RtspReceiverContext(reader, writer, source.Url, source.Name, endPoint,
-            user, pass, dialect, ct);
+            user, pass, dialect, ct, source.Transport);
         await StreamToHlsAsync(receiver, ct).ConfigureAwait(false);
     }
 

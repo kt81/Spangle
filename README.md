@@ -15,8 +15,8 @@ Three ingest protocols, one canonical internal form, two output shapes:
 - **Ingest**: RTMP (classic + enhanced; H.264/H.265/AV1 + AAC/Opus),
   **SRT** (MPEG-TS; H.264/H.265 + AAC/Opus, streamid routing, optional passphrase
   encryption), and **RTSP** — both pull (IP cameras; auto-reconnect) and push/listen
-  (a client RECORDs to us, e.g. ffmpeg `-f rtsp`); TCP-interleaved, H.264/H.265 + AAC,
-  Basic/Digest auth
+  (a client RECORDs to us, e.g. ffmpeg `-f rtsp`); TCP-interleaved or UDP transport,
+  H.264/H.265 + AAC, Basic/Digest auth
 - **Output**: HLS with MPEG-2 TS segments, or CMAF/fMP4 — optionally **LL-HLS**
   (partial segments + blocking playlist reload), served over HTTP with per-stream
   routing (`/hls/{stream}/playlist.m3u8`)
@@ -166,10 +166,14 @@ Roadmap
       timeline and adapter are shared with the pull receiver (`RtspMediaFrameAdapter<T>`
       is generic over the receiver)
 
+- [x] RTSP over UDP transport: pull sources set `Transport: Udp` (SETUP negotiates a
+      `client_port` pair, RTP/RTCP arrive on their own sockets, resequenced through a
+      bounded `RtpReorderBuffer`, with a NAT-punch to open the return path); the push
+      server accepts whichever transport the client's SETUP asks for. TCP-interleaved
+      stays the robust default. Verified with real ffmpeg over UDP, both directions
+
 ### Backlog — decided, parked until kickoff
 
-- RTSP over UDP transport (RTP/RTCP on their own sockets, both pull and push);
-  TCP-interleaved is the default and remains the fallback
 - ONVIF camera discovery/onboarding — deliberately **not** in this repo or the media
   library: it is a SOAP/WS-\* control-plane concern that sits above the media plane.
   If built, it lives as a separate optional library/repo that discovers cameras and

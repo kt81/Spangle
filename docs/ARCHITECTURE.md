@@ -258,8 +258,14 @@ SRT bytes ──► SRTReceiverContext ──► M2TSDemuxer ──► M2TSMedia
 
 RTSP inverts the direction: the server is the *client*, dialing out to each
 configured source (an IP camera, another RTSP server) rather than listening for
-publishers. Transport is TCP-interleaved — RTP and RTCP ride the RTSP connection
-itself, so there are no extra sockets and no inbound firewall holes.
+publishers. Transport is **TCP-interleaved** by default — RTP and RTCP ride the RTSP
+connection itself, so there are no extra sockets and no inbound firewall holes — or
+**UDP** (`Rtsp.Sources[].Transport: Udp`): SETUP negotiates a `client_port` pair, the
+receiver binds its own RTP/RTCP sockets, NAT-punches the return path, and resequences
+arriving RTP through a small `RtpReorderBuffer` (UDP can deliver out of order) before
+the depacketizer. TCP stays the robust default; UDP trades loss/reordering tolerance
+for lower latency. The push server accepts whichever transport the client's SETUP
+requests (`interleaved=` or `client_port=`), binding server ports for the latter.
 
 ```
 camera ──RTSP/TCP──► RtspReceiverContext ──► depacketizers ──► RtspMediaFrameAdapter ──► MediaFrame stream

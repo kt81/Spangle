@@ -23,10 +23,11 @@ Spangle:
   #       # UserName: admin            # credentials, if not embedded in Url
   #       # Password: secret
   #       # Dialect: LegacyOptionsKeepalive   # for firmwares without GET_PARAMETER
+  #       # Transport: Tcp             # Tcp (interleaved; default) or Udp (own sockets)
   #       # ReconnectMaxDelaySeconds: 30
   #   Listen:                          # RTSP push server (clients ANNOUNCE/RECORD to us)
   #     Enabled: true                  # e.g. ffmpeg -f rtsp rtsp://host:8554/live/key
-  #     Port: 8554                     # the stream key is the URL path
+  #     Port: 8554                     # the stream key is the URL path; TCP or UDP accepted
   #     # Tls: { Enabled: true, CertificatePath: cert.pfx }   # RTSPS
   Http:
     Port: 8080
