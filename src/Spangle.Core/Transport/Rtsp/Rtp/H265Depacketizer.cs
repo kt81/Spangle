@@ -10,7 +10,7 @@ namespace Spangle.Transport.Rtsp.Rtp;
 /// fragmentation units (49). Same access-unit and loss policy as the H.264
 /// depacketizer, with HEVC's 2-byte NAL header and IRAP range (16–23).
 /// </summary>
-internal sealed class H265Depacketizer(Action<NalAccessUnit> onAccessUnit)
+internal sealed class H265Depacketizer(Action<NalAccessUnit> onAccessUnit) : IVideoDepacketizer
 {
     private static readonly ILogger<H265Depacketizer> s_logger = SpangleLogManager.GetLogger<H265Depacketizer>();
 

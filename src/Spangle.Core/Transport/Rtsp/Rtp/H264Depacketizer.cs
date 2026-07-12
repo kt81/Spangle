@@ -12,7 +12,7 @@ namespace Spangle.Transport.Rtsp.Rtp;
 /// damaged goods: it is dropped, and emission stays suppressed until the next IDR
 /// so the decoder never sees references it does not have.
 /// </summary>
-internal sealed class H264Depacketizer(Action<NalAccessUnit> onAccessUnit)
+internal sealed class H264Depacketizer(Action<NalAccessUnit> onAccessUnit) : IVideoDepacketizer
 {
     private static readonly ILogger<H264Depacketizer> s_logger = SpangleLogManager.GetLogger<H264Depacketizer>();
 
