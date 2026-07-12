@@ -15,6 +15,21 @@ public class SpangleMediaServerOptions
     public HlsOptions Hls { get; set; } = new();
     public HttpOptions Http { get; set; } = new();
     public ManagementOptions Management { get; set; } = new();
+    public PublishOptions Publish { get; set; } = new();
+}
+
+/// <summary>
+/// Publish authorization policy. The default stays allow-all + last-wins; listing
+/// stream names here switches the built-in authorizer to an exact-match allowlist.
+/// A custom <see cref="IPublishAuthorizer"/> registered in DI always wins over both.
+/// </summary>
+public class PublishOptions
+{
+    /// <summary>
+    /// Stream names (RTMP publish names / SRT streamids) allowed to publish.
+    /// Empty keeps the allow-all policy.
+    /// </summary>
+    public IList<string> AllowedStreamNames { get; } = [];
 }
 
 /// <summary>
