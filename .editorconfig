@@ -239,6 +239,15 @@ dotnet_diagnostic.IDE0005.severity = warning
 # LusterBits 1.2.0 (safe spans, bounds checks, no unsafe context).
 dotnet_diagnostic.MA0189.severity = warning
 
+# CA2025 (do-not-pass-disposable-into-unawaited-task): the shipped analyzer
+# NREs on valid code — it reports as `error AD0001` under warnings-as-errors and
+# crashes non-deterministically, so it reddens CI at random (the fire-and-forget
+# Task.Run sites in RTMP/SRT/RTSP hosting trip it). Turning the rule off makes
+# Roslyn skip the analyzer entirely, killing the crash. The ownership contract it
+# would check (accept-loop owns the client, the handler task disposes it) is
+# already documented at each site. Re-enable when the analyzer is fixed.
+dotnet_diagnostic.CA2025.severity = none
+
 # C++ Files
 [*.{cpp,h,in}]
 curly_bracket_next_line = true
