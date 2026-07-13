@@ -1,0 +1,32 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Spangle.Core.Benchmarks/Spangle.Core.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/etc/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/examples/">
+    <Project Path="examples/Spangle.Examples.Console/Spangle.Examples.Console.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Spangle.Console/Spangle.Console.csproj" />
+    <Project Path="src/Spangle.Core.Abstractions/Spangle.Core.Abstractions.csproj" />
+    <Project Path="src/Spangle.Core/Spangle.Core.csproj" />
+    <Project Path="src/Spangle.Extensions.Kestrel/Spangle.Extensions.Kestrel.csproj" />
+    <Project Path="src/Spangle.MediaServer/Spangle.MediaServer.csproj" />
+    <Project Path="src/Spangle.SourceGenerator/Spangle.SourceGenerator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Spangle.Core.Tests/Spangle.Core.Tests.csproj" />
+    <Project Path="tests/Spangle.SourceGenerator.Tests/Spangle.SourceGenerator.Tests.csproj" />
+  </Folder>
+</Solution>
