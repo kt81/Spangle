@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Spangle.Extensions.Moqt</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Spangle.Extensions.Moqt.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Spangle.Core\Spangle.Core.csproj" />
+    <!-- Spangle.Net.Moqt (MIT, MoQ transport) is co-developed as a sibling repo and not yet
+         published; referenced by relative path to the sibling working copy until it stabilizes,
+         at which point this becomes a PackageReference. Its own Directory.Build.props governs
+         its build, so Spangle's analyzer policy does not apply to it. -->
+    <ProjectReference Include="..\..\..\Spangle.Net.Moqt\src\Spangle.Net.Moqt\Spangle.Net.Moqt.csproj" />
+  </ItemGroup>
+
+</Project>

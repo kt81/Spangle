@@ -22,11 +22,13 @@
     <Project Path="src/Spangle.Core.Abstractions/Spangle.Core.Abstractions.csproj" />
     <Project Path="src/Spangle.Core/Spangle.Core.csproj" />
     <Project Path="src/Spangle.Extensions.Kestrel/Spangle.Extensions.Kestrel.csproj" />
+    <Project Path="src/Spangle.Extensions.Moqt/Spangle.Extensions.Moqt.csproj" />
     <Project Path="src/Spangle.MediaServer/Spangle.MediaServer.csproj" />
     <Project Path="src/Spangle.SourceGenerator/Spangle.SourceGenerator.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Spangle.Core.Tests/Spangle.Core.Tests.csproj" />
+    <Project Path="tests/Spangle.Extensions.Moqt.Tests/Spangle.Extensions.Moqt.Tests.csproj" />
     <Project Path="tests/Spangle.SourceGenerator.Tests/Spangle.SourceGenerator.Tests.csproj" />
   </Folder>
 </Solution>
