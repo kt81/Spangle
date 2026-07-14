@@ -236,6 +236,110 @@ public class MoxygenInteropTests
         }
     }
 
+    /// <summary>
+    /// A cenzano media-interop GoP through the reference relay: a keyframe (carrying avcC
+    /// extradata) opens a group and two delta frames follow as objects within it. Verifies the
+    /// relay forwards the per-frame Extension Headers and AVCC payloads intact, and that the
+    /// group/object numbering survives — i.e. our MI mapping is on the wire correctly.
+    /// </summary>
+    [Fact]
+    public async Task MediaInteropFrames_SurviveTheRelay()
+    {
+        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
+        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
+        {
+            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
+            return;
+        }
+
+        string[] parts = endpoint.Split(':');
+        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        CancellationToken ct = cts.Token;
+
+        FullTrackName track = FullTrackName.FromStrings(["vc"], MoqMediaInterop.TrackName("mi/", isAudio: false));
+        byte[] avcC = [0x01, 0x64, 0x00, 0x1F, 0xFF, 0xE1, 0x00, 0x04];
+        byte[] keyFrame = Pattern(0x11, 96);
+        byte[] delta1 = Pattern(0x22, 48);
+        byte[] delta2 = Pattern(0x33, 32);
+
+        await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        MoqPublisher publisher = MoqPublisher.Create(pubSession);
+        await using var mi = new MoqMediaInteropTrack(publisher.PublishTrack(track));
+        await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
+        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task run = publisher.RunAsync(runCts.Token);
+
+        await using IQuicConnection subConn = await ConnectAsync(remote, ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
+        Task<IReadOnlyList<MoqObject>> receiving = CollectObjectsAsync(subscriber, track, expected: 3, ct);
+
+        const ulong timebase = 90_000;
+        await mi.PublishFrameAsync(keyFrame,
+            MoqMediaInterop.VideoH264AvccExtensions(0, 0, 0, timebase, 3_000, 1_700_000_000_000, avcC),
+            startsGroup: true, cancellationToken: ct);
+        await mi.PublishFrameAsync(delta1,
+            MoqMediaInterop.VideoH264AvccExtensions(1, 3_000, 3_000, timebase, 3_000, 1_700_000_000_033),
+            startsGroup: false, cancellationToken: ct);
+        await mi.PublishFrameAsync(delta2,
+            MoqMediaInterop.VideoH264AvccExtensions(2, 6_000, 6_000, timebase, 3_000, 1_700_000_000_066),
+            startsGroup: false, cancellationToken: ct);
+        await mi.CompleteGroupAsync(ct);
+
+        IReadOnlyList<MoqObject> got = await receiving;
+        _output.WriteLine($"relayed {got.Count} MI frames; group ids: {string.Join(",", got.Select(o => o.GroupId))}");
+
+        got.Should().HaveCount(3);
+        got.Select(o => o.GroupId).Should().AllBeEquivalentTo(0UL, "one keyframe means one group");
+        got.Select(o => o.ObjectId).Should().Equal([0UL, 1UL, 2UL], "frames are objects within the group");
+
+        got[0].Payload.ToArray().Should().Equal(keyFrame);
+        got[1].Payload.ToArray().Should().Equal(delta1);
+        got[2].Payload.ToArray().Should().Equal(delta2);
+
+        // The keyframe carries media type + avcC + metadata; the deltas carry media type + metadata.
+        // Extension headers ride in ascending type order (their types are delta-encoded), so the
+        // avcC extradata (0x0D) precedes the packed metadata (0x15) regardless of insertion order.
+        got[0].Extensions.Should().HaveCount(3);
+        got[0].Extensions.Select(e => e.Type).Should().Equal([0x0AUL, 0x0DUL, 0x15UL]);
+        got[0].Extensions[1].Bytes.ToArray().Should().Equal(avcC, "avcC reaches the subscriber verbatim");
+        MoqMediaInterop.UnpackVarints(got[0].Extensions[2].Bytes, 6)
+            .Should().Equal(0UL, 0UL, 0UL, timebase, 3_000UL, 1_700_000_000_000UL);
+
+        got[1].Extensions.Should().HaveCount(2);
+        MoqMediaInterop.UnpackVarints(got[1].Extensions[1].Bytes, 6)
+            .Should().Equal(1UL, 3_000UL, 3_000UL, timebase, 3_000UL, 1_700_000_000_033UL);
+
+        await runCts.CancelAsync();
+        try
+        {
+            await run;
+        }
+        catch (OperationCanceledException)
+        {
+            // demux loop cancelled
+        }
+    }
+
+    private static async Task<IReadOnlyList<MoqObject>> CollectObjectsAsync(MoqSubscriber subscriber,
+        FullTrackName track, int expected, CancellationToken ct)
+    {
+        await using MoqSubscription subscription = await subscriber.SubscribeAsync(track, ct);
+        var received = new List<MoqObject>();
+        await foreach (MoqObject moqObject in subscription.ReadObjectsAsync(ct))
+        {
+            received.Add(moqObject);
+            if (received.Count == expected)
+            {
+                break;
+            }
+        }
+
+        return received;
+    }
+
     private static async Task<MoqObject> FirstObjectAsync(MoqSubscriber subscriber, FullTrackName track,
         CancellationToken ct)
     {
