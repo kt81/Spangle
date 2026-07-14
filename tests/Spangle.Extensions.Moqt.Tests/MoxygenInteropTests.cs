@@ -352,6 +352,80 @@ public class MoxygenInteropTests
         throw new InvalidOperationException("no object arrived through the relay");
     }
 
+    /// <summary>
+    /// Control messages the reference relay must be able to parse. moxygen closes the session with
+    /// a PROTOCOL_VIOLATION on anything it cannot decode, so a well-formed reply — success or a
+    /// semantic error — proves our encoding is right. Covers TRACK_STATUS and SUBSCRIBE_NAMESPACE
+    /// requests, plus decoding whichever of REQUEST_OK / REQUEST_ERROR the relay answers with.
+    /// </summary>
+    [Fact]
+    public async Task ControlMessages_AreParsedByTheRelay()
+    {
+        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
+        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
+        {
+            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
+            return;
+        }
+
+        string[] parts = endpoint.Split(':');
+        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        CancellationToken ct = cts.Token;
+
+        await using IQuicConnection conn = await ConnectAsync(remote, ct);
+        await using MoqSession session = await MoqSession.ConnectAsync(conn, RelaySetup(), ct);
+
+        // TRACK_STATUS: draft-18 says its format is identical to SUBSCRIBE. The relay knows no such
+        // track, so it should answer REQUEST_ERROR — which still proves it parsed our request.
+        (ulong statusType, byte[] statusPayload) = await RequestAsync(session, MoqControlMessageType.TrackStatus,
+            new TrackStatusMessage(0, FullTrackName.FromStrings(["vc"], "nosuchtrack")).EncodePayload, ct);
+        _output.WriteLine($"TRACK_STATUS -> 0x{statusType:X}");
+        statusType.Should().BeOneOf([MoqControlMessageType.RequestOk, MoqControlMessageType.RequestError],
+            "the relay parsed TRACK_STATUS and answered it");
+        if (statusType == MoqControlMessageType.RequestError)
+        {
+            RequestErrorMessage error = RequestErrorMessage.DecodePayload(statusPayload);
+            _output.WriteLine($"  REQUEST_ERROR code={error.ErrorCode} reason='{error.ErrorReason}'");
+        }
+        else
+        {
+            _ = RequestOkMessage.DecodePayload(statusPayload);
+        }
+
+        // SUBSCRIBE_NAMESPACE: asks to be told about namespaces under a prefix.
+        (ulong nsType, byte[] nsPayload) = await RequestAsync(session, MoqControlMessageType.SubscribeNamespace,
+            new SubscribeNamespaceMessage(2, TrackNamespace.FromStrings("vc")).EncodePayload, ct);
+        _output.WriteLine($"SUBSCRIBE_NAMESPACE -> 0x{nsType:X}");
+        nsType.Should().BeOneOf([MoqControlMessageType.RequestOk, MoqControlMessageType.RequestError],
+            "the relay parsed SUBSCRIBE_NAMESPACE and answered it");
+        if (nsType == MoqControlMessageType.RequestOk)
+        {
+            _ = RequestOkMessage.DecodePayload(nsPayload);
+        }
+        else
+        {
+            RequestErrorMessage error = RequestErrorMessage.DecodePayload(nsPayload);
+            _output.WriteLine($"  REQUEST_ERROR code={error.ErrorCode} reason='{error.ErrorReason}'");
+        }
+    }
+
+    /// <summary>Sends one request on its own bidi stream and reads the reply off the same stream.</summary>
+    private static async Task<(ulong Type, byte[] Payload)> RequestAsync(MoqSession session, ulong messageType,
+        Action<MoqWriter> encodePayload, CancellationToken ct)
+    {
+        IQuicStream stream = await session.OpenRequestStreamAsync(ct);
+        await using (stream.ConfigureAwait(false))
+        {
+            var payload = new ArrayBufferWriter<byte>();
+            encodePayload(new MoqWriter(payload));
+            var frame = new ArrayBufferWriter<byte>();
+            ControlMessage.Write(frame, messageType, payload.WrittenSpan);
+            await stream.WriteAsync(frame.WrittenMemory, completeWrites: false, ct);
+            return await ControlMessage.ReadAsync(stream, ct);
+        }
+    }
+
     private static async Task<IQuicConnection> ConnectAsync(IPEndPoint remote, CancellationToken ct) =>
         await MsQuicTransport.Shared.ConnectAsync(new QuicClientOptions
         {
@@ -439,63 +513,4 @@ public class MoxygenInteropTests
         seen.Should().BeGreaterThan(0, "objects from the draft-16 browser encoder reach a draft-18 subscriber");
     }
 
-    [Fact]
-    public async Task Dump_MoxygenControlStreamRawBytes()
-    {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        CancellationToken ct = cts.Token;
-
-        await using IQuicConnection conn = await MsQuicTransport.Shared.ConnectAsync(new QuicClientOptions
-        {
-            RemoteEndPoint = remote,
-            ApplicationProtocols = [new SslApplicationProtocol(MoqtConstants.Alpn)],
-            TargetHost = "localhost",
-            AllowUntrustedCertificates = true,
-        }, ct);
-
-        // Send our control stream (uni) + SETUP so moxygen keeps the session alive while we read.
-        IQuicStream outbound = await conn.OpenStreamAsync(QuicStreamDirection.Unidirectional, ct);
-        var payload = new ArrayBufferWriter<byte>();
-        new SetupMessage([MoqKeyValuePair.FromBytes(MoqSetupOption.Path, Encoding.UTF8.GetBytes("/moq"))])
-            .EncodePayload(new MoqWriter(payload));
-        var frame = new ArrayBufferWriter<byte>();
-        ControlMessage.Write(frame, MoqControlMessageType.Setup, payload.WrittenSpan);
-        await outbound.WriteAsync(frame.WrittenMemory, completeWrites: false, ct);
-        _output.WriteLine("OUR control stream bytes: " + Convert.ToHexString(frame.WrittenSpan));
-
-        // Dump what moxygen sends on its inbound control stream (accumulate a few reads).
-        await using IQuicStream inbound = await conn.AcceptStreamAsync(ct);
-        var all = new List<byte>();
-        var buf = new byte[512];
-        using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        readCts.CancelAfter(TimeSpan.FromSeconds(3));
-        try
-        {
-            while (all.Count < 400)
-            {
-                int n = await inbound.ReadAsync(buf, readCts.Token);
-                if (n == 0)
-                {
-                    break;
-                }
-
-                all.AddRange(buf.AsSpan(0, n).ToArray());
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // stop reading after the short window
-        }
-
-        _output.WriteLine($"MOXYGEN control stream {all.Count} bytes: " + Convert.ToHexString(all.ToArray()));
-    }
 }
