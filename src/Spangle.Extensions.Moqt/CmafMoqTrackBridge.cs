@@ -68,11 +68,11 @@ public sealed class CmafMoqTrackBridge
     private async ValueTask PublishGroupAsync(ReadOnlyMemory<byte> payload, byte priority,
         CancellationToken cancellationToken)
     {
-        MoqGroupWriter group = await _track.BeginGroupAsync(_nextGroup++, priority, cancellationToken)
+        MoqGroupWriter group = await _track.BeginGroupAsync(_nextGroup++, priority, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         await using (group.ConfigureAwait(false))
         {
-            await group.WriteObjectAsync(0, payload, cancellationToken).ConfigureAwait(false);
+            await group.WriteObjectAsync(0, payload, cancellationToken: cancellationToken).ConfigureAwait(false);
             await group.CompleteAsync(cancellationToken).ConfigureAwait(false);
         }
     }

@@ -160,6 +160,94 @@ public class MoxygenInteropTests
         }
     }
 
+    /// <summary>
+    /// Object Extension Headers through the reference relay: moxygen parses every object it
+    /// forwards, so if our length-prefixed Key-Value-Pair block survives the round trip byte for
+    /// byte, our encoding matches the reference implementation's. This is the conformance check
+    /// for the draft-cenzano-moq-media-interop metadata carrier.
+    /// </summary>
+    [Fact]
+    public async Task ObjectExtensionHeaders_SurviveTheRelay()
+    {
+        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
+        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
+        {
+            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
+            return;
+        }
+
+        string[] parts = endpoint.Split(':');
+        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        CancellationToken ct = cts.Token;
+
+        FullTrackName track = FullTrackName.FromStrings(["vc"], "ext0");
+
+        // A cenzano-shaped extension set: media type (even -> varint), extradata and packed
+        // metadata (odd -> byte strings).
+        MoqKeyValuePair[] extensions =
+        [
+            MoqKeyValuePair.Varint(0x0A, 0x00),
+            MoqKeyValuePair.FromBytes(0x0D, [0x01, 0x64, 0x00, 0x1F, 0xFF, 0xE1]),
+            MoqKeyValuePair.FromBytes(0x15, [0x00, 0x2A, 0x2A, 0x40, 0x01]),
+        ];
+        byte[] frame = Pattern(0x55, 64);
+
+        await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        MoqPublisher publisher = MoqPublisher.Create(pubSession);
+        MoqPublishedTrack published = publisher.PublishTrack(track);
+        await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
+        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task run = publisher.RunAsync(runCts.Token);
+
+        await using IQuicConnection subConn = await ConnectAsync(remote, ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
+        Task<MoqObject> receiving = FirstObjectAsync(subscriber, track, ct);
+
+        MoqGroupWriter group = await published.BeginGroupAsync(0, 100, hasExtensions: true, cancellationToken: ct);
+        await using (group.ConfigureAwait(false))
+        {
+            await group.WriteObjectAsync(0, frame, extensions, ct);
+            await group.CompleteAsync(ct);
+        }
+
+        MoqObject received = await receiving;
+        _output.WriteLine($"relayed object: len={received.Payload.Length} extensions={received.Extensions.Count}");
+
+        received.Payload.ToArray().Should().Equal(frame);
+        received.Extensions.Should().HaveCount(3, "the relay forwarded every extension header");
+        received.Extensions[0].Type.Should().Be(0x0AUL);
+        received.Extensions[0].VarintValue.Should().Be(0x00UL);
+        received.Extensions[1].Type.Should().Be(0x0DUL);
+        received.Extensions[1].Bytes.ToArray().Should().Equal([0x01, 0x64, 0x00, 0x1F, 0xFF, 0xE1]);
+        received.Extensions[2].Type.Should().Be(0x15UL);
+        received.Extensions[2].Bytes.ToArray().Should().Equal([0x00, 0x2A, 0x2A, 0x40, 0x01]);
+
+        await runCts.CancelAsync();
+        try
+        {
+            await run;
+        }
+        catch (OperationCanceledException)
+        {
+            // demux loop cancelled
+        }
+    }
+
+    private static async Task<MoqObject> FirstObjectAsync(MoqSubscriber subscriber, FullTrackName track,
+        CancellationToken ct)
+    {
+        await using MoqSubscription subscription = await subscriber.SubscribeAsync(track, ct);
+        await foreach (MoqObject moqObject in subscription.ReadObjectsAsync(ct))
+        {
+            return moqObject;
+        }
+
+        throw new InvalidOperationException("no object arrived through the relay");
+    }
+
     private static async Task<IQuicConnection> ConnectAsync(IPEndPoint remote, CancellationToken ct) =>
         await MsQuicTransport.Shared.ConnectAsync(new QuicClientOptions
         {
@@ -198,6 +286,53 @@ public class MoxygenInteropTests
         }
 
         return received;
+    }
+
+    /// <summary>
+    /// Cross-draft probe: the browser encoder (moq-encoder-player) publishes at draft-16, Spangle
+    /// subscribes at draft-18. If objects arrive, the relay translates between the two drafts and
+    /// a draft-18 Spangle can feed a draft-16 browser player. Set MOQ_BROWSER_TRACK to the
+    /// encoder's video track (e.g. "20260714152057video0") while the encoder is publishing.
+    /// </summary>
+    [Fact]
+    public async Task Subscribe_ToBrowserEncoderTrack_AcrossDrafts()
+    {
+        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
+        string? trackName = Environment.GetEnvironmentVariable("MOQ_BROWSER_TRACK");
+        if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(trackName)
+            || !MsQuicTransport.Shared.IsSupported)
+        {
+            _output.WriteLine("MOQ_RELAY_ENDPOINT / MOQ_BROWSER_TRACK unset; skipping.");
+            return;
+        }
+
+        string[] parts = endpoint.Split(':');
+        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        CancellationToken ct = cts.Token;
+
+        await using IQuicConnection conn = await ConnectAsync(remote, ct);
+        await using MoqSession session = await MoqSession.ConnectAsync(conn, RelaySetup(), ct);
+        MoqSubscriber subscriber = MoqSubscriber.Create(session);
+
+        FullTrackName track = FullTrackName.FromStrings(["vc"], trackName);
+        _output.WriteLine($"subscribing (draft-18) to vc/{trackName} published by the draft-16 browser...");
+        await using MoqSubscription subscription = await subscriber.SubscribeAsync(track, ct);
+        _output.WriteLine($"SUBSCRIBE_OK, trackAlias={subscription.TrackAlias}");
+
+        var seen = 0;
+        await foreach (MoqObject moqObject in subscription.ReadObjectsAsync(ct))
+        {
+            ReadOnlySpan<byte> head = moqObject.Payload.Span[..Math.Min(16, moqObject.Payload.Length)];
+            _output.WriteLine(FormattableString.Invariant(
+                $"  obj g={moqObject.GroupId} o={moqObject.ObjectId} len={moqObject.Payload.Length} head={Convert.ToHexString(head)}"));
+            if (++seen >= 5)
+            {
+                break;
+            }
+        }
+
+        seen.Should().BeGreaterThan(0, "objects from the draft-16 browser encoder reach a draft-18 subscriber");
     }
 
     [Fact]
