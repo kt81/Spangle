@@ -9,18 +9,18 @@ namespace Spangle.Extensions.Moqt.Tests;
 /// against the draft here — including on the wire, since a property that encodes to the wrong
 /// bytes is the one failure a round trip through our own code would never show.
 /// </summary>
-public class LocPropertiesTests
+public class Loc03PropertiesTests
 {
     [Theory]
     // Every ID the draft registers, with the parity the draft assigns it. The parity is not a
     // convention we picked: it decides how the value is framed, so an ID with the wrong one
     // silently changes the shape of the frame that follows it.
-    [InlineData(LocProperties.TimescaleId, 0x08UL, false)]
-    [InlineData(LocProperties.VideoFrameMarkingId, 0x09UL, true)]
-    [InlineData(LocProperties.TimestampId, 0x0AUL, false)]
-    [InlineData(LocProperties.AudioLevelId, 0x0CUL, false)]
-    [InlineData(LocProperties.VideoConfigId, 0x0DUL, true)]
-    [InlineData(LocProperties.AudioConfigId, 0x0FUL, true)]
+    [InlineData(Loc03Properties.TimescaleId, 0x08UL, false)]
+    [InlineData(Loc03Properties.VideoFrameMarkingId, 0x09UL, true)]
+    [InlineData(Loc03Properties.TimestampId, 0x0AUL, false)]
+    [InlineData(Loc03Properties.AudioLevelId, 0x0CUL, false)]
+    [InlineData(Loc03Properties.VideoConfigId, 0x0DUL, true)]
+    [InlineData(Loc03Properties.AudioConfigId, 0x0FUL, true)]
     public void RegisteredIds_MatchTheDraftAndItsParity(ulong actual, ulong expected, bool carriesBytes)
     {
         actual.Should().Be(expected);
@@ -30,9 +30,9 @@ public class LocPropertiesTests
     [Fact]
     public void MediaTime_SendsTheTimescaleWithTheTimestamp()
     {
-        IReadOnlyList<MoqKeyValuePair> properties = LocProperties.MediaTime(3_000, 90_000);
+        IReadOnlyList<MoqKeyValuePair> properties = Loc03Properties.MediaTime(3_000, 90_000);
 
-        properties.Select(p => p.Type).Should().Equal([LocProperties.TimescaleId, LocProperties.TimestampId],
+        properties.Select(p => p.Type).Should().Equal([Loc03Properties.TimescaleId, Loc03Properties.TimestampId],
             "IDs are delta-encoded on the wire, so they must not descend");
         properties[0].VarintValue.Should().Be(90_000UL);
         properties[1].VarintValue.Should().Be(3_000UL);
@@ -42,7 +42,7 @@ public class LocPropertiesTests
     public void MediaTime_RejectsAZeroTimescale()
     {
         // Zero units per second is not a slow clock, it is a divide by zero at the far end.
-        Action act = () => LocProperties.MediaTime(0, timescale: 0);
+        Action act = () => Loc03Properties.MediaTime(0, timescale: 0);
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
@@ -51,12 +51,12 @@ public class LocPropertiesTests
     {
         // The same varint means two different things depending on a property that is absent, so
         // this distinction is the one the reader has to get right (§2.3.1.1).
-        LocMetadata wall = LocMetadata.Read([LocProperties.WallClockTime(1_700_000_000_000_000)]);
+        Loc03Metadata wall = Loc03Metadata.Read([Loc03Properties.WallClockTime(1_700_000_000_000_000)]);
         wall.Timestamp.Should().Be(1_700_000_000_000_000UL);
         wall.Timescale.Should().BeNull();
         wall.IsWallClock.Should().BeTrue();
 
-        LocMetadata media = LocMetadata.Read(LocProperties.MediaTime(3_000, 90_000));
+        Loc03Metadata media = Loc03Metadata.Read(Loc03Properties.MediaTime(3_000, 90_000));
         media.Timestamp.Should().Be(3_000UL);
         media.IsWallClock.Should().BeFalse("a Timescale is present, so the timestamp is media time");
     }
@@ -67,17 +67,17 @@ public class LocPropertiesTests
         byte[] avcC = [0x01, 0x64, 0x00, 0x1F];
         byte[] marking = [0x80];
 
-        LocMetadata metadata = LocMetadata.Read(
+        Loc03Metadata metadata = Loc03Metadata.Read(
         [
-            LocProperties.Timescale(LocProperties.MicrosecondTimescale),
-            LocProperties.VideoFrameMarking(marking),
-            LocProperties.Timestamp(42),
-            LocProperties.AudioLevel(0x7F),
-            LocProperties.VideoConfig(avcC),
-            LocProperties.AudioConfig([0x12, 0x10]),
+            Loc03Properties.Timescale(Loc03Properties.MicrosecondTimescale),
+            Loc03Properties.VideoFrameMarking(marking),
+            Loc03Properties.Timestamp(42),
+            Loc03Properties.AudioLevel(0x7F),
+            Loc03Properties.VideoConfig(avcC),
+            Loc03Properties.AudioConfig([0x12, 0x10]),
         ]);
 
-        metadata.Timescale.Should().Be(LocProperties.MicrosecondTimescale);
+        metadata.Timescale.Should().Be(Loc03Properties.MicrosecondTimescale);
         metadata.Timestamp.Should().Be(42UL);
         metadata.AudioLevel.Should().Be((byte)0x7F);
         metadata.VideoConfig.ToArray().Should().Equal(avcC);
@@ -90,9 +90,9 @@ public class LocPropertiesTests
     {
         // The registry is open and other specifications register into it (§2.3), so an unknown ID
         // is somebody else's property, not a malformed frame.
-        LocMetadata metadata = LocMetadata.Read(
+        Loc03Metadata metadata = Loc03Metadata.Read(
         [
-            LocProperties.Timestamp(7),
+            Loc03Properties.Timestamp(7),
             MoqKeyValuePair.Varint(0x40, 1),
             MoqKeyValuePair.FromBytes(0x41, [0xAB]),
         ]);
@@ -105,7 +105,7 @@ public class LocPropertiesTests
     public void Read_OfNothing_IsAllAbsent()
     {
         // Every LOC property is optional, so a frame with none is legal, not empty-by-accident.
-        LocMetadata metadata = LocMetadata.Read([]);
+        Loc03Metadata metadata = Loc03Metadata.Read([]);
         metadata.Timestamp.Should().BeNull();
         metadata.Timescale.Should().BeNull();
         metadata.AudioLevel.Should().BeNull();
@@ -121,7 +121,7 @@ public class LocPropertiesTests
         // only when the ID is odd. Pinning the bytes keeps this honest against our own reader.
         var buffer = new ArrayBufferWriter<byte>();
         KeyValuePairCodec.WriteList(new MoqWriter(buffer),
-            [.. LocProperties.MediaTime(3_000, 90_000), LocProperties.VideoConfig([0x01, 0x64])]);
+            [.. Loc03Properties.MediaTime(3_000, 90_000), Loc03Properties.VideoConfig([0x01, 0x64])]);
 
         buffer.WrittenSpan.ToArray().Should().Equal(
         [

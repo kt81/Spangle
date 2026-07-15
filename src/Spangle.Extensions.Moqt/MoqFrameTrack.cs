@@ -11,7 +11,7 @@ namespace Spangle.Extensions.Moqt;
 /// This is the object mapping LOC defines (draft-ietf-moq-loc-03 §2.2) — the payload is the codec's
 /// elementary bitstream and the metadata rides in the object's Properties — but the mapping is the
 /// container's business, not this type's: it takes whatever properties it is handed (see
-/// <see cref="LocProperties"/>) and never reads them. Grouping by GoP is what makes a subscriber
+/// <see cref="Loc03Properties"/>) and never reads them. Grouping by GoP is what makes a subscriber
 /// able to join at a group boundary and decode.
 /// </para>
 /// <para>

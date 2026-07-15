@@ -21,7 +21,7 @@ namespace Spangle.Extensions.Moqt;
 /// not on the wire as group 0; and a group MUST begin at a stream access point of type 1 or 2 and
 /// end on a CMAF Fragment boundary (§3.4), which segment-per-group only satisfies by accident of
 /// how Spangle happens to cut segments. Both wait on an MSF catalog, which CMSF extends and which
-/// nothing here implements — see <see cref="LocProperties"/> for the same gap on the frame-per-
+/// nothing here implements — see <see cref="Loc03Properties"/> for the same gap on the frame-per-
 /// object side.
 /// </para>
 /// </summary>

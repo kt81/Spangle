@@ -3,10 +3,18 @@ using Spangle.Net.Moqt.Wire;
 namespace Spangle.Extensions.Moqt;
 
 /// <summary>
-/// LOC — the Low Overhead Media Container (draft-ietf-moq-loc-03). It carries <em>one encoded frame
-/// per MOQT object</em>: the object's payload is the codec's elementary bitstream verbatim (WebCodecs
-/// calls it the chunk's "internal data" — no container framing at all, which is where the name comes
-/// from), and the per-frame metadata rides in the object's Properties as Key-Value-Pairs.
+/// LOC Properties — the Low Overhead Media Container, <b>draft-ietf-moq-loc-03</b> (§2.3). LOC
+/// carries <em>one encoded frame per MOQT object</em>: the object's payload is the codec's
+/// elementary bitstream verbatim (WebCodecs calls it the chunk's "internal data" — no container
+/// framing at all, which is where the name comes from), and the per-frame metadata rides in the
+/// object's Properties as Key-Value-Pairs.
+/// <para>
+/// The draft is in the type name because <see cref="Loc01Properties"/> exists beside it and the two
+/// do not interoperate: nearly every ID moved between the versions, Video Frame Marking changed
+/// which side of the parity rule it sits on, and -01's single wall-clock Capture Timestamp became
+/// -03's Timestamp/Timescale pair. They are separate implementations rather than one with a version
+/// switch, so each file reads against exactly one draft.
+/// </para>
 /// <para>
 /// So there is little code here, and that is the point: a LOC property <em>is</em> a MOQT
 /// Key-Value-Pair (§2.3 spells out the same even/odd parity rule — an even ID carries a vi64 value,
@@ -25,7 +33,7 @@ namespace Spangle.Extensions.Moqt;
 /// encrypted alongside the payload instead (§3.1.3); this type builds the relay-visible form.
 /// </para>
 /// </summary>
-public static class LocProperties
+public static class Loc03Properties
 {
     /// <summary>Timescale (§2.3.1.2) — Timestamp units per second. Even, so the value is a vi64.</summary>
     public const ulong TimescaleId = 0x08;
@@ -111,7 +119,7 @@ public static class LocProperties
 /// own properties into it, so a frame carrying one is not malformed.
 /// </para>
 /// </summary>
-public readonly struct LocMetadata
+public readonly struct Loc03Metadata
 {
     /// <summary>The frame's time, in <see cref="Timescale"/> units — or microseconds, per <see cref="IsWallClock"/>.</summary>
     public ulong? Timestamp { get; private init; }
@@ -140,21 +148,21 @@ public readonly struct LocMetadata
     public bool IsWallClock => Timestamp is not null && Timescale is null;
 
     /// <summary>Picks the known LOC properties out of <paramref name="properties"/>.</summary>
-    public static LocMetadata Read(IReadOnlyList<MoqKeyValuePair> properties)
+    public static Loc03Metadata Read(IReadOnlyList<MoqKeyValuePair> properties)
     {
         ArgumentNullException.ThrowIfNull(properties);
 
-        var metadata = new LocMetadata();
+        var metadata = new Loc03Metadata();
         foreach (MoqKeyValuePair property in properties)
         {
             metadata = property.Type switch
             {
-                LocProperties.TimestampId => metadata with { Timestamp = property.VarintValue },
-                LocProperties.TimescaleId => metadata with { Timescale = property.VarintValue },
-                LocProperties.AudioLevelId => metadata with { AudioLevel = (byte)property.VarintValue },
-                LocProperties.VideoConfigId => metadata with { VideoConfig = property.Bytes.ToArray() },
-                LocProperties.AudioConfigId => metadata with { AudioConfig = property.Bytes.ToArray() },
-                LocProperties.VideoFrameMarkingId => metadata with { VideoFrameMarking = property.Bytes.ToArray() },
+                Loc03Properties.TimestampId => metadata with { Timestamp = property.VarintValue },
+                Loc03Properties.TimescaleId => metadata with { Timescale = property.VarintValue },
+                Loc03Properties.AudioLevelId => metadata with { AudioLevel = (byte)property.VarintValue },
+                Loc03Properties.VideoConfigId => metadata with { VideoConfig = property.Bytes.ToArray() },
+                Loc03Properties.AudioConfigId => metadata with { AudioConfig = property.Bytes.ToArray() },
+                Loc03Properties.VideoFrameMarkingId => metadata with { VideoFrameMarking = property.Bytes.ToArray() },
                 _ => metadata,
             };
         }

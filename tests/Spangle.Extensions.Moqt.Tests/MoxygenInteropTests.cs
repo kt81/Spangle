@@ -278,11 +278,11 @@ public class MoxygenInteropTests
 
         const ulong timescale = 90_000;
         await loc.PublishFrameAsync(keyFrame,
-            [.. LocProperties.MediaTime(0, timescale), LocProperties.VideoConfig(avcC)],
+            [.. Loc03Properties.MediaTime(0, timescale), Loc03Properties.VideoConfig(avcC)],
             startsGroup: true, cancellationToken: ct);
-        await loc.PublishFrameAsync(delta1, LocProperties.MediaTime(3_000, timescale),
+        await loc.PublishFrameAsync(delta1, Loc03Properties.MediaTime(3_000, timescale),
             startsGroup: false, cancellationToken: ct);
-        await loc.PublishFrameAsync(delta2, LocProperties.MediaTime(6_000, timescale),
+        await loc.PublishFrameAsync(delta2, Loc03Properties.MediaTime(6_000, timescale),
             startsGroup: false, cancellationToken: ct);
         await loc.CompleteGroupAsync(ct);
 
@@ -304,13 +304,13 @@ public class MoxygenInteropTests
         got[0].Extensions.Select(e => e.Type).Should().Equal([0x08UL, 0x0AUL, 0x0DUL]);
         got[1].Extensions.Select(e => e.Type).Should().Equal([0x08UL, 0x0AUL]);
 
-        LocMetadata key = LocMetadata.Read(got[0].Extensions);
+        Loc03Metadata key = Loc03Metadata.Read(got[0].Extensions);
         key.Timestamp.Should().Be(0UL);
         key.Timescale.Should().Be(timescale);
         key.IsWallClock.Should().BeFalse("a Timescale came with the Timestamp, so this is media time");
         key.VideoConfig.ToArray().Should().Equal(avcC, "the avcC reaches the subscriber verbatim");
 
-        LocMetadata second = LocMetadata.Read(got[1].Extensions);
+        Loc03Metadata second = Loc03Metadata.Read(got[1].Extensions);
         second.Timestamp.Should().Be(3_000UL);
         second.Timescale.Should().Be(timescale);
         second.VideoConfig.IsEmpty.Should().BeTrue("only a keyframe re-sends the decoder configuration");
