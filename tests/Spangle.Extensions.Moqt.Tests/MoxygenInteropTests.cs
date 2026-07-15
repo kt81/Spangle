@@ -326,6 +326,107 @@ public class MoxygenInteropTests
         }
     }
 
+    /// <summary>
+    /// The catalog track through the reference relay. The relay never reads the payload — MSF §5
+    /// makes it opaque, which is exactly why this test is about the object mapping and not the JSON:
+    /// the "catalog" track name, the independent catalog at Object ID 0 of a new group, subgroup 0,
+    /// and a second publish landing in a new group. That mapping is what a subscriber looks for
+    /// before it has parsed a byte, and the relay forwarding it means we produce what a player will
+    /// go looking for. The document's own conformance is checked against a real MSF parser, not here.
+    /// </summary>
+    [Fact]
+    public async Task Catalog_SurvivesTheRelay()
+    {
+        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
+        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
+        {
+            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
+            return;
+        }
+
+        string[] parts = endpoint.Split(':');
+        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        CancellationToken ct = cts.Token;
+
+        TrackNamespace @namespace = TrackNamespace.FromStrings("vc");
+        FullTrackName track = MoqCatalogTrack.NameIn(@namespace);
+        track.NameAsString.Should().Be("catalog", "MSF §5 fixes the track name a subscriber asks for");
+
+        MsfCatalog first = new()
+        {
+            GeneratedAt = 1_746_104_606_044,
+            Tracks =
+            [
+                new MsfTrack
+                {
+                    Name = "video0",
+                    Packaging = MsfPackaging.Loc,
+                    IsLive = true,
+                    Role = MsfTrackRole.Video,
+                    Codec = "avc1.64001f",
+                    Width = 640,
+                    Height = 360,
+                },
+            ],
+        };
+        // A second publish, as a real publisher does when the track list changes: audio joins.
+        MsfCatalog second = first with
+        {
+            Tracks =
+            [
+                .. first.Tracks,
+                new MsfTrack
+                {
+                    Name = "audio0", Packaging = MsfPackaging.Loc, IsLive = true, Role = MsfTrackRole.Audio,
+                    Codec = "opus", SampleRate = 48_000, ChannelConfig = "2",
+                },
+            ],
+        };
+
+        await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        MoqPublisher publisher = MoqPublisher.Create(pubSession);
+        await using var catalog = new MoqCatalogTrack(publisher.PublishTrack(track));
+        await publisher.AnnounceNamespaceAsync(@namespace, ct);
+        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task run = publisher.RunAsync(runCts.Token);
+
+        await using IQuicConnection subConn = await ConnectAsync(remote, ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
+        Task<IReadOnlyList<MoqObject>> receiving = CollectObjectsAsync(subscriber, track, expected: 2, ct);
+
+        await catalog.PublishAsync(first, ct);
+        await catalog.PublishAsync(second, ct);
+
+        IReadOnlyList<MoqObject> got = await receiving;
+        _output.WriteLine($"relayed catalogs: {string.Join(" | ", got.Select(o => Encoding.UTF8.GetString(o.Payload.Span)))}");
+
+        got.Should().HaveCount(2);
+        // §5: an independent catalog is Object ID 0 of a new group, on subgroup 0. Each publish here
+        // is independent, so each one opens a group and sits at its head.
+        got.Select(o => o.GroupId).Should().Equal([0UL, 1UL], "a new independent catalog starts a new group");
+        got.Select(o => o.ObjectId).Should().AllBeEquivalentTo(0UL, "an independent catalog is the group's first object");
+        got.Select(o => o.SubgroupId).Should().AllBeEquivalentTo(0UL);
+
+        got[0].Payload.ToArray().Should().Equal(first.ToJsonUtf8(), "the relay forwards the catalog byte for byte");
+
+        MsfCatalog parsed = MsfCatalog.Parse(got[1].Payload.Span, catalogNamespace: "vc");
+        parsed.Tracks.Select(t => t.Name).Should().Equal(["video0", "audio0"]);
+        parsed.Tracks.Should().AllSatisfy(t => t.Namespace.Should().Be("vc", "tracks inherit the catalog's namespace"));
+
+        await runCts.CancelAsync();
+        try
+        {
+            await run;
+        }
+        catch (OperationCanceledException)
+        {
+            // demux loop cancelled
+        }
+    }
+
     private static async Task<IReadOnlyList<MoqObject>> CollectObjectsAsync(MoqSubscriber subscriber,
         FullTrackName track, int expected, CancellationToken ct)
     {

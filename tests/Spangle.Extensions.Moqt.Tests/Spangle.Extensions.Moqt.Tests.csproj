@@ -31,4 +31,9 @@
     <ProjectReference Include="..\..\src\Spangle.Extensions.Moqt\Spangle.Extensions.Moqt.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Run by MsfCatalogOracleTests against a moq-playa checkout; see the script's header. -->
+    <None Update="Oracle\msf-oracle.mjs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
