@@ -339,6 +339,11 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             // LOC-01 states its timestamps in microseconds and has no timescale of its own, so the
             // catalog is where a subscriber is told the unit.
             Timescale = 1_000_000,
+            // The keyframes carry this too (LOC's Video Config property), and a player is happy to
+            // take it from either. Stating it here as well costs a few hundred bytes per catalog and
+            // means a decoder can be built before the first keyframe arrives — the difference
+            // between playing at the next keyframe and playing at the one after.
+            InitData = context.Options.CatalogDraft == MsfDraft.Draft00 ? Convert.ToBase64String(config) : null,
         };
     }
 

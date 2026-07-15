@@ -29,6 +29,13 @@ internal sealed class RtmpToMoq
     {
         string relay = Environment.GetEnvironmentVariable("SPANGLE_MOQ_RELAY") ?? "127.0.0.1:4433";
         string @namespace = Environment.GetEnvironmentVariable("SPANGLE_MOQ_NAMESPACE") ?? "vc";
+        // SPANGLE_MOQ_MAPPING=ObjectPerStream publishes each frame on its own stream, as MSF §6
+        // asks. Worth having a switch for: it is also the shape a subscriber sees when nothing keeps
+        // a stream open across a GoP.
+        MoqStreamMapping mapping =
+            Enum.TryParse(Environment.GetEnvironmentVariable("SPANGLE_MOQ_MAPPING"), out MoqStreamMapping m)
+                ? m
+                : MoqStreamMapping.GroupPerStream;
         string[] parts = relay.Split(':');
         var options = new MoqSenderOptions
         {
@@ -36,6 +43,7 @@ internal sealed class RtmpToMoq
             Namespace = @namespace,
             TargetHost = "localhost",
             AllowUntrustedRelayCertificate = true,
+            StreamMapping = mapping,
         };
 
         var listenEndPoint = new IPEndPoint(IPAddress.Any, 1935);
