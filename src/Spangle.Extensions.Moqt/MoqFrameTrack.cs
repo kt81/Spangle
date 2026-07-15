@@ -4,18 +4,22 @@ using Spangle.Net.Moqt.Wire;
 namespace Spangle.Extensions.Moqt;
 
 /// <summary>
-/// Publishes encoded frames onto a MOQT track using the draft-cenzano-moq-media-interop mapping:
-/// one object per frame, metadata in the object's Extension Headers (see
-/// <see cref="MoqMediaInterop"/>), and a group per Group of Pictures — a new group begins at each
-/// keyframe, and the frames that depend on it are the objects within it. Audio frames, which carry
-/// no inter-frame dependency, each begin their own group.
+/// Publishes encoded frames onto a MOQT track one object per frame, with a group per Group of
+/// Pictures: a new group begins at each keyframe, and the frames that depend on it are the objects
+/// within it. Audio frames carry no inter-frame dependency, so each begins its own group.
 /// <para>
-/// This is the media-mapping counterpart to <see cref="CmafMoqTrackBridge"/>: that one carries
-/// whole CMAF segments as opaque objects, this one carries per-frame codec bitstream the way the
-/// IETF interop tools expect.
+/// This is the object mapping LOC defines (draft-ietf-moq-loc-03 §2.2) — the payload is the codec's
+/// elementary bitstream and the metadata rides in the object's Properties — but the mapping is the
+/// container's business, not this type's: it takes whatever properties it is handed (see
+/// <see cref="LocProperties"/>) and never reads them. Grouping by GoP is what makes a subscriber
+/// able to join at a group boundary and decode.
+/// </para>
+/// <para>
+/// The counterpart is <see cref="CmafMoqTrackBridge"/>, which carries whole CMAF segments as opaque
+/// objects instead of individual frames.
 /// </para>
 /// </summary>
-public sealed class MoqMediaInteropTrack : IAsyncDisposable
+public sealed class MoqFrameTrack : IAsyncDisposable
 {
     // MOQT publisher priority is 8-bit, lower is higher priority. Only meaningful per group.
     private const byte DefaultPriority = 128;
@@ -26,7 +30,7 @@ public sealed class MoqMediaInteropTrack : IAsyncDisposable
     private ulong _nextObjectId;
 
     /// <summary>Creates a publisher for <paramref name="track"/>.</summary>
-    public MoqMediaInteropTrack(MoqPublishedTrack track)
+    public MoqFrameTrack(MoqPublishedTrack track)
     {
         ArgumentNullException.ThrowIfNull(track);
         _track = track;
@@ -38,14 +42,14 @@ public sealed class MoqMediaInteropTrack : IAsyncDisposable
     /// <summary>
     /// Publishes one frame. <paramref name="startsGroup"/> marks a frame nothing later depends on
     /// resolving backwards — a video keyframe, or any audio frame — and begins a new group; other
-    /// frames append to the current one. <paramref name="extensions"/> comes from
-    /// <see cref="MoqMediaInterop"/>, and <paramref name="frame"/> is the raw codec bitstream.
+    /// frames append to the current one. <paramref name="properties"/> is the container's per-frame
+    /// metadata, and <paramref name="frame"/> the raw codec bitstream.
     /// </summary>
     public async ValueTask PublishFrameAsync(ReadOnlyMemory<byte> frame,
-        IReadOnlyList<MoqKeyValuePair> extensions, bool startsGroup,
+        IReadOnlyList<MoqKeyValuePair> properties, bool startsGroup,
         byte priority = DefaultPriority, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(extensions);
+        ArgumentNullException.ThrowIfNull(properties);
 
         if (startsGroup || _group is null)
         {
@@ -56,7 +60,7 @@ public sealed class MoqMediaInteropTrack : IAsyncDisposable
             _nextObjectId = 0;
         }
 
-        await _group.WriteObjectAsync(_nextObjectId++, frame, extensions, cancellationToken).ConfigureAwait(false);
+        await _group.WriteObjectAsync(_nextObjectId++, frame, properties, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>FINs the current group's stream, if one is open.</summary>

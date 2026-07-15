@@ -161,10 +161,10 @@ public class MoxygenInteropTests
     }
 
     /// <summary>
-    /// Object Extension Headers through the reference relay: moxygen parses every object it
+    /// Object Extension Headers through the reference relay: the relay parses every object it
     /// forwards, so if our length-prefixed Key-Value-Pair block survives the round trip byte for
-    /// byte, our encoding matches the reference implementation's. This is the conformance check
-    /// for the draft-cenzano-moq-media-interop metadata carrier.
+    /// byte, our encoding matches the reference implementation's. This is the conformance check for
+    /// the carrier every media mapping puts its per-frame metadata in — LOC included.
     /// </summary>
     [Fact]
     public async Task ObjectExtensionHeaders_SurviveTheRelay()
@@ -183,8 +183,8 @@ public class MoxygenInteropTests
 
         FullTrackName track = FullTrackName.FromStrings(["vc"], "ext0");
 
-        // A cenzano-shaped extension set: media type (even -> varint), extradata and packed
-        // metadata (odd -> byte strings).
+        // Both value shapes the parity rule allows, so the round trip exercises each: an even type
+        // carries a varint, an odd one a length-prefixed byte string.
         MoqKeyValuePair[] extensions =
         [
             MoqKeyValuePair.Varint(0x0A, 0x00),
@@ -237,13 +237,13 @@ public class MoxygenInteropTests
     }
 
     /// <summary>
-    /// A cenzano media-interop GoP through the reference relay: a keyframe (carrying avcC
-    /// extradata) opens a group and two delta frames follow as objects within it. Verifies the
-    /// relay forwards the per-frame Extension Headers and AVCC payloads intact, and that the
-    /// group/object numbering survives — i.e. our MI mapping is on the wire correctly.
+    /// A LOC GoP through the reference relay: a keyframe (carrying its Video Config) opens a group
+    /// and two delta frames follow as objects within it. Verifies the relay forwards the per-frame
+    /// LOC Properties and the elementary bitstream intact, and that the group/object numbering
+    /// survives — i.e. our LOC mapping is on the wire correctly.
     /// </summary>
     [Fact]
-    public async Task MediaInteropFrames_SurviveTheRelay()
+    public async Task LocFrames_SurviveTheRelay()
     {
         string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
         if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
@@ -257,7 +257,7 @@ public class MoxygenInteropTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         CancellationToken ct = cts.Token;
 
-        FullTrackName track = FullTrackName.FromStrings(["vc"], MoqMediaInterop.TrackName("mi/", isAudio: false));
+        FullTrackName track = FullTrackName.FromStrings(["vc"], "loc/video0");
         byte[] avcC = [0x01, 0x64, 0x00, 0x1F, 0xFF, 0xE1, 0x00, 0x04];
         byte[] keyFrame = Pattern(0x11, 96);
         byte[] delta1 = Pattern(0x22, 48);
@@ -266,7 +266,7 @@ public class MoxygenInteropTests
         await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
         await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
         MoqPublisher publisher = MoqPublisher.Create(pubSession);
-        await using var mi = new MoqMediaInteropTrack(publisher.PublishTrack(track));
+        await using var loc = new MoqFrameTrack(publisher.PublishTrack(track));
         await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
         using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Task run = publisher.RunAsync(runCts.Token);
@@ -276,41 +276,44 @@ public class MoxygenInteropTests
         MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
         Task<IReadOnlyList<MoqObject>> receiving = CollectObjectsAsync(subscriber, track, expected: 3, ct);
 
-        const ulong timebase = 90_000;
-        await mi.PublishFrameAsync(keyFrame,
-            MoqMediaInterop.VideoH264AvccExtensions(0, 0, 0, timebase, 3_000, 1_700_000_000_000, avcC),
+        const ulong timescale = 90_000;
+        await loc.PublishFrameAsync(keyFrame,
+            [.. LocProperties.MediaTime(0, timescale), LocProperties.VideoConfig(avcC)],
             startsGroup: true, cancellationToken: ct);
-        await mi.PublishFrameAsync(delta1,
-            MoqMediaInterop.VideoH264AvccExtensions(1, 3_000, 3_000, timebase, 3_000, 1_700_000_000_033),
+        await loc.PublishFrameAsync(delta1, LocProperties.MediaTime(3_000, timescale),
             startsGroup: false, cancellationToken: ct);
-        await mi.PublishFrameAsync(delta2,
-            MoqMediaInterop.VideoH264AvccExtensions(2, 6_000, 6_000, timebase, 3_000, 1_700_000_000_066),
+        await loc.PublishFrameAsync(delta2, LocProperties.MediaTime(6_000, timescale),
             startsGroup: false, cancellationToken: ct);
-        await mi.CompleteGroupAsync(ct);
+        await loc.CompleteGroupAsync(ct);
 
         IReadOnlyList<MoqObject> got = await receiving;
-        _output.WriteLine($"relayed {got.Count} MI frames; group ids: {string.Join(",", got.Select(o => o.GroupId))}");
+        _output.WriteLine($"relayed {got.Count} LOC frames; group ids: {string.Join(",", got.Select(o => o.GroupId))}");
 
         got.Should().HaveCount(3);
         got.Select(o => o.GroupId).Should().AllBeEquivalentTo(0UL, "one keyframe means one group");
         got.Select(o => o.ObjectId).Should().Equal([0UL, 1UL, 2UL], "frames are objects within the group");
 
+        // The payload is the elementary bitstream and nothing else — that is the whole of LOC's
+        // low overhead, so a relay that added or trimmed a byte would show up right here.
         got[0].Payload.ToArray().Should().Equal(keyFrame);
         got[1].Payload.ToArray().Should().Equal(delta1);
         got[2].Payload.ToArray().Should().Equal(delta2);
 
-        // The keyframe carries media type + avcC + metadata; the deltas carry media type + metadata.
-        // Extension headers ride in ascending type order (their types are delta-encoded), so the
-        // avcC extradata (0x0D) precedes the packed metadata (0x15) regardless of insertion order.
-        got[0].Extensions.Should().HaveCount(3);
-        got[0].Extensions.Select(e => e.Type).Should().Equal([0x0AUL, 0x0DUL, 0x15UL]);
-        got[0].Extensions[1].Bytes.ToArray().Should().Equal(avcC, "avcC reaches the subscriber verbatim");
-        MoqMediaInterop.UnpackVarints(got[0].Extensions[2].Bytes, 6)
-            .Should().Equal(0UL, 0UL, 0UL, timebase, 3_000UL, 1_700_000_000_000UL);
+        // Only the keyframe carries a Video Config. Properties ride in ascending ID order (the IDs
+        // are delta-encoded on the wire), so Timescale 0x08, Timestamp 0x0A, Video Config 0x0D.
+        got[0].Extensions.Select(e => e.Type).Should().Equal([0x08UL, 0x0AUL, 0x0DUL]);
+        got[1].Extensions.Select(e => e.Type).Should().Equal([0x08UL, 0x0AUL]);
 
-        got[1].Extensions.Should().HaveCount(2);
-        MoqMediaInterop.UnpackVarints(got[1].Extensions[1].Bytes, 6)
-            .Should().Equal(1UL, 3_000UL, 3_000UL, timebase, 3_000UL, 1_700_000_000_033UL);
+        LocMetadata key = LocMetadata.Read(got[0].Extensions);
+        key.Timestamp.Should().Be(0UL);
+        key.Timescale.Should().Be(timescale);
+        key.IsWallClock.Should().BeFalse("a Timescale came with the Timestamp, so this is media time");
+        key.VideoConfig.ToArray().Should().Equal(avcC, "the avcC reaches the subscriber verbatim");
+
+        LocMetadata second = LocMetadata.Read(got[1].Extensions);
+        second.Timestamp.Should().Be(3_000UL);
+        second.Timescale.Should().Be(timescale);
+        second.VideoConfig.IsEmpty.Should().BeTrue("only a keyframe re-sends the decoder configuration");
 
         await runCts.CancelAsync();
         try
@@ -504,6 +507,19 @@ public class MoxygenInteropTests
             ReadOnlySpan<byte> head = moqObject.Payload.Span[..Math.Min(16, moqObject.Payload.Length)];
             _output.WriteLine(FormattableString.Invariant(
                 $"  obj g={moqObject.GroupId} o={moqObject.ObjectId} len={moqObject.Payload.Length} head={Convert.ToHexString(head)}"));
+
+            // The extension headers are where the media mapping puts its per-frame metadata, and
+            // where our own reading of it is least certain: the packager draft says "varint"
+            // without saying which, and the two codecs disagree above 0x3F. Dumping the raw bytes
+            // of a real packager's output is the only way to settle it — see MoqMediaInterop.
+            foreach (MoqKeyValuePair extension in moqObject.Extensions)
+            {
+                string value = extension.IsBytes
+                    ? $"bytes[{extension.Bytes.Length}]={Convert.ToHexString(extension.Bytes)}"
+                    : $"varint={extension.VarintValue}";
+                _output.WriteLine(FormattableString.Invariant($"      ext 0x{extension.Type:X2} {value}"));
+            }
+
             if (++seen >= 5)
             {
                 break;
