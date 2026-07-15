@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Security;
 using System.Text;
 using Spangle.Net.Moqt;
+using Spangle.Net.Moqt.Data;
 using Spangle.Net.Moqt.Messages;
 using Spangle.Net.Moqt.Wire;
 using Spangle.Net.Transport.Quic;
@@ -327,6 +328,142 @@ public class MoxygenInteropTests
     }
 
     /// <summary>
+    /// END_OF_GROUP through the reference relay, on both stream mappings. The relay re-encodes every
+    /// subgroup header it forwards, so whether the bit reaches a subscriber is a real question and
+    /// not a formality — and the answer decides whether a player stalls: it marks a group complete
+    /// only on this signal, and otherwise waits out a timeout before playing what came after.
+    /// </summary>
+    [Theory]
+    [InlineData(MoqStreamMapping.GroupPerStream)]
+    [InlineData(MoqStreamMapping.ObjectPerStream)]
+    public async Task EndOfGroup_SurvivesTheRelay(MoqStreamMapping mapping)
+    {
+        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
+        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
+        {
+            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
+            return;
+        }
+
+        string[] parts = endpoint.Split(':');
+        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        CancellationToken ct = cts.Token;
+
+        FullTrackName track = FullTrackName.FromStrings(["vc"], $"eog/{mapping}");
+        byte[] keyFrame = Pattern(0x11, 96);
+        byte[] delta = Pattern(0x22, 48);
+
+        await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        MoqPublisher publisher = MoqPublisher.Create(pubSession);
+        await using var loc = new MoqFrameTrack(publisher.PublishTrack(track), mapping);
+        await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
+        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task run = publisher.RunAsync(runCts.Token);
+
+        await using IQuicConnection subConn = await ConnectAsync(remote, ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
+        await using MoqSubscription subscription = await subscriber.SubscribeAsync(track, ct);
+
+        // One subgroup per group under the default mapping; one per object plus a closing marker
+        // under the mapping MSF §6 asks for.
+        int expectedSubgroups = mapping == MoqStreamMapping.GroupPerStream ? 1 : 3;
+        Task<IReadOnlyList<ReceivedSubgroup>> receiving =
+            CollectSubgroupsAsync(subConn, subscription.TrackAlias, expectedSubgroups, ct);
+
+        await loc.PublishFrameAsync(keyFrame, Loc03Properties.MediaTime(0), startsGroup: true, cancellationToken: ct);
+        await loc.PublishFrameAsync(delta, Loc03Properties.MediaTime(3_000), startsGroup: false, cancellationToken: ct);
+        await loc.CompleteGroupAsync(ct);
+
+        IReadOnlyList<ReceivedSubgroup> got = await receiving;
+        foreach (ReceivedSubgroup subgroup in got)
+        {
+            _output.WriteLine(FormattableString.Invariant(
+                $"subgroup g={subgroup.Header.GroupId} sg={subgroup.Header.SubgroupId} endOfGroup={subgroup.Header.EndOfGroup} objects={subgroup.Objects.Count}"));
+        }
+
+        if (mapping == MoqStreamMapping.GroupPerStream)
+        {
+            ReceivedSubgroup only = got.Should().ContainSingle().Subject;
+
+            // The bit was set when the stream was opened (proved in process, in the Moqt package's
+            // own tests) and is gone by the time it reaches a subscriber: the relay re-encodes the
+            // header and drops it. That is the whole reason the marker object below exists — and why
+            // this is logged rather than asserted, since the day a relay stops dropping it is not a
+            // day this test should fail.
+            _output.WriteLine($"header END_OF_GROUP survived the relay: {only.Header.EndOfGroup}");
+
+            only.Objects.Select(o => o.ObjectId).Should().Equal([0UL, 1UL, 2UL]);
+            only.Objects.Take(2).Should().AllSatisfy(o => o.Status.Should().Be(MoqObjectStatus.Normal));
+            only.Objects[2].Status.Should().Be(MoqObjectStatus.EndOfGroup,
+                "the group's own stream carries the news that the group ended");
+            only.Objects[2].Payload.IsEmpty.Should().BeTrue("the marker is news, not media");
+        }
+        else
+        {
+            // Each frame on its own stream, each its own subgroup, and none of them able to claim
+            // the group ended — so the group is closed by a subgroup carrying only that news.
+            got.Should().HaveCount(3);
+            got.Take(2).Should().AllSatisfy(s => s.Header.EndOfGroup.Should().BeFalse(
+                "a frame's stream is opened before we know whether the group ends there"));
+            got.Select(s => s.Header.SubgroupId).Should().Equal([0UL, 1UL, 2UL], "one subgroup per object");
+            got.Select(s => s.Objects.Count).Should().AllBeEquivalentTo(1, "one object per stream is the whole rule");
+
+            ReceivedSubgroup marker = got[2];
+            _output.WriteLine($"marker header END_OF_GROUP survived the relay: {marker.Header.EndOfGroup}");
+            marker.Objects[0].Status.Should().Be(MoqObjectStatus.EndOfGroup);
+            marker.Objects[0].Payload.IsEmpty.Should().BeTrue("the marker is news, not media");
+            marker.Objects[0].ObjectId.Should().Be(2UL, "no object at or after this one exists in the group");
+        }
+
+        got.Should().AllSatisfy(s => s.Header.GroupId.Should().Be(0UL));
+
+        await runCts.CancelAsync();
+        try
+        {
+            await run;
+        }
+        catch (OperationCanceledException)
+        {
+            // demux loop cancelled
+        }
+    }
+
+    private sealed record ReceivedSubgroup(SubgroupHeader Header, IReadOnlyList<MoqObject> Objects);
+
+    /// <summary>
+    /// Collects whole subgroups — header included — rather than the flat object stream
+    /// <see cref="MoqSubscription.ReadObjectsAsync"/> yields, because END_OF_GROUP lives in the
+    /// header and that is the thing under test.
+    /// </summary>
+    private static async Task<IReadOnlyList<ReceivedSubgroup>> CollectSubgroupsAsync(IQuicConnection connection,
+        ulong alias, int expected, CancellationToken ct)
+    {
+        var subgroups = new List<ReceivedSubgroup>();
+        while (subgroups.Count < expected)
+        {
+            MoqIncomingStream incoming = await MoqStreamRouter.AcceptAsync(connection, ct);
+            if (incoming is not MoqSubgroupStream subgroup || subgroup.Reader.Header.TrackAlias != alias)
+            {
+                continue;
+            }
+
+            var objects = new List<MoqObject>();
+            while (await subgroup.Reader.ReadObjectAsync(ct) is { } moqObject)
+            {
+                objects.Add(moqObject);
+            }
+
+            subgroups.Add(new ReceivedSubgroup(subgroup.Reader.Header, objects));
+            await subgroup.Stream.DisposeAsync();
+        }
+
+        return subgroups;
+    }
+
+    /// <summary>
     /// The catalog track through the reference relay. The relay never reads the payload — MSF §5
     /// makes it opaque, which is exactly why this test is about the object mapping and not the JSON:
     /// the "catalog" track name, the independent catalog at Object ID 0 of a new group, subgroup 0,
@@ -395,24 +532,32 @@ public class MoxygenInteropTests
         await using IQuicConnection subConn = await ConnectAsync(remote, ct);
         await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
         MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
-        Task<IReadOnlyList<MoqObject>> receiving = CollectObjectsAsync(subscriber, track, expected: 2, ct);
+        // Two catalogs, each followed by the End of Group object that closes its group.
+        Task<IReadOnlyList<MoqObject>> receiving = CollectObjectsAsync(subscriber, track, expected: 4, ct);
 
         await catalog.PublishAsync(first, ct);
         await catalog.PublishAsync(second, ct);
 
         IReadOnlyList<MoqObject> got = await receiving;
-        _output.WriteLine($"relayed catalogs: {string.Join(" | ", got.Select(o => Encoding.UTF8.GetString(o.Payload.Span)))}");
+        _output.WriteLine($"relayed: {string.Join(" | ", got.Select(o => o.Status == MoqObjectStatus.Normal
+            ? Encoding.UTF8.GetString(o.Payload.Span)
+            : $"<{o.Status}>"))}");
 
-        got.Should().HaveCount(2);
+        IReadOnlyList<MoqObject> catalogs = [.. got.Where(o => o.Status == MoqObjectStatus.Normal)];
         // §5: an independent catalog is Object ID 0 of a new group, on subgroup 0. Each publish here
         // is independent, so each one opens a group and sits at its head.
-        got.Select(o => o.GroupId).Should().Equal([0UL, 1UL], "a new independent catalog starts a new group");
-        got.Select(o => o.ObjectId).Should().AllBeEquivalentTo(0UL, "an independent catalog is the group's first object");
-        got.Select(o => o.SubgroupId).Should().AllBeEquivalentTo(0UL);
+        catalogs.Should().HaveCount(2);
+        catalogs.Select(o => o.GroupId).Should().Equal([0UL, 1UL], "a new independent catalog starts a new group");
+        catalogs.Select(o => o.ObjectId).Should().AllBeEquivalentTo(0UL, "an independent catalog is the group's first object");
+        catalogs.Select(o => o.SubgroupId).Should().AllBeEquivalentTo(0UL);
 
-        got[0].Payload.ToArray().Should().Equal(first.ToJsonUtf8(), "the relay forwards the catalog byte for byte");
+        // The relay strips the header's END_OF_GROUP bit, so this object is all a subscriber has to
+        // tell a finished catalog group from one still arriving.
+        got.Where(o => o.Status == MoqObjectStatus.EndOfGroup).Should().HaveCount(2, "each group is closed explicitly");
 
-        MsfCatalog parsed = MsfCatalog.Parse(got[1].Payload.Span, catalogNamespace: "vc");
+        catalogs[0].Payload.ToArray().Should().Equal(first.ToJsonUtf8(), "the relay forwards the catalog byte for byte");
+
+        MsfCatalog parsed = MsfCatalog.Parse(catalogs[1].Payload.Span, catalogNamespace: "vc");
         parsed.Tracks.Select(t => t.Name).Should().Equal(["video0", "audio0"]);
         parsed.Tracks.Should().AllSatisfy(t => t.Namespace.Should().Be("vc", "tracks inherit the catalog's namespace"));
 
@@ -560,6 +705,11 @@ public class MoxygenInteropTests
         var received = new List<byte[]>();
         await foreach (MoqObject moqObject in subscription.ReadObjectsAsync(ct))
         {
+            if (moqObject.Status != MoqObjectStatus.Normal)
+            {
+                continue; // the End of Group object that closes each group carries no media
+            }
+
             received.Add(moqObject.Payload.ToArray());
             if (received.Count == expected)
             {

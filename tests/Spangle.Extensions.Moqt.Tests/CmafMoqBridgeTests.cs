@@ -129,6 +129,11 @@ public class CmafMoqBridgeTests
         var received = new List<(ulong, byte[])>();
         await foreach (MoqObject moqObject in subscription.ReadObjectsAsync(ct))
         {
+            if (moqObject.Status != MoqObjectStatus.Normal)
+            {
+                continue; // the End of Group object that closes each group carries no media
+            }
+
             received.Add((moqObject.GroupId, moqObject.Payload.ToArray()));
             if (received.Count == expected)
             {

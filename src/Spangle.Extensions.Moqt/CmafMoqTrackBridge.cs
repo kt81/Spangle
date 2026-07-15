@@ -77,11 +77,16 @@ public sealed class CmafMoqTrackBridge
     private async ValueTask PublishGroupAsync(ReadOnlyMemory<byte> payload, byte priority,
         CancellationToken cancellationToken)
     {
-        MoqGroupWriter group = await _track.BeginGroupAsync(_nextGroup++, priority, cancellationToken: cancellationToken)
+        // A segment is the whole group, so the stream that carries it ends it: END_OF_GROUP saves
+        // the subscriber a timeout it would otherwise wait before believing the group was done.
+        MoqGroupWriter group = await _track
+            .BeginGroupAsync(_nextGroup++, priority, endOfGroup: true, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         await using (group.ConfigureAwait(false))
         {
             await group.WriteObjectAsync(0, payload, cancellationToken: cancellationToken).ConfigureAwait(false);
+            // And again as an object, because a relay re-encodes the header and drops the bit.
+            await group.WriteEndOfGroupAsync(1, cancellationToken).ConfigureAwait(false);
             await group.CompleteAsync(cancellationToken).ConfigureAwait(false);
         }
     }

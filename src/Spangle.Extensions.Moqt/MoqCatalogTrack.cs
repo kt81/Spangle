@@ -76,10 +76,18 @@ public sealed class MoqCatalogTrack : IAsyncDisposable
         byte[] json = catalog.ToJsonUtf8();
 
         await CompleteGroupAsync(cancellationToken).ConfigureAwait(false);
+        // A catalog group is this one object, so the group ends where the stream does and the
+        // header says so — a subscriber that had to wait out a timeout to be sure would be waiting
+        // before it knew a single track existed.
         _group = await _track
-            .BeginGroupAsync(_nextGroupId++, CatalogPriority, hasExtensions: false, cancellationToken: cancellationToken)
+            .BeginGroupAsync(_nextGroupId++, CatalogPriority, hasExtensions: false, endOfGroup: true,
+                cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         await _group.WriteObjectAsync(0, json, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // Say it in the objects too, not only in the header: the reference relay re-encodes subgroup
+        // headers and drops the END_OF_GROUP bit, so on the far side of one this is what is left of
+        // "that was the whole catalog".
+        await _group.WriteEndOfGroupAsync(1, cancellationToken).ConfigureAwait(false);
         await CompleteGroupAsync(cancellationToken).ConfigureAwait(false);
     }
 
