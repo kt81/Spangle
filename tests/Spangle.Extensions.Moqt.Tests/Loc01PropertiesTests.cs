@@ -11,18 +11,27 @@ namespace Spangle.Extensions.Moqt.Tests;
 public class Loc01PropertiesTests
 {
     [Theory]
-    // The draft's IDs — and, independently, the constants in moq5's C implementation
-    // (openmoq/moq5, media/loc/src/loc.c), which is the only third party that can tell us we read
-    // the draft the same way it did:
+    // The draft's IDs — and, independently, the same values in the only two implementations of it,
+    // each reading the draft without reference to us or to each other. That agreement is the whole
+    // reason -01 is worth carrying: nothing could check our reading of the mapping it replaced.
+    //
+    // moq5 (openmoq/moq5, media/loc/src/loc.c), in C:
     //   #define LOC01_CAPTURE_TIMESTAMP   0x02u
     //   #define LOC01_VIDEO_FRAME_MARKING 0x04u
     //   #define LOC01_AUDIO_LEVEL         0x06u
     //   #define LOC01_VIDEO_CONFIG        0x0du
+    //
+    // moq-playa (openmoq/moq-playa, packages/loc/src/types.ts), in TypeScript:
+    //   export const LocExtensionId = {
+    //       CAPTURE_TIMESTAMP: 0x02, VIDEO_FRAME_MARKING: 0x04,
+    //       AUDIO_LEVEL: 0x06, VIDEO_CONFIG: 0x0d,
+    //   } as const;
+    //   // "Even IDs have varint values; odd IDs have length-prefixed byte values."
     [InlineData(Loc01Properties.CaptureTimestampId, 0x02UL, false)]
     [InlineData(Loc01Properties.VideoFrameMarkingId, 0x04UL, false)]
     [InlineData(Loc01Properties.AudioLevelId, 0x06UL, false)]
     [InlineData(Loc01Properties.VideoConfigId, 0x0DUL, true)]
-    public void RegisteredIds_MatchTheDraftAndMoq5(ulong actual, ulong expected, bool carriesBytes)
+    public void RegisteredIds_MatchTheDraftAndBothImplementations(ulong actual, ulong expected, bool carriesBytes)
     {
         actual.Should().Be(expected);
         ((actual & 1) == 1).Should().Be(carriesBytes, "the ID's parity is what selects the value's shape");
