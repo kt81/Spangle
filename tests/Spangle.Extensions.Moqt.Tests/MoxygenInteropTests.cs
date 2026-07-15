@@ -328,6 +328,81 @@ public class MoxygenInteropTests
     }
 
     /// <summary>
+    /// Two tracks on one session, each with its own subscriber. Every other test here publishes a
+    /// single track, which is the case where the first subscription's Track Alias is also the only
+    /// one — so nothing has ever exercised a publisher assigning a second alias. A real stream is at
+    /// least a catalog and a video track, and a player subscribes to both.
+    /// </summary>
+    [Fact]
+    public async Task TwoTracks_EachReachTheirSubscriber()
+    {
+        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
+        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
+        {
+            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
+            return;
+        }
+
+        string[] parts = endpoint.Split(':');
+        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        CancellationToken ct = cts.Token;
+
+        // Distinct names per run: a relay caches by track, and a track it has seen before brings its
+        // cache with it.
+        string suffix = Guid.NewGuid().ToString("N")[..8];
+        FullTrackName first = FullTrackName.FromStrings(["vc"], $"two/{suffix}/a");
+        FullTrackName second = FullTrackName.FromStrings(["vc"], $"two/{suffix}/b");
+        byte[] payloadA = Pattern(0x11, 64);
+        byte[] payloadB = Pattern(0x22, 64);
+
+        await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        MoqPublisher publisher = MoqPublisher.Create(pubSession);
+        MoqPublishedTrack trackA = publisher.PublishTrack(first);
+        MoqPublishedTrack trackB = publisher.PublishTrack(second);
+        await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
+        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task run = publisher.RunAsync(runCts.Token);
+
+        await using IQuicConnection subConn = await ConnectAsync(remote, ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
+
+        Task<IReadOnlyList<MoqObject>> receivingA = CollectObjectsAsync(subscriber, first, expected: 1, ct);
+        await WriteOneAsync(trackA, payloadA, ct);
+        (await receivingA)[0].Payload.ToArray().Should().Equal(payloadA, "the first track's subscriber gets its object");
+        _output.WriteLine($"track a: alias {trackA.CurrentAlias}, delivered.");
+
+        // The second subscription is the one nothing has covered: it gets the publisher's next alias.
+        Task<IReadOnlyList<MoqObject>> receivingB = CollectObjectsAsync(subscriber, second, expected: 1, ct);
+        await WriteOneAsync(trackB, payloadB, ct);
+        _output.WriteLine($"track b: alias {trackB.CurrentAlias}, awaiting delivery...");
+        (await receivingB)[0].Payload.ToArray().Should().Equal(payloadB,
+            "a publisher's second track reaches its subscriber too");
+
+        await runCts.CancelAsync();
+        try
+        {
+            await run;
+        }
+        catch (OperationCanceledException)
+        {
+            // demux loop cancelled
+        }
+    }
+
+    private static async Task WriteOneAsync(MoqPublishedTrack track, byte[] payload, CancellationToken ct)
+    {
+        MoqGroupWriter group = await track.BeginGroupAsync(0, 128, endOfGroup: true, cancellationToken: ct);
+        await using (group.ConfigureAwait(false))
+        {
+            await group.WriteObjectAsync(0, payload, cancellationToken: ct);
+            await group.CompleteAsync(ct);
+        }
+    }
+
+    /// <summary>
     /// END_OF_GROUP through the reference relay, on both stream mappings. The relay re-encodes every
     /// subgroup header it forwards, so whether the bit reaches a subscriber is a real question and
     /// not a formality — and the answer decides whether a player stalls: it marks a group complete

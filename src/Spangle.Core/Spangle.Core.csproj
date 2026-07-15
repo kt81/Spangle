@@ -23,6 +23,12 @@
     <InternalsVisibleTo Include="Spangle.Core.Tests" />
     <InternalsVisibleTo Include="Spangle.SourceGenerator.Tests" />
     <InternalsVisibleTo Include="Spangle.Core.Benchmarks" />
+    <!-- The MOQT sender needs what the HLS and DASH manifests need: the RFC 6381 codec strings and
+         the config parsers that derive them (CodecStrings, AvcSps, AudioSpecificConfig, OpusPacket).
+         An MSF catalog states the same facts a playlist does. Sharing the internals beats a second
+         implementation of the hvcC compatibility-bit order; promote them to public API if a third
+         caller appears. -->
+    <InternalsVisibleTo Include="Spangle.Extensions.Moqt" />
   </ItemGroup>
 
   <ItemGroup>

@@ -87,16 +87,34 @@ public sealed class MoqFrameTrack : IAsyncDisposable
     /// Creates a publisher for <paramref name="track"/>. <paramref name="mapping"/> chooses how the
     /// group's objects are spread over streams; the default is what other implementations read and
     /// write.
+    /// <para>
+    /// <paramref name="firstGroupId"/> is where group numbering starts, and it matters across
+    /// restarts, not within a session: a relay caches objects by group and object id, and a group id
+    /// reused with different content is a cache collision it resolves by dropping the subscriber
+    /// (MSF §6.1 — group ids must be unique and increasing for the life of the <em>track</em>, which
+    /// outlives this process). A publisher that may restart under the same track name should pass
+    /// the current wall-clock time in milliseconds, which is what the spec suggests and what
+    /// <see cref="MoqSender"/> does.
+    /// </para>
     /// </summary>
-    public MoqFrameTrack(MoqPublishedTrack track, MoqStreamMapping mapping = MoqStreamMapping.GroupPerStream)
+    public MoqFrameTrack(MoqPublishedTrack track, MoqStreamMapping mapping = MoqStreamMapping.GroupPerStream,
+        ulong firstGroupId = 0)
     {
         ArgumentNullException.ThrowIfNull(track);
         _track = track;
         _mapping = mapping;
+        _nextGroupId = firstGroupId;
     }
 
     /// <summary>Completes with the assigned Track Alias once a subscriber has subscribed.</summary>
     public Task<ulong> WaitForSubscriberAsync() => _track.WaitForSubscriberAsync();
+
+    /// <summary>
+    /// Whether a subscriber has arrived. <see cref="PublishFrameAsync"/> waits for one, so a live
+    /// source asks this first and drops the frame instead — waiting would push back on the pipeline
+    /// that is still producing frames in real time.
+    /// </summary>
+    public bool HasSubscriber => _track.HasSubscriber;
 
     /// <summary>
     /// Publishes one frame. <paramref name="startsGroup"/> marks a frame nothing later depends on

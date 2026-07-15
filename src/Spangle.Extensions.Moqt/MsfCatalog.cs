@@ -147,6 +147,23 @@ public sealed record MsfTrack
 
     /// <summary>The track's total duration in milliseconds (§5.2.35). Only meaningful when not live.</summary>
     public double? TrackDuration { get; init; }
+
+    /// <summary>
+    /// The track's initialization data, Base64 encoded — what WebCodecs calls the decoder's
+    /// <c>description</c>: an AudioSpecificConfig for AAC, an avcC record for H.264.
+    /// <para>
+    /// LOC video does not need this (the config rides on the keyframes as a property), but LOC audio
+    /// has no config property at all in -01, so for AAC this is the only place a subscriber can
+    /// learn how to build the decoder.
+    /// </para>
+    /// <para>
+    /// <b>MSF-00 only.</b> This is the -00 shape (§5.1.20); -01 replaced it with a root
+    /// <c>initDataList</c> that tracks reference by <c>initRef</c>, which is not implemented —
+    /// writing an MSF-01 catalog carrying this throws rather than emit a field that draft does not
+    /// define.
+    /// </para>
+    /// </summary>
+    public string? InitData { get; init; }
 }
 
 /// <summary>
@@ -275,6 +292,7 @@ public sealed record MsfCatalog
         WriteIfPresent(writer, "samplerate"u8, track.SampleRate);
         WriteIfPresent(writer, "channelConfig"u8, track.ChannelConfig);
         WriteIfPresent(writer, "trackDuration"u8, track.TrackDuration);
+        WriteIfPresent(writer, "initData"u8, track.InitData);
         writer.WriteEndObject();
     }
 
@@ -364,6 +382,15 @@ public sealed record MsfCatalog
             {
                 throw new InvalidOperationException(
                     $"Track '{track.Name}' is live, so its duration is not yet known and must not be sent (§5.2.35).");
+            }
+
+            // §5.1.20 is an MSF-00 field. MSF-01 moved initialization data to a root initDataList,
+            // which is not implemented — so rather than write a field -01 does not define (and a -01
+            // parser would ignore, leaving the subscriber unable to decode), say so.
+            if (track.InitData is not null && Draft != MsfDraft.Draft00)
+            {
+                throw new InvalidOperationException(
+                    $"Track '{track.Name}' carries initData, which only MSF-00 defines; MSF-01's initDataList is not implemented.");
             }
         }
     }
@@ -477,6 +504,7 @@ public sealed record MsfCatalog
             SampleRate = OptionalNumber(track, "samplerate") is { } sampleRate ? (uint)sampleRate : null,
             ChannelConfig = OptionalString(track, "channelConfig"),
             TrackDuration = OptionalNumber(track, "trackDuration"),
+            InitData = OptionalString(track, "initData"),
         };
     }
 

@@ -169,25 +169,20 @@ public sealed class LiveContext : IDisposable
     /// </summary>
     private System.IO.Pipelines.PipeWriter DetermineTerminalIntake()
     {
-        if (SenderContext is HLSSenderContext { SegmentFormat: HLSSegmentFormat.Fmp4 })
+        if (SenderContext is HLSSenderContext { SegmentFormat: not HLSSegmentFormat.Fmp4 })
         {
-            // The CMAF sender muxes MediaFrames itself; no converting spinner is needed
-            return SenderContext.Intake;
-        }
-
-        if (SenderContext is HLSSenderContext)
-        {
-            // Every receiver emits the same canonical MediaFrame form, so the
-            // TS-converting spinner is receiver-agnostic. Codec support is the
-            // spinner's own concern; it rejects codecs that cannot be carried
-            // in its output container.
+            // TS is the one output that does not speak MediaFrames, so it is the one that needs a
+            // converting stage in front of it. Every receiver emits the same canonical MediaFrame
+            // form, so the spinner is receiver-agnostic. Codec support is the spinner's own concern;
+            // it rejects codecs that cannot be carried in its output container.
             var spinner = new FlvToM2TSSpinner(ReceiverContext, SenderContext.Intake, _cancellationToken);
             spinner.BeginSpin();
             return spinner.Intake;
         }
 
-        throw new NotSupportedException(
-            $"No terminal stage is available for {ReceiverContext.GetType().Name} -> {SenderContext.GetType().Name}");
+        // Everything else — the CMAF sender, the MOQT sender — reads the canonical MediaFrame
+        // stream and does its own muxing, so the chain ends at its intake.
+        return SenderContext.Intake;
     }
 
     private bool _disposed;

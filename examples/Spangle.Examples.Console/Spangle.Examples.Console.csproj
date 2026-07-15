@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Spangle.Core\Spangle.Core.csproj" />
+    <ProjectReference Include="..\..\src\Spangle.Extensions.Moqt\Spangle.Extensions.Moqt.csproj" />
   </ItemGroup>
 
   <ItemGroup>

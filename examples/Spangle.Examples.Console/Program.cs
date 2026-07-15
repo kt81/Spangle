@@ -5,7 +5,7 @@ using Spangle.Logging;
 
 var mode = new Argument<string>("mode")
 {
-    Description = "Mode to run (srt-hls / rtmp-hls)",
+    Description = "Mode to run (srt-hls / rtmp-hls / rtmp-moq)",
     DefaultValueFactory = _ => "rtmp-hls",
 };
 var cmd = new RootCommand("Spangle Example Console application.") { mode };
@@ -26,6 +26,9 @@ cmd.SetAction(async (parseResult, _) =>
             return;
         case "srt-hls":
             await new SRTToHLS(loggerFactory.CreateLogger<SRTToHLS>()).StartAsync();
+            return;
+        case "rtmp-moq":
+            await new RtmpToMoq(loggerFactory.CreateLogger<RtmpToMoq>()).StartAsync();
             return;
         default:
             throw new InvalidOperationException("Unrecognized mode");
