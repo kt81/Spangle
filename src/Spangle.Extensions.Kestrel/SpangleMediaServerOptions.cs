@@ -155,6 +155,10 @@ public class TlsOptions
 
 public class RtmpOptions : MediaProtocolOptions
 {
+    // On by default, unlike the opt-in pull/listen protocols: RTMP is the flagship push
+    // ingest, and a config that omits the key entirely has always gotten a listener.
+    public RtmpOptions() => Enabled = true;
+
     [Range(1025, 65535)] public int Port { get; set; } = 1935;
 
     /// <summary>

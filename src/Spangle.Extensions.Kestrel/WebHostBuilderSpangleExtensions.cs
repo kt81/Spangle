@@ -26,13 +26,16 @@ public static class WebHostBuilderSpangleExtensions
     public static void ConfigureSpangle(this KestrelServerOptions options)
     {
         var opt = options.ApplicationServices.GetRequiredService<IOptions<SpangleMediaServerOptions>>();
-        options.ListenAnyIP(opt.Value.Rtmp.Port,
-            listenOptions =>
-            {
-                // RTMPS: the TLS middleware wraps the raw connection before the handler sees it
-                ApplyTls(listenOptions, opt.Value.Rtmp.Tls);
-                listenOptions.UseConnectionHandler<RtmpConnectionHandler>();
-            });
+        if (opt.Value.Rtmp.Enabled)
+        {
+            options.ListenAnyIP(opt.Value.Rtmp.Port,
+                listenOptions =>
+                {
+                    // RTMPS: the TLS middleware wraps the raw connection before the handler sees it
+                    ApplyTls(listenOptions, opt.Value.Rtmp.Tls);
+                    listenOptions.UseConnectionHandler<RtmpConnectionHandler>();
+                });
+        }
         // Explicit Listen* calls override URL-based configuration, so HTTP must be explicit too
         options.ListenAnyIP(opt.Value.Http.Port, listenOptions => ApplyTls(listenOptions, opt.Value.Http.Tls));
         // RTSP push server: its own listen port, accepting inbound RECORD sessions
