@@ -40,6 +40,32 @@ public sealed class MoqEgressOptions
     /// self-signed certificate, never for one that matters.
     /// </summary>
     public bool AllowUntrustedRelayCertificate { get; set; }
+
+    /// <summary>
+    /// Pull sources: relays and namespaces to dial and republish as HLS. Independent of egress —
+    /// a deployment may ingest, publish, or both. Each source's TLS defaults to this section's
+    /// <see cref="Path"/> / <see cref="TargetHost"/> / <see cref="AllowUntrustedRelayCertificate"/>.
+    /// </summary>
+    public IList<MoqIngestSourceOptions> Ingest { get; } = [];
+}
+
+/// <summary>One MOQT pull source: which relay, which namespace, republished under which name.</summary>
+public sealed class MoqIngestSourceOptions
+{
+    /// <summary>The stream key this source republishes under (its HLS path segment).</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>The relay to dial, as <c>address:port</c> (raw QUIC).</summary>
+    public string Relay { get; set; } = "";
+
+    /// <summary>The namespace to pull, <c>/</c>-separated into fields.</summary>
+    public string Namespace { get; set; } = "";
+
+    /// <summary>The LOC draft the source publishes in. Every implementation today writes -01.</summary>
+    public LocDraft Loc { get; set; } = LocDraft.Draft01;
+
+    /// <summary>How long to wait before redialling after a disconnect.</summary>
+    public TimeSpan ReconnectDelay { get; set; } = TimeSpan.FromSeconds(5);
 }
 
 /// <summary>Registers MOQT egress into a Spangle host.</summary>
@@ -57,10 +83,24 @@ public static class MoqEgressServiceCollectionExtensions
         services.AddOptions<MoqEgressOptions>()
             .BindConfiguration(MoqEgressOptions.SectionPath)
             .Validate(static options => !options.Enabled || IPEndPoint.TryParse(options.Relay, out _),
-                "Spangle:Moq:Relay must be an address:port endpoint when Spangle:Moq:Enabled is set");
+                "Spangle:Moq:Relay must be an address:port endpoint when Spangle:Moq:Enabled is set")
+            .Validate(static options => options.Ingest.All(source => IPEndPoint.TryParse(source.Relay, out _)),
+                "Every Spangle:Moq:Ingest source needs an address:port Relay");
         services.AddSingleton<IPublishEgressFactory, MoqPublishEgressFactory>();
+        services.AddSingleton<IIngestSourceProvider, MoqIngestSourceProvider>();
         return services;
     }
+}
+
+/// <summary>Turns the <c>Spangle:Moq:Ingest</c> configuration into pull sources for the host.</summary>
+internal sealed class MoqIngestSourceProvider : IIngestSourceProvider
+{
+    private readonly MoqEgressOptions _options;
+
+    public MoqIngestSourceProvider(IOptions<MoqEgressOptions> options) => _options = options.Value;
+
+    public IReadOnlyList<IIngestSource> Sources =>
+        [.. _options.Ingest.Select(source => new MoqIngestSource(source, _options))];
 }
 
 /// <summary>

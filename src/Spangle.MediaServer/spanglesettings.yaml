@@ -24,6 +24,12 @@ Spangle:
   #   # Path: /moq                     # the relay's endpoint path
   #   # TargetHost: localhost          # SNI, when the relay's certificate needs one
   #   # AllowUntrustedRelayCertificate: true   # development relays only
+  #   Ingest:                          # pull sources: dial a relay and republish as HLS
+  #     - Name: pulled                 # stream key -> /hls/pulled/playlist.m3u8
+  #       Relay: 172.17.133.231:4433
+  #       Namespace: live/test         # the namespace another publisher produces
+  #       # Loc: Draft01               # the LOC draft the source publishes in
+  #       # ReconnectDelay: "00:00:05"
   # Rtsp:
   #   # Pull ingest: Spangle connects out to each source (IP cameras, other RTSP
   #   # servers) and republishes it under Name. TCP-interleaved transport.

@@ -79,6 +79,9 @@ public static class SpangleServiceCollectionExtensions
         services.TryAddSingleton<Spangle.Transport.Rtsp.RtspDialectRegistry>();
         services.AddHostedService<SrtIngestService>();
         services.AddHostedService<RtspIngestService>();
+        // Pull ingest sources (MOQT, and any other IIngestSourceProvider). No provider registered
+        // means no sources, so the service starts and idles — safe to register unconditionally.
+        services.AddHostedService<MediaIngestService>();
         services.AddHostedService<HlsEvictionService>();
 
         // Management surface: log capture, delivery counters, and the stats join
