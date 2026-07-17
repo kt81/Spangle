@@ -206,6 +206,31 @@ public sealed class MoqFrameTrack : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Forgets the current group without the closing writes — for when its stream is already dead.
+    /// A peer may reset any data stream (in draft-18 the stream, not the session, is the unit of
+    /// delivery), and writing a farewell to a reset stream only throws again. The group it carried
+    /// is lost; the track is not. The next <see cref="PublishFrameAsync"/> with
+    /// <c>startsGroup: true</c> begins cleanly.
+    /// </summary>
+    public async ValueTask AbandonGroupAsync()
+    {
+        _groupOpen = false;
+        MoqGroupWriter? group = _group;
+        _group = null;
+        if (group is not null)
+        {
+            try
+            {
+                await group.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // the stream is already dead, which is the premise of being here
+            }
+        }
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync() => await CompleteGroupAsync().ConfigureAwait(false);
 }

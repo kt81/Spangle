@@ -91,6 +91,27 @@ public sealed class MoqCatalogTrack : IAsyncDisposable
         await CompleteGroupAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Forgets the current group without the closing writes — for when its stream is already dead
+    /// (a peer may reset any data stream). The next <see cref="PublishAsync"/> starts cleanly.
+    /// </summary>
+    public async ValueTask AbandonGroupAsync()
+    {
+        MoqGroupWriter? group = _group;
+        _group = null;
+        if (group is not null)
+        {
+            try
+            {
+                await group.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // the stream is already dead, which is the premise of being here
+            }
+        }
+    }
+
     private async ValueTask CompleteGroupAsync(CancellationToken cancellationToken)
     {
         if (_group is null)

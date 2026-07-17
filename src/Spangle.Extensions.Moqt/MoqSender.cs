@@ -188,7 +188,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         _ => ValueTask.CompletedTask,
     };
 
-    private ValueTask ProcessVideoAsync(MoqSenderContext context, in MediaFrameHeader header,
+    private async ValueTask ProcessVideoAsync(MoqSenderContext context, MediaFrameHeader header,
         ReadOnlyMemory<byte> frame, CancellationToken ct)
     {
         if (header.IsConfig)
@@ -196,7 +196,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             _videoCodec = header.VideoCodec;
             _videoConfig = frame.ToArray();
             RebuildCatalog(context);
-            return ValueTask.CompletedTask;
+            return;
         }
 
         if (_videoConfig is null)
@@ -207,20 +207,20 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
                 s_logger.ZLogWarning($"MOQT: video frame arrived before the codec config; dropped.");
             }
 
-            return ValueTask.CompletedTask;
+            return;
         }
 
         if (!_video!.HasSubscriber)
         {
             _videoStarted = false; // whatever we send next must start a group a subscriber can decode
-            return ValueTask.CompletedTask;
+            return;
         }
 
         if (!_videoStarted)
         {
             if (!header.IsKeyFrame)
             {
-                return ValueTask.CompletedTask; // a group cannot open on a frame that refers backwards
+                return; // a group cannot open on a frame that refers backwards
             }
 
             _videoStarted = true;
@@ -229,11 +229,28 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         // The decoder configuration rides on every keyframe, which is what makes a group a place a
         // subscriber can join: it never has to have seen an earlier one.
         IReadOnlyList<MoqKeyValuePair> properties = VideoProperties(context, header, _videoConfig);
-        return _video.PublishFrameAsync(frame, properties, startsGroup: header.IsKeyFrame,
-            cancellationToken: ct);
+        try
+        {
+            await _video.PublishFrameAsync(frame, properties, startsGroup: header.IsKeyFrame,
+                cancellationToken: ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            // A peer may reset any data stream — draft-18 makes the stream, not the session, the
+            // unit of delivery, and a relay resets streams it no longer wants. That costs the group
+            // the stream was carrying, nothing more; treating it as fatal is how one reset stream
+            // becomes a dead broadcast. Resume at the next keyframe, where a group may begin.
+            s_logger.ZLogWarning($"MOQT: the video group's stream was reset ({e.Message}); resuming at the next keyframe.");
+            await _video.AbandonGroupAsync().ConfigureAwait(false);
+            _videoStarted = false;
+        }
     }
 
-    private ValueTask ProcessAudioAsync(MoqSenderContext context, in MediaFrameHeader header,
+    private async ValueTask ProcessAudioAsync(MoqSenderContext context, MediaFrameHeader header,
         ReadOnlyMemory<byte> frame, CancellationToken ct)
     {
         if (header.IsConfig)
@@ -241,18 +258,32 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             _audioCodec = header.AudioCodec;
             _audioConfig = frame.ToArray();
             RebuildCatalog(context);
-            return ValueTask.CompletedTask;
+            return;
         }
 
         if (_audioConfig is null || !_audio!.HasSubscriber)
         {
-            return ValueTask.CompletedTask;
+            return;
         }
 
-        // Every audio frame decodes on its own, so every one opens a group: a subscriber can join at
-        // any of them.
-        return _audio.PublishFrameAsync(frame, AudioProperties(context, header), startsGroup: true,
-            cancellationToken: ct);
+        try
+        {
+            // Every audio frame decodes on its own, so every one opens a group: a subscriber can
+            // join at any of them.
+            await _audio.PublishFrameAsync(frame, AudioProperties(context, header), startsGroup: true,
+                cancellationToken: ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            // Same reasoning as the video path: a reset stream costs its group, not the track —
+            // and an audio group is one frame, so it costs almost nothing.
+            s_logger.ZLogWarning($"MOQT: an audio group's stream was reset ({e.Message}); continuing.");
+            await _audio.AbandonGroupAsync().ConfigureAwait(false);
+        }
     }
 
     // LOC's timestamp is the frame's presentation time. Spangle's canonical frame carries the
@@ -314,6 +345,9 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         }
 
         _catalog = new MsfCatalog { Draft = context.Options.CatalogDraft, Tracks = tracks };
+        // One line per rebuild — a config arriving is what grows the track list, so this is the
+        // fastest way to see which configs did.
+        s_logger.ZLogInformation($"MOQT: catalog now lists [{string.Join(", ", tracks.Select(t => $"{t.Name}:{t.Codec}"))}].");
         _catalogLoop ??= Task.Run(() => PublishCatalogAsync(context, _lifetime!.Token), CancellationToken.None);
     }
 
@@ -412,15 +446,38 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
     {
         try
         {
+            // Wait for the subscriber before reading the catalog, not after. PublishAsync blocks
+            // until one arrives, and a catalog picked before that wait is stale by the time it is
+            // sent: the audio config lands milliseconds after the video's, and a player selects its
+            // tracks from the first catalog it sees — so shipping the pre-wait snapshot means every
+            // A/V stream advertises itself as video-only to the subscriber that matters most.
+#pragma warning disable VSTHRD003 // our own track's TCS, completed by our own demux loop
+            await _catalogTrack!.WaitForSubscriberAsync().WaitAsync(ct).ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+
             while (!ct.IsCancellationRequested)
             {
                 if (_catalog is { } catalog)
                 {
-                    // Republished on a timer as well as on change: a subscriber that arrives between
-                    // changes would otherwise wait for one to learn the stream exists at all.
-                    await _catalogTrack!.PublishAsync(
-                        catalog with { GeneratedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, ct)
-                        .ConfigureAwait(false);
+                    try
+                    {
+                        // Republished on a timer as well as on change: a subscriber that arrives
+                        // between changes would otherwise wait for one to learn the stream exists.
+                        await _catalogTrack!.PublishAsync(
+                            catalog with { GeneratedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, ct)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception e)
+                    {
+                        // A reset stream costs this publication, not the loop: the catalog that
+                        // failed to go out goes out again on the next tick.
+                        s_logger.ZLogWarning($"MOQT: a catalog publication failed ({e.Message}); retrying on the next tick.");
+                        await _catalogTrack!.AbandonGroupAsync().ConfigureAwait(false);
+                    }
                 }
 
                 await Task.Delay(context.Options.CatalogInterval, ct).ConfigureAwait(false);
@@ -429,12 +486,6 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         catch (OperationCanceledException)
         {
             // shutting down
-        }
-        catch (Exception e)
-        {
-            // The catalog loop is the only thing on this task; if it dies the stream is
-            // undiscoverable, but the media path is unaffected and the session should not fall over.
-            s_logger.ZLogError($"MOQT: the catalog stopped being published: {e}");
         }
     }
 
