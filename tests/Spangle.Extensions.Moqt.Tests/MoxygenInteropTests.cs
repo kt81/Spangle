@@ -26,24 +26,24 @@ public class MoxygenInteropTests
 
     public MoxygenInteropTests(ITestOutputHelper output) => _output = output;
 
-    [Fact]
-    public async Task Spangle_CompletesSetupHandshake_WithMoxygenRelayOverRawQuic()
+    // Throws xunit's skip exception when no live relay is configured, so the gate shows up in
+    // the test report as a skip with its reason — a silent 'return' counted as a pass, and a
+    // CI run that never touched the relay was indistinguishable from one that did. Also the
+    // one place the endpoint string is parsed ('host:port', IPv4).
+    private static IPEndPoint RequireRelay()
     {
         string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint))
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT not set; skipping live moxygen interop.");
-            return;
-        }
+        Skip.If(string.IsNullOrWhiteSpace(endpoint), "MOQ_RELAY_ENDPOINT not set; live moxygen interop skipped.");
+        Skip.IfNot(MsQuicTransport.Shared.IsSupported, "msquic is not supported on this host.");
 
-        if (!MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("msquic not supported on this host; skipping.");
-            return;
-        }
+        string[] parts = endpoint!.Split(':');
+        return new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+    }
 
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+    [SkippableFact]
+    public async Task Spangle_CompletesSetupHandshake_WithMoxygenRelayOverRawQuic()
+    {
+        IPEndPoint remote = RequireRelay();
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         CancellationToken ct = cts.Token;
@@ -73,18 +73,10 @@ public class MoxygenInteropTests
         session.RemoteSetup.Options.Should().NotBeNull("a completed SETUP yields the peer's options");
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Spangle_AnnouncesNamespace_ToMoxygenRelay()
     {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        IPEndPoint remote = RequireRelay();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         CancellationToken ct = cts.Token;
 
@@ -105,18 +97,10 @@ public class MoxygenInteropTests
         _output.WriteLine("PUBLISH_NAMESPACE accepted (REQUEST_OK) by the relay.");
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Media_FlowsThroughRelay_PublisherToSubscriber()
     {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        IPEndPoint remote = RequireRelay();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         CancellationToken ct = cts.Token;
 
@@ -167,18 +151,10 @@ public class MoxygenInteropTests
     /// byte, our encoding matches the reference implementation's. This is the conformance check for
     /// the carrier every media mapping puts its per-frame metadata in — LOC included.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task ObjectExtensionHeaders_SurviveTheRelay()
     {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        IPEndPoint remote = RequireRelay();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         CancellationToken ct = cts.Token;
 
@@ -243,18 +219,10 @@ public class MoxygenInteropTests
     /// LOC Properties and the elementary bitstream intact, and that the group/object numbering
     /// survives — i.e. our LOC mapping is on the wire correctly.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task LocFrames_SurviveTheRelay()
     {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        IPEndPoint remote = RequireRelay();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         CancellationToken ct = cts.Token;
 
@@ -333,18 +301,10 @@ public class MoxygenInteropTests
     /// one — so nothing has ever exercised a publisher assigning a second alias. A real stream is at
     /// least a catalog and a video track, and a player subscribes to both.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task TwoTracks_EachReachTheirSubscriber()
     {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        IPEndPoint remote = RequireRelay();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         CancellationToken ct = cts.Token;
 
@@ -408,20 +368,12 @@ public class MoxygenInteropTests
     /// not a formality — and the answer decides whether a player stalls: it marks a group complete
     /// only on this signal, and otherwise waits out a timeout before playing what came after.
     /// </summary>
-    [Theory]
+    [SkippableTheory]
     [InlineData(MoqStreamMapping.GroupPerStream)]
     [InlineData(MoqStreamMapping.ObjectPerStream)]
     public async Task EndOfGroup_SurvivesTheRelay(MoqStreamMapping mapping)
     {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        IPEndPoint remote = RequireRelay();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         CancellationToken ct = cts.Token;
 
@@ -546,18 +498,10 @@ public class MoxygenInteropTests
     /// before it has parsed a byte, and the relay forwarding it means we produce what a player will
     /// go looking for. The document's own conformance is checked against a real MSF parser, not here.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task Catalog_SurvivesTheRelay()
     {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        IPEndPoint remote = RequireRelay();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         CancellationToken ct = cts.Token;
 
@@ -682,18 +626,10 @@ public class MoxygenInteropTests
     /// semantic error — proves our encoding is right. Covers TRACK_STATUS and SUBSCRIBE_NAMESPACE
     /// requests, plus decoding whichever of REQUEST_OK / REQUEST_ERROR the relay answers with.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task ControlMessages_AreParsedByTheRelay()
     {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
-        if (string.IsNullOrWhiteSpace(endpoint) || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT unset or msquic unsupported; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        IPEndPoint remote = RequireRelay();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         CancellationToken ct = cts.Token;
 
@@ -801,20 +737,13 @@ public class MoxygenInteropTests
     /// a draft-18 Spangle can feed a draft-16 browser player. Set MOQ_BROWSER_TRACK to the
     /// encoder's video track (e.g. "20260714152057video0") while the encoder is publishing.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task Subscribe_ToBrowserEncoderTrack_AcrossDrafts()
     {
-        string? endpoint = Environment.GetEnvironmentVariable("MOQ_RELAY_ENDPOINT");
+        IPEndPoint remote = RequireRelay();
         string? trackName = Environment.GetEnvironmentVariable("MOQ_BROWSER_TRACK");
-        if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(trackName)
-            || !MsQuicTransport.Shared.IsSupported)
-        {
-            _output.WriteLine("MOQ_RELAY_ENDPOINT / MOQ_BROWSER_TRACK unset; skipping.");
-            return;
-        }
-
-        string[] parts = endpoint.Split(':');
-        var remote = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1], CultureInfo.InvariantCulture));
+        Skip.If(string.IsNullOrWhiteSpace(trackName),
+            "MOQ_BROWSER_TRACK not set; the browser-encoder subscription needs a live browser publisher.");
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         CancellationToken ct = cts.Token;
 

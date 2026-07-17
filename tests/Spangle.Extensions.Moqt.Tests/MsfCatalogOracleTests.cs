@@ -26,13 +26,10 @@ public class MsfCatalogOracleTests
 
     public MsfCatalogOracleTests(ITestOutputHelper output) => _output = output;
 
-    [Fact]
+    [SkippableFact]
     public async Task OurCatalog_IsAcceptedByAnIndependentMsfParser()
     {
-        if (Skipped(out string playaDir, out string node))
-        {
-            return;
-        }
+        (string playaDir, string node) = RequireOracle();
 
         MsfCatalog catalog = new()
         {
@@ -101,13 +98,10 @@ public class MsfCatalogOracleTests
     /// String version too, the draft choice would be a distinction without a difference and the
     /// default could be the current spec instead of the one consumers read.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public async Task AnMsf01Catalog_IsRejectedByThatSameParser()
     {
-        if (Skipped(out string playaDir, out string node))
-        {
-            return;
-        }
+        (string playaDir, string node) = RequireOracle();
 
         MsfCatalog catalog = new()
         {
@@ -160,23 +154,18 @@ public class MsfCatalogOracleTests
         }
     }
 
-    private bool Skipped(out string playaDir, out string node)
+    // Throws xunit's skip exception when the oracle is not available, so the gate shows up in
+    // the test report as a skip with its reason — a silent 'return' counted as a pass, and a
+    // CI run that never consulted the oracle was indistinguishable from one that did.
+    private static (string PlayaDir, string Node) RequireOracle()
     {
-        playaDir = Environment.GetEnvironmentVariable("MOQ_PLAYA_DIR") ?? string.Empty;
-        node = Environment.GetEnvironmentVariable("MOQ_NODE") ?? "node";
+        string playaDir = Environment.GetEnvironmentVariable("MOQ_PLAYA_DIR") ?? string.Empty;
+        string node = Environment.GetEnvironmentVariable("MOQ_NODE") ?? "node";
 
-        if (string.IsNullOrWhiteSpace(playaDir))
-        {
-            _output.WriteLine("MOQ_PLAYA_DIR not set; skipping the MSF catalog oracle.");
-            return true;
-        }
+        Skip.If(string.IsNullOrWhiteSpace(playaDir), "MOQ_PLAYA_DIR not set; the MSF catalog oracle is skipped.");
+        Skip.IfNot(File.Exists(Path.Combine(playaDir, "packages", "msf", "dist", "index.js")),
+            $"@moqt/msf is not built in {playaDir}; run: pnpm --filter @moqt/msf build.");
 
-        if (!File.Exists(Path.Combine(playaDir, "packages", "msf", "dist", "index.js")))
-        {
-            _output.WriteLine($"@moqt/msf is not built in {playaDir}; run: pnpm --filter @moqt/msf build. Skipping.");
-            return true;
-        }
-
-        return false;
+        return (playaDir, node);
     }
 }
