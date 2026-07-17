@@ -110,7 +110,7 @@ public sealed class AmfDataToId3Spinner : SpinnerBase<AmfDataToId3Spinner>
             tag = Id3Tag.BuildTxxx(eventName, json);
             Logger.ZLogDebug($"Data event `{eventName}` -> ID3 TXXX ({tag.Length} bytes)");
         }
-        catch (Exception e) when (e is InvalidDataException or NotImplementedException)
+        catch (Exception e) when (e is InvalidDataException or NotSupportedException)
         {
             Logger.ZLogWarning($"Undecodable AMF0 data event dropped: {e.Message}");
             return;

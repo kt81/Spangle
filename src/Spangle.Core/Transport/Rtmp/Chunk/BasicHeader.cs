@@ -40,7 +40,7 @@ internal struct BasicHeader
 {
     public const  int  MaxSize = 3;
     private const byte MaxIdH1 = 0b0011_1111; // 63
-    private const uint MaxIdH2 = 0xFF + MaxIdH1;
+    private const uint MaxIdH2 = 0xFF + MultiByteIdBias; // 319: the 2-byte form is csid = byte + 64
 
     private const byte FmtMask  = 0b1100_0000;
     private const byte FbIdMask = 0b0011_1111;
@@ -67,7 +67,8 @@ internal struct BasicHeader
             return checkBits switch
             {
                 H2Code => (uint)(_value[1] + 64),
-                H3Code => ((uint)_value[1] << 8) + _value[2] + 64,
+                // The 3-byte form is little-endian: csid = (3rd byte) * 256 + (2nd byte) + 64
+                H3Code => ((uint)_value[2] << 8) + _value[1] + 64,
                 _      => checkBits,
             };
         }
@@ -87,8 +88,8 @@ internal struct BasicHeader
                 default:
                     _value[0] = (byte)((_value[0] & FmtMask) + 1);
                     value -= MultiByteIdBias;
-                    _value[1] = (byte)(value >>> 8);
-                    _value[2] = (byte)value;
+                    _value[1] = (byte)value;
+                    _value[2] = (byte)(value >>> 8);
                     break;
             }
         }

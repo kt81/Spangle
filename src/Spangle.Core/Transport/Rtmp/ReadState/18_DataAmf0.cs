@@ -20,6 +20,20 @@ internal abstract class DataAmf0
 
     public static void Handle(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
     {
+        try
+        {
+            HandleCore(context, payload);
+        }
+        catch (Exception e) when (e is InvalidDataException or NotSupportedException)
+        {
+            // Data events are ancillary; one the parser cannot decode (an exotic AMF0 type,
+            // a malformed payload) is dropped rather than allowed to end the session.
+            s_logger.ZLogWarning($"Undecodable AMF0 data message dropped: {e.Message}");
+        }
+    }
+
+    private static void HandleCore(RtmpReceiverContext context, ReadOnlySequence<byte> payload)
+    {
         ReadOnlySequence<byte> rest = payload;
         string command = ParseString(ref rest);
         if (command == RtmpNetStream.DataCommands.SetDataFrame)

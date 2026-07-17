@@ -67,4 +67,35 @@ public class ReadBasicHeaderTest
         header.ChunkStreamId.Should().Be(65599u);
         header.RequiredLength.Should().Be(3);
     }
+
+    // The 3-byte form is little-endian: csid = (3rd byte) * 256 + (2nd byte) + 64. The vectors
+    // above are byte-order symmetric (00 00 / FF FF), so only an asymmetric vector can tell a
+    // conformant decoder from one whose encoder and decoder share the same byte swap — the same
+    // round-trip blindness the MoQ varint suite guards against with the spec's worked examples.
+    [Fact]
+    public void TestType3_ByteOrder()
+    {
+        var header = Parse(0b00_000001, 0x05, 0x01); // fmt=0, csId = 1*256 + 5 + 64
+        header.ChunkStreamId.Should().Be(325u);
+    }
+
+    [Fact]
+    public void TestType3_ByteOrder_Encode()
+    {
+        var header = new BasicHeader { Format = MessageHeaderFormat.Fmt0, ChunkStreamId = 325u };
+        header.AsSpan().ToArray().Should().Equal(0b00_000001, 0x05, 0x01);
+    }
+
+    [Fact]
+    public void TestType2_UpperBound_Encode()
+    {
+        // 319 is the last id that fits the 2-byte form; 320 is the first that needs the 3-byte form
+        var atLimit = new BasicHeader { ChunkStreamId = 319u };
+        atLimit.RequiredLength.Should().Be(2);
+        atLimit.ChunkStreamId.Should().Be(319u);
+
+        var overLimit = new BasicHeader { ChunkStreamId = 320u };
+        overLimit.RequiredLength.Should().Be(3);
+        overLimit.ChunkStreamId.Should().Be(320u);
+    }
 }
