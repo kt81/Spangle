@@ -86,6 +86,13 @@ public sealed record MoqSenderOptions
     /// work: the effective one is the lesser of the two peers'.
     /// </summary>
     public TimeSpan KeepAliveInterval { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// How long to wait before redialling a relay that is gone. While disconnected the frames are
+    /// dropped, not queued — the source is live, and what a viewer wants after an outage is the
+    /// present, not a replay of the gap.
+    /// </summary>
+    public TimeSpan ReconnectDelay { get; init; } = TimeSpan.FromSeconds(5);
 }
 
 /// <summary>

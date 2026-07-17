@@ -60,6 +60,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
     private volatile MsfCatalog? _catalog;
     private bool _videoStarted;
     private bool _warnedNoVideoConfig;
+    private long _nextConnectAttempt; // Environment.TickCount64 before which no dial is attempted
 
     /// <inheritdoc />
     public async ValueTask StartAsync(MoqSenderContext context)
@@ -127,6 +128,11 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             $"MOQT: announced '{string.Join('/', _namespaceFields)}' to {options.Relay}; serving subscriptions.");
 
         _demux = publisher.RunAsync(_lifetime.Token);
+        // Per connection, like everything above it: a reconnect makes a new catalog track, and the
+        // loop publishing the old one has died with the old session.
+        MoqCatalogTrack catalogTrack = _catalogTrack;
+        _catalogLoop = Task.Run(() => PublishCatalogAsync(context, catalogTrack, _lifetime.Token),
+            CancellationToken.None);
 
         // Nothing is published until a subscriber asks, so "is anyone watching, and under what
         // alias" is the first question when a viewer sees nothing.
@@ -176,12 +182,40 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             _frame.Advance(header.Length);
             reader.AdvanceTo(payload.End);
 
+            // The demux loop ends only when the connection under it has: this is how a dead relay
+            // announces itself. Tear the connection state down so the dial-in below rebuilds it —
+            // the alternative is what it replaced: warning once per keyframe at a corpse, forever.
+            if (_session is not null && _demux is { IsCompleted: true })
+            {
+                await TeardownConnectionAsync(context, "the session ended under us").ConfigureAwait(false);
+            }
+
             // Connect on the first frame, not at startup: the namespace may be derived from the
             // stream key, and the key is only known once the publish command has been handled —
-            // which the first MediaFrame's arrival proves.
+            // which the first MediaFrame's arrival proves. The same gate is the reconnect path.
             if (_session is null)
             {
-                await ConnectAsync(context, ct).ConfigureAwait(false);
+                if (Environment.TickCount64 < _nextConnectAttempt)
+                {
+                    continue; // backing off; the frame is dropped, as every frame of the gap is
+                }
+
+                try
+                {
+                    await ConnectAsync(context, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception e)
+                {
+                    _nextConnectAttempt = Environment.TickCount64
+                                          + (long)context.Options.ReconnectDelay.TotalMilliseconds;
+                    s_logger.ZLogWarning(
+                        $"MOQT: could not reach the relay ({e.Message}); retrying in {context.Options.ReconnectDelay.TotalSeconds:0}s.");
+                    continue;
+                }
             }
 
             await ProcessFrameAsync(context, header, _frame.WrittenMemory, ct).ConfigureAwait(false);
@@ -356,9 +390,9 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
 
         _catalog = new MsfCatalog { Draft = context.Options.CatalogDraft, Tracks = tracks };
         // One line per rebuild — a config arriving is what grows the track list, so this is the
-        // fastest way to see which configs did.
+        // fastest way to see which configs did. The catalog loop itself is per-connection and
+        // started by ConnectAsync; this only refreshes what it publishes.
         s_logger.ZLogInformation($"MOQT: catalog now lists [{string.Join(", ", tracks.Select(t => $"{t.Name}:{t.Codec}"))}].");
-        _catalogLoop ??= Task.Run(() => PublishCatalogAsync(context, _lifetime!.Token), CancellationToken.None);
     }
 
     private MsfTrack VideoTrack(MoqSenderContext context, byte[] config)
@@ -452,7 +486,8 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         };
     }
 
-    private async Task PublishCatalogAsync(MoqSenderContext context, CancellationToken ct)
+    private async Task PublishCatalogAsync(MoqSenderContext context, MoqCatalogTrack catalogTrack,
+        CancellationToken ct)
     {
         try
         {
@@ -462,7 +497,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             // tracks from the first catalog it sees — so shipping the pre-wait snapshot means every
             // A/V stream advertises itself as video-only to the subscriber that matters most.
 #pragma warning disable VSTHRD003 // our own track's TCS, completed by our own demux loop
-            await _catalogTrack!.WaitForSubscriberAsync().WaitAsync(ct).ConfigureAwait(false);
+            await catalogTrack.WaitForSubscriberAsync().WaitAsync(ct).ConfigureAwait(false);
 #pragma warning restore VSTHRD003
 
             while (!ct.IsCancellationRequested)
@@ -473,7 +508,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
                     {
                         // Republished on a timer as well as on change: a subscriber that arrives
                         // between changes would otherwise wait for one to learn the stream exists.
-                        await _catalogTrack!.PublishAsync(
+                        await catalogTrack.PublishAsync(
                             catalog with { GeneratedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, ct)
                             .ConfigureAwait(false);
                     }
@@ -486,7 +521,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
                         // A reset stream costs this publication, not the loop: the catalog that
                         // failed to go out goes out again on the next tick.
                         s_logger.ZLogWarning($"MOQT: a catalog publication failed ({e.Message}); retrying on the next tick.");
-                        await _catalogTrack!.AbandonGroupAsync().ConfigureAwait(false);
+                        await catalogTrack.AbandonGroupAsync().ConfigureAwait(false);
                     }
                 }
 
@@ -497,6 +532,86 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         {
             // shutting down
         }
+    }
+
+    /// <summary>
+    /// Discards a connection that is already gone so the read loop can dial a new one: cancel the
+    /// per-connection tasks, drop the per-connection objects, and remember not to redial
+    /// immediately. Nothing here says goodbye to the peer — there is no peer; the goodbye path is
+    /// <see cref="DisposeAsync"/>.
+    /// </summary>
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types",
+        Justification = "Every resource being released belongs to a connection that is already dead.")]
+    private async ValueTask TeardownConnectionAsync(MoqSenderContext context, string reason)
+    {
+        s_logger.ZLogWarning(
+            $"MOQT: the relay connection was lost ({reason}); reconnecting in {context.Options.ReconnectDelay.TotalSeconds:0}s.");
+        _nextConnectAttempt = Environment.TickCount64 + (long)context.Options.ReconnectDelay.TotalMilliseconds;
+
+        if (_lifetime is not null)
+        {
+            await _lifetime.CancelAsync().ConfigureAwait(false);
+        }
+
+        foreach (Task? task in new[] { _catalogLoop, _demux })
+        {
+            if (task is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await task.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // both stop by cancellation, and either may report the death that brought us here
+            }
+        }
+
+        if (_video is not null)
+        {
+            await _video.AbandonGroupAsync().ConfigureAwait(false);
+        }
+
+        if (_audio is not null)
+        {
+            await _audio.AbandonGroupAsync().ConfigureAwait(false);
+        }
+
+        if (_catalogTrack is not null)
+        {
+            await _catalogTrack.AbandonGroupAsync().ConfigureAwait(false);
+        }
+
+        try
+        {
+            if (_session is not null)
+            {
+                await _session.DisposeAsync().ConfigureAwait(false);
+            }
+
+            if (_connection is not null)
+            {
+                await _connection.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception)
+        {
+            // disposing the corpse of a connection is best-effort by definition
+        }
+
+        _lifetime?.Dispose();
+        _lifetime = null;
+        _session = null;
+        _connection = null;
+        _video = null;
+        _audio = null;
+        _catalogTrack = null;
+        _demux = null;
+        _catalogLoop = null;
+        _videoStarted = false;
     }
 
     /// <inheritdoc />
