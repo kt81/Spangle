@@ -114,6 +114,69 @@ public class ReadChunkHeaderTest
         completed.Assembly.WrittenSpan.ToArray().Should().Equal(0xDD, 0xEE, 0xFF);
     }
 
+    private static readonly byte[] s_fmt0ExtendedHeader =
+    {
+        0x04,                   // Fmt0, csid 4
+        0xFF, 0xFF, 0xFF,       // Timestamp field = 0xFFFFFF: extended timestamp follows
+        0x00, 0x00, 0x08,       // Message length = 8
+        0x08,                   // Type: audio
+        0x01, 0x00, 0x00, 0x00, // Stream ID = 1 (LE)
+        0x01, 0x00, 0x00, 0x00, // Extended timestamp = 0x01000000 (~4.66 h in)
+    };
+
+    [Fact]
+    public void Fmt3WithoutResentExtendedTimestampParses()
+    {
+        // The librtmp family does not resend the extended timestamp on Fmt3 chunks. Once the
+        // stream clock passes 0xFFFFFF ms (4.66 hours in), assuming the resend misframed such
+        // a client by four bytes and killed the session.
+        var context = new TestContext().Context;
+        context.ChunkSize = 4;
+
+        var buffer = new ReadOnlySequence<byte>([
+            .. s_fmt0ExtendedHeader, 0xA0, 0xA1, 0xA2, 0xA3, // first chunk (4 of 8 bytes)
+            0xC4,                                            // Fmt3 continuation, no resend
+            0xB0, 0xB1, 0xB2, 0xB3,                          // the payload continues directly
+        ]);
+
+        ReadChunkHeader.TryReadChunk(context, ref buffer, out var completed).Should().BeTrue();
+        completed.Should().BeNull();
+        ReadChunkHeader.TryReadChunk(context, ref buffer, out completed).Should().BeTrue();
+
+        completed.Should().NotBeNull();
+        completed!.Timestamp.Should().Be(0x0100_0000u);
+        completed.Assembly.WrittenSpan.ToArray().Should()
+            .Equal(0xA0, 0xA1, 0xA2, 0xA3, 0xB0, 0xB1, 0xB2, 0xB3);
+        buffer.Length.Should().Be(0);
+    }
+
+    [Fact]
+    public void Fmt3WithResentExtendedTimestampStillParses()
+    {
+        // The spec-shaped client resends the field on every Fmt3 chunk; the tolerant reader
+        // must recognize the resend (it is byte-for-byte the last header's value) and consume
+        // it, exactly as before.
+        var context = new TestContext().Context;
+        context.ChunkSize = 4;
+
+        var buffer = new ReadOnlySequence<byte>([
+            .. s_fmt0ExtendedHeader, 0xA0, 0xA1, 0xA2, 0xA3,
+            0xC4,                   // Fmt3 continuation
+            0x01, 0x00, 0x00, 0x00, // the resent extended timestamp
+            0xB0, 0xB1, 0xB2, 0xB3,
+        ]);
+
+        ReadChunkHeader.TryReadChunk(context, ref buffer, out var completed).Should().BeTrue();
+        completed.Should().BeNull();
+        ReadChunkHeader.TryReadChunk(context, ref buffer, out completed).Should().BeTrue();
+
+        completed.Should().NotBeNull();
+        completed!.Timestamp.Should().Be(0x0100_0000u);
+        completed.Assembly.WrittenSpan.ToArray().Should()
+            .Equal(0xA0, 0xA1, 0xA2, 0xA3, 0xB0, 0xB1, 0xB2, 0xB3);
+        buffer.Length.Should().Be(0);
+    }
+
     [Fact]
     public void InterleavedChunkStreamsAssembleIndependently()
     {

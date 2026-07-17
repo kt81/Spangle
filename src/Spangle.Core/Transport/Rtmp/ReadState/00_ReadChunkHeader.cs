@@ -118,6 +118,18 @@ internal abstract class ReadChunkHeader
                 return false;
             }
             buffer.Slice(bhLen + mhLen, extLen).CopyTo(header.ExtendedTimeStamp.AsSpan());
+
+            // On a Fmt3 chunk the field, when present, is a byte-for-byte resend of the last
+            // header's value — and the librtmp family famously never resends it. Once the
+            // timestamp passes 0xFFFFFF (4.66 hours in), assuming either way misframes such a
+            // client by four bytes and kills the session, so do what nginx-rtmp does: peek,
+            // and only consume the field when it is the resend. (A payload whose first four
+            // bytes happen to equal the value is misread — a 2^-32-per-chunk trade every
+            // tolerant reader makes.)
+            if (mhLen == 0 && header.ExtendedTimeStamp.HostValue != state.LastExtendedTimestamp)
+            {
+                extLen = 0; // not a resend: those four bytes are payload
+            }
         }
 
         // ---- Payload availability ----
@@ -176,6 +188,10 @@ internal abstract class ReadChunkHeader
         if (mhLen > 0)
         {
             state.HasExtendedTimestamp = header.HasExtendedTimestamp;
+            if (header.HasExtendedTimestamp)
+            {
+                state.LastExtendedTimestamp = header.ExtendedTimeStamp.HostValue;
+            }
         }
 
         if (startsNewMessage)

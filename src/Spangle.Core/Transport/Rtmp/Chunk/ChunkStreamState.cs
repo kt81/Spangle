@@ -25,6 +25,14 @@ internal sealed class ChunkStreamState(uint chunkStreamId)
     /// <summary>The last Fmt0-2 header indicated an extended timestamp; Fmt3 chunks then carry it too</summary>
     public bool HasExtendedTimestamp;
 
+    /// <summary>
+    /// The value the last Fmt0-2 header's Extended Timestamp field carried. A Fmt3 chunk that
+    /// does resend the field resends exactly this value — which is how the reader tells a
+    /// resent field from the payload of an encoder that (like the librtmp family) never
+    /// resends it.
+    /// </summary>
+    public uint LastExtendedTimestamp;
+
     /// <summary>Bytes remaining of the in-flight message; 0 means the next chunk starts a new message</summary>
     public int Remaining;
 
