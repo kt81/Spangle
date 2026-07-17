@@ -163,6 +163,33 @@ public class HLSSegmenterTests
     }
 
     [Fact]
+    public void SegmentDurationSurvivesThePcrWrap()
+    {
+        // The 33-bit PCR base wraps every ~26.5 hours. A cut boundary straddling the wrap
+        // used to underflow the subtraction into a duration of ~2×10^14 seconds — mis-cutting
+        // the segment and, because the target-duration ceiling only ever rises, poisoning the
+        // playlist for the rest of the stream.
+        IHLSStreamStorage storage = new MemoryHLSStorage().GetStream("test");
+        var segmenter = new HLSSegmenter(storage, targetDuration: 2.0);
+
+        const ulong wrap = 1UL << 33;
+        var muxer = new M2TSWriter { VideoCodec = VideoCodec.H264 };
+        var ts = new ArrayBufferWriter<byte>();
+        WriteKeyframeGroup(muxer, ts, pts: wrap - 45_000); // 0.5 s before the wrap
+        WriteKeyframeGroup(muxer, ts, pts: 135_000);       // 1.5 s after it: 2.0 s apart, so cut
+        WritePFrame(muxer, ts, pts: 180_000);
+
+        Feed(segmenter, ts.WrittenSpan);
+        segmenter.Complete();
+
+        string playlist = storage.Playlist!;
+        playlist.Should().Contain("#EXTINF:2.000,\nseg00000.ts",
+            "the duration must be the masked 33-bit distance, not a raw subtraction");
+        playlist.Should().Contain("#EXT-X-TARGETDURATION:2",
+            "an astronomical duration would raise the ceiling for the rest of the stream");
+    }
+
+    [Fact]
     public void BrokenPacketStreamIsRejected()
     {
         IHLSStreamStorage storage = new MemoryHLSStorage().GetStream("test");

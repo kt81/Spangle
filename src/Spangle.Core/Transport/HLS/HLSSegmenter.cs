@@ -12,6 +12,12 @@ namespace Spangle.Transport.HLS;
     Justification = "the MemoryStream is a reusable growable buffer over managed memory; Dispose would release nothing")]
 internal sealed class HLSSegmenter
 {
+    // The PCR base is a 33-bit counter and wraps every ~26.5 hours; a duration must be the
+    // masked distance, or the wrap turns one subtraction into ~2×10^14 seconds — which not
+    // only mis-cuts the segment but poisons the playlist for good, since the target-duration
+    // ceiling only ever rises. TSPassthroughSegmenter does the same with its PtsMask.
+    private const ulong PcrMask = (1UL << 33) - 1;
+
     private readonly IHLSStreamStorage _storage;
     private readonly double _targetDuration;
     private readonly HLSPlaylist _playlist;
@@ -63,7 +69,7 @@ internal sealed class HLSSegmenter
             if (pcr.HasValue)
             {
                 // The keyframe packet arrived; decide the cut with its own PCR
-                double duration = (pcr.Value - _segmentStartPcr) / 90000.0;
+                double duration = ((pcr.Value - _segmentStartPcr) & PcrMask) / 90000.0;
                 if (duration >= _targetDuration)
                 {
                     FinalizeSegment(duration);
@@ -136,7 +142,7 @@ internal sealed class HLSSegmenter
 
         if (_current.Length > 0 && _hasSegmentStart)
         {
-            FinalizeSegment((_lastPcr - _segmentStartPcr) / 90000.0);
+            FinalizeSegment(((_lastPcr - _segmentStartPcr) & PcrMask) / 90000.0);
         }
     }
 
