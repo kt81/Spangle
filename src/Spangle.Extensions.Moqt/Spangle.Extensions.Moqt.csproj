@@ -19,11 +19,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Spangle.Core\Spangle.Core.csproj" />
-    <!-- Spangle.Net.Moqt (MIT, MoQ transport) is co-developed as a sibling repo and not yet
-         published; referenced by relative path to the sibling working copy until it stabilizes,
-         at which point this becomes a PackageReference. Its own Directory.Build.props governs
-         its build, so Spangle's analyzer policy does not apply to it. -->
-    <ProjectReference Include="..\..\..\Spangle.Net.Moqt\src\Spangle.Net.Moqt\Spangle.Net.Moqt.csproj" />
+    <!-- The MoQ transport (MIT), published from its own repo. Its Spangle.Net.Transport.Quic
+         dependency — the QUIC seam Spangle also uses directly — comes in transitively. -->
+    <PackageReference Include="Spangle.Net.Moqt" Version="0.1.0" />
   </ItemGroup>
 
 </Project>
