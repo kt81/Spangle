@@ -1,19 +1,12 @@
 using System.Buffers;
-using System.Diagnostics.CodeAnalysis;
 using System.IO.Pipelines;
-using System.Net.Security;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Spangle.Codecs.AAC;
 using Spangle.Codecs.Opus;
 using Spangle.Containers.ISOBMFF;
 using Spangle.Interop;
 using Spangle.Logging;
-using Spangle.Net.Moqt;
-using Spangle.Net.Moqt.Messages;
 using Spangle.Net.Moqt.Wire;
-using Spangle.Net.Transport.Quic;
-using Spangle.Net.Transport.Quic.MsQuic;
 using Spangle.Spinner;
 using ZLogger;
 
@@ -30,6 +23,12 @@ namespace Spangle.Extensions.Moqt;
 /// that opened on a delta frame is a group no subscriber can decode.
 /// </para>
 /// <para>
+/// The relay connection lives in <see cref="MoqRelayConnection"/>, one object per dial: codec
+/// configs and the catalog built from them are session state and stay here, so a relay that was
+/// down when the stream began (or died and came back) still gets the catalog — the configs arrive
+/// once, at the front of the stream, and are captured whether or not anyone is reachable.
+/// </para>
+/// <para>
 /// Scope: one video and one audio track, LOC packaging, no ABR ladder and no timeline track. The
 /// stream's own name does not appear anywhere yet — see <see cref="MoqSenderOptions.Namespace"/>
 /// and <see cref="MoqSenderOptions.TrackNamePrefix"/>, which the host sets per stream.
@@ -44,14 +43,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
     // previous publish by the time the next frame arrives.
     private readonly ArrayBufferWriter<byte> _frame = new(64 * 1024);
 
-    private IQuicConnection? _connection;
-    private MoqSession? _session;
-    private MoqCatalogTrack? _catalogTrack;
-    private MoqFrameTrack? _video;
-    private MoqFrameTrack? _audio;
-    private Task? _demux;
-    private Task? _catalogLoop;
-    private CancellationTokenSource? _lifetime;
+    private MoqRelayConnection? _relay;
 
     private byte[]? _videoConfig;
     private byte[]? _audioConfig;
@@ -77,79 +69,19 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         {
             // the normal shutdown path
         }
+        catch (Exception e)
+        {
+            // The host only sees this task's failure if it goes looking; this line is the
+            // guaranteed trace that the egress died while the stream lived on.
+            s_logger.ZLogError(e, $"MOQT: egress stopped unexpectedly; the session continues without it.");
+            throw;
+        }
         finally
         {
             await reader.CompleteAsync().ConfigureAwait(false);
             await DisposeAsync().ConfigureAwait(false);
         }
     }
-
-    private string[] _namespaceFields = [];
-
-    private async Task ConnectAsync(MoqSenderContext context, CancellationToken ct)
-    {
-        MoqSenderOptions options = context.Options;
-        _namespaceFields = context.ResolveNamespaceFields();
-        _lifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
-
-        _connection = await MsQuicTransport.Shared.ConnectAsync(new QuicClientOptions
-        {
-            RemoteEndPoint = options.Relay,
-            ApplicationProtocols = [new SslApplicationProtocol(MoqtConstants.Alpn)],
-            TargetHost = options.TargetHost,
-            AllowUntrustedCertificates = options.AllowUntrustedRelayCertificate,
-            // Announced and silent is this publisher's normal state; without this the relay drops
-            // the connection and forgets the namespace while we wait for a first subscriber.
-            KeepAliveInterval = options.KeepAliveInterval,
-        }, ct).ConfigureAwait(false);
-
-        var setup = new SetupMessage([MoqKeyValuePair.FromBytes(MoqSetupOption.Path,
-            Encoding.UTF8.GetBytes(options.Path))]);
-        _session = await MoqSession.ConnectAsync(_connection, setup, ct).ConfigureAwait(false);
-
-        MoqPublisher publisher = MoqPublisher.Create(_session);
-        TrackNamespace @namespace = TrackNamespace.FromStrings(_namespaceFields);
-
-        // Group ids have to be unique for the life of the track, which outlives this session: a
-        // relay caches by group id and a restarted publisher that began again at 0 would be
-        // republishing group 0 with different content. It resolves that collision by dropping the
-        // subscriber — every viewer, until its cache expires. Wall-clock milliseconds is the
-        // spec's own suggestion (MSF §6.1) and the only thing available that a restart cannot
-        // repeat.
-        var firstGroupId = (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        _catalogTrack = new MoqCatalogTrack(publisher.PublishTrack(MoqCatalogTrack.NameIn(@namespace)), firstGroupId);
-        _video = new MoqFrameTrack(publisher.PublishTrack(Track(context, "video0")), options.StreamMapping,
-            firstGroupId);
-        _audio = new MoqFrameTrack(publisher.PublishTrack(Track(context, "audio0")), options.StreamMapping,
-            firstGroupId);
-
-        await publisher.AnnounceNamespaceAsync(@namespace, ct).ConfigureAwait(false);
-        s_logger.ZLogInformation(
-            $"MOQT: announced '{string.Join('/', _namespaceFields)}' to {options.Relay}; serving subscriptions.");
-
-        _demux = publisher.RunAsync(_lifetime.Token);
-        // Per connection, like everything above it: a reconnect makes a new catalog track, and the
-        // loop publishing the old one has died with the old session.
-        MoqCatalogTrack catalogTrack = _catalogTrack;
-        _catalogLoop = Task.Run(() => PublishCatalogAsync(context, catalogTrack, _lifetime.Token),
-            CancellationToken.None);
-
-        // Nothing is published until a subscriber asks, so "is anyone watching, and under what
-        // alias" is the first question when a viewer sees nothing.
-        LogFirstSubscriber("catalog", _catalogTrack.WaitForSubscriberAsync());
-        LogFirstSubscriber(options.TrackNamePrefix + "video0", _video.WaitForSubscriberAsync());
-        LogFirstSubscriber(options.TrackNamePrefix + "audio0", _audio.WaitForSubscriberAsync());
-    }
-
-    [SuppressMessage("Reliability", "CA2008:Do not create tasks without passing a TaskScheduler",
-        Justification = "A continuation that writes one log line; the scheduler is immaterial.")]
-    private static void LogFirstSubscriber(string track, Task<ulong> subscribed) =>
-        _ = subscribed.ContinueWith(
-            t => s_logger.ZLogInformation($"MOQT: '{track}' has a subscriber (alias {t.Result})."),
-            CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
-
-    private FullTrackName Track(MoqSenderContext context, string name) =>
-        FullTrackName.FromStrings(_namespaceFields, context.Options.TrackNamePrefix + name);
 
     private async Task ReadAsync(MoqSenderContext context, PipeReader reader, CancellationToken ct)
     {
@@ -182,10 +114,20 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             _frame.Advance(header.Length);
             reader.AdvanceTo(payload.End);
 
+            // A codec config is session state, not media: capture it before any connection gate,
+            // or a relay that is down right now would cost us a frame that arrives once, at the
+            // front of the stream — and the egress would stay silent long after the relay
+            // returned, with no config to package frames under and no catalog to announce.
+            if (header.IsConfig && header.Kind is MediaFrameKind.Video or MediaFrameKind.Audio)
+            {
+                CaptureConfig(context, header, _frame.WrittenMemory);
+                continue;
+            }
+
             // The demux loop ends only when the connection under it has: this is how a dead relay
-            // announces itself. Tear the connection state down so the dial-in below rebuilds it —
-            // the alternative is what it replaced: warning once per keyframe at a corpse, forever.
-            if (_session is not null && _demux is { IsCompleted: true })
+            // announces itself. Tear the connection down so the dial-in below rebuilds it — the
+            // alternative is what it replaced: warning once per keyframe at a corpse, forever.
+            if (_relay is { IsDead: true })
             {
                 await TeardownConnectionAsync(context, "the session ended under us").ConfigureAwait(false);
             }
@@ -193,7 +135,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             // Connect on the first frame, not at startup: the namespace may be derived from the
             // stream key, and the key is only known once the publish command has been handled —
             // which the first MediaFrame's arrival proves. The same gate is the reconnect path.
-            if (_session is null)
+            if (_relay is not { } relay)
             {
                 if (Environment.TickCount64 < _nextConnectAttempt)
                 {
@@ -202,7 +144,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
 
                 try
                 {
-                    await ConnectAsync(context, ct).ConfigureAwait(false);
+                    relay = await MoqRelayConnection.ConnectAsync(context, ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -210,39 +152,55 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
                 }
                 catch (Exception e)
                 {
+                    // ConnectAsync released whatever it had built; nothing here to unwind.
                     _nextConnectAttempt = Environment.TickCount64
                                           + (long)context.Options.ReconnectDelay.TotalMilliseconds;
                     s_logger.ZLogWarning(
                         $"MOQT: could not reach the relay ({e.Message}); retrying in {context.Options.ReconnectDelay.TotalSeconds:0}s.");
                     continue;
                 }
+
+                MoqCatalogTrack catalogTrack = relay.CatalogTrack;
+                relay.BeginPublishingCatalog(token => PublishCatalogAsync(context, catalogTrack, token));
+                _relay = relay;
             }
 
-            await ProcessFrameAsync(context, header, _frame.WrittenMemory, ct).ConfigureAwait(false);
+            await ProcessFrameAsync(context, relay, header, _frame.WrittenMemory, ct).ConfigureAwait(false);
         }
     }
 
-    private ValueTask ProcessFrameAsync(MoqSenderContext context, in MediaFrameHeader header,
-        ReadOnlyMemory<byte> frame, CancellationToken ct) => header.Kind switch
+    private void CaptureConfig(MoqSenderContext context, in MediaFrameHeader header, ReadOnlyMemory<byte> frame)
     {
-        MediaFrameKind.Video => ProcessVideoAsync(context, header, frame, ct),
-        MediaFrameKind.Audio => ProcessAudioAsync(context, header, frame, ct),
+        switch (header.Kind)
+        {
+            case MediaFrameKind.Video:
+                _videoCodec = header.VideoCodec;
+                _videoConfig = frame.ToArray();
+                break;
+            case MediaFrameKind.Audio:
+                _audioCodec = header.AudioCodec;
+                _audioConfig = frame.ToArray();
+                break;
+            default:
+                return;
+        }
+
+        RebuildCatalog(context);
+    }
+
+    private ValueTask ProcessFrameAsync(MoqSenderContext context, MoqRelayConnection relay,
+        in MediaFrameHeader header, ReadOnlyMemory<byte> frame, CancellationToken ct) => header.Kind switch
+    {
+        MediaFrameKind.Video => ProcessVideoAsync(context, relay, header, frame, ct),
+        MediaFrameKind.Audio => ProcessAudioAsync(context, relay, header, frame, ct),
         // Timed metadata has no LOC mapping (it would be its own event-timeline track in MSF), so
         // it stops here rather than being mistaken for media.
         _ => ValueTask.CompletedTask,
     };
 
-    private async ValueTask ProcessVideoAsync(MoqSenderContext context, MediaFrameHeader header,
-        ReadOnlyMemory<byte> frame, CancellationToken ct)
+    private async ValueTask ProcessVideoAsync(MoqSenderContext context, MoqRelayConnection relay,
+        MediaFrameHeader header, ReadOnlyMemory<byte> frame, CancellationToken ct)
     {
-        if (header.IsConfig)
-        {
-            _videoCodec = header.VideoCodec;
-            _videoConfig = frame.ToArray();
-            RebuildCatalog(context);
-            return;
-        }
-
         if (_videoConfig is null)
         {
             if (!_warnedNoVideoConfig)
@@ -254,7 +212,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             return;
         }
 
-        if (!_video!.HasSubscriber)
+        if (!relay.Video.HasSubscriber)
         {
             _videoStarted = false; // whatever we send next must start a group a subscriber can decode
             return;
@@ -275,7 +233,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         IReadOnlyList<MoqKeyValuePair> properties = VideoProperties(context, header, _videoConfig);
         try
         {
-            await _video.PublishFrameAsync(frame, properties, startsGroup: header.IsKeyFrame,
+            await relay.Video.PublishFrameAsync(frame, properties, startsGroup: header.IsKeyFrame,
                 cancellationToken: ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -289,23 +247,15 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             // the stream was carrying, nothing more; treating it as fatal is how one reset stream
             // becomes a dead broadcast. Resume at the next keyframe, where a group may begin.
             s_logger.ZLogWarning($"MOQT: the video group's stream was reset ({e.Message}); resuming at the next keyframe.");
-            await _video.AbandonGroupAsync().ConfigureAwait(false);
+            await relay.Video.AbandonGroupAsync().ConfigureAwait(false);
             _videoStarted = false;
         }
     }
 
-    private async ValueTask ProcessAudioAsync(MoqSenderContext context, MediaFrameHeader header,
-        ReadOnlyMemory<byte> frame, CancellationToken ct)
+    private async ValueTask ProcessAudioAsync(MoqSenderContext context, MoqRelayConnection relay,
+        MediaFrameHeader header, ReadOnlyMemory<byte> frame, CancellationToken ct)
     {
-        if (header.IsConfig)
-        {
-            _audioCodec = header.AudioCodec;
-            _audioConfig = frame.ToArray();
-            RebuildCatalog(context);
-            return;
-        }
-
-        if (_audioConfig is null || !_audio!.HasSubscriber)
+        if (_audioConfig is null || !relay.Audio.HasSubscriber)
         {
             return;
         }
@@ -314,7 +264,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         {
             // Every audio frame decodes on its own, so every one opens a group: a subscriber can
             // join at any of them.
-            await _audio.PublishFrameAsync(frame, AudioProperties(context, header), startsGroup: true,
+            await relay.Audio.PublishFrameAsync(frame, AudioProperties(context, header), startsGroup: true,
                 cancellationToken: ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -326,7 +276,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             // Same reasoning as the video path: a reset stream costs its group, not the track —
             // and an audio group is one frame, so it costs almost nothing.
             s_logger.ZLogWarning($"MOQT: an audio group's stream was reset ({e.Message}); continuing.");
-            await _audio.AbandonGroupAsync().ConfigureAwait(false);
+            await relay.Audio.AbandonGroupAsync().ConfigureAwait(false);
         }
     }
 
@@ -366,9 +316,9 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
     }
 
     /// <summary>
-    /// Rebuilds the catalog from the configs seen so far and starts publishing it if this is the
-    /// first one. The catalog is what makes any of this reachable, and it can only be written once
-    /// a config has said what the codec is — so the track list grows as the stream declares itself.
+    /// Rebuilds the catalog from the configs seen so far. The catalog is what makes any of this
+    /// reachable, and it can only be written once a config has said what the codec is — so the
+    /// track list grows as the stream declares itself, whether or not a relay is connected yet.
     /// </summary>
     private void RebuildCatalog(MoqSenderContext context)
     {
@@ -391,7 +341,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         _catalog = new MsfCatalog { Draft = context.Options.CatalogDraft, Tracks = tracks };
         // One line per rebuild — a config arriving is what grows the track list, so this is the
         // fastest way to see which configs did. The catalog loop itself is per-connection and
-        // started by ConnectAsync; this only refreshes what it publishes.
+        // starts when a connection comes up; this only refreshes what it publishes.
         s_logger.ZLogInformation($"MOQT: catalog now lists [{string.Join(", ", tracks.Select(t => $"{t.Name}:{t.Codec}"))}].");
     }
 
@@ -535,154 +485,32 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
     }
 
     /// <summary>
-    /// Discards a connection that is already gone so the read loop can dial a new one: cancel the
-    /// per-connection tasks, drop the per-connection objects, and remember not to redial
-    /// immediately. Nothing here says goodbye to the peer — there is no peer; the goodbye path is
-    /// <see cref="DisposeAsync"/>.
+    /// Discards a connection that is already gone so the read loop can dial a new one, and
+    /// remembers not to redial immediately. The unwinding itself lives with the connection
+    /// (<see cref="MoqRelayConnection.AbandonAsync"/>).
     /// </summary>
-    [SuppressMessage("Design", "CA1031:Do not catch general exception types",
-        Justification = "Every resource being released belongs to a connection that is already dead.")]
     private async ValueTask TeardownConnectionAsync(MoqSenderContext context, string reason)
     {
         s_logger.ZLogWarning(
             $"MOQT: the relay connection was lost ({reason}); reconnecting in {context.Options.ReconnectDelay.TotalSeconds:0}s.");
         _nextConnectAttempt = Environment.TickCount64 + (long)context.Options.ReconnectDelay.TotalMilliseconds;
 
-        if (_lifetime is not null)
+        if (_relay is { } relay)
         {
-            await _lifetime.CancelAsync().ConfigureAwait(false);
+            _relay = null;
+            await relay.AbandonAsync().ConfigureAwait(false);
         }
 
-        foreach (Task? task in new[] { _catalogLoop, _demux })
-        {
-            if (task is null)
-            {
-                continue;
-            }
-
-            try
-            {
-                await task.ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                // both stop by cancellation, and either may report the death that brought us here
-            }
-        }
-
-        if (_video is not null)
-        {
-            await _video.AbandonGroupAsync().ConfigureAwait(false);
-        }
-
-        if (_audio is not null)
-        {
-            await _audio.AbandonGroupAsync().ConfigureAwait(false);
-        }
-
-        if (_catalogTrack is not null)
-        {
-            await _catalogTrack.AbandonGroupAsync().ConfigureAwait(false);
-        }
-
-        try
-        {
-            if (_session is not null)
-            {
-                await _session.DisposeAsync().ConfigureAwait(false);
-            }
-
-            if (_connection is not null)
-            {
-                await _connection.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception)
-        {
-            // disposing the corpse of a connection is best-effort by definition
-        }
-
-        _lifetime?.Dispose();
-        _lifetime = null;
-        _session = null;
-        _connection = null;
-        _video = null;
-        _audio = null;
-        _catalogTrack = null;
-        _demux = null;
-        _catalogLoop = null;
         _videoStarted = false;
     }
 
     /// <inheritdoc />
-    [SuppressMessage("Design", "CA1031:Do not catch general exception types",
-        Justification = "Shutdown: a peer that has already gone is the ordinary case and must not mask the reason we are stopping.")]
     public async ValueTask DisposeAsync()
     {
-        if (_lifetime is null)
+        if (_relay is { } relay)
         {
-            return; // never connected
+            _relay = null;
+            await relay.DisposeAsync().ConfigureAwait(false);
         }
-
-        await _lifetime.CancelAsync().ConfigureAwait(false);
-
-        try
-        {
-            // Close the open groups before the session goes: a subscriber that never hears a group
-            // ended waits out a timeout on it.
-            if (_video is not null)
-            {
-                await _video.DisposeAsync().ConfigureAwait(false);
-            }
-
-            if (_audio is not null)
-            {
-                await _audio.DisposeAsync().ConfigureAwait(false);
-            }
-
-            if (_catalogTrack is not null)
-            {
-                await _catalogTrack.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception e)
-        {
-            s_logger.ZLogDebug($"MOQT: closing the tracks failed on shutdown: {e.Message}");
-        }
-
-        foreach (Task? task in new[] { _catalogLoop, _demux })
-        {
-            if (task is null)
-            {
-                continue;
-            }
-
-            try
-            {
-                await task.ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                // both stop by cancellation, and either may report the session dying under it
-            }
-        }
-
-        if (_session is not null)
-        {
-            await _session.DisposeAsync().ConfigureAwait(false);
-        }
-
-        if (_connection is not null)
-        {
-            await _connection.DisposeAsync().ConfigureAwait(false);
-        }
-
-        _lifetime.Dispose();
-        _lifetime = null;
-        _video = null;
-        _audio = null;
-        _catalogTrack = null;
-        _session = null;
-        _connection = null;
     }
 }
