@@ -17,6 +17,7 @@ public class RtmpConnectionHandler(
     IPublishAuthorizer publishAuthorizer,
     IHLSStorage storage,
     Spangle.Spinner.TimedMetadataHub metadataHub,
+    IEnumerable<IPublishEgressFactory> egressFactories,
     ILogger<RtmpConnectionHandler> logger) : ConnectionHandler
 {
     public override async Task OnConnectedAsync(ConnectionContext connection)
@@ -55,11 +56,14 @@ public class RtmpConnectionHandler(
         {
             spinners.Add(new Spangle.Spinner.TimedMetadataInjector(receiver, metadataHub, ct));
         }
+        // Additional egresses (e.g. MOQT) ride the same MediaFrame stream through a fan-out
+        var egresses = SessionEgresses.Start(egressFactories, ct);
         using var live = new LiveContext(receiver, hls, mediaSpinners: spinners,
             publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
             audioOnlyFallback: options.Value.Rtmp.AudioOnlyFallbackMs > 0
                 ? TimeSpan.FromMilliseconds(options.Value.Rtmp.AudioOnlyFallbackMs)
                 : null,
+            additionalSenders: egresses.Senders,
             cancellationToken: ct);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
@@ -101,6 +105,7 @@ public class RtmpConnectionHandler(
             // The completion propagates receiver -> spinner -> sender; wait for the playlist to be finalized
             await senderTask.ConfigureAwait(false);
             (sender as IDisposable)?.Dispose();
+            await egresses.DisposeAsync().ConfigureAwait(false);
             logger.ZLogInformation($"RTMP connection closed: {receiver.ToString()}");
         }
     }

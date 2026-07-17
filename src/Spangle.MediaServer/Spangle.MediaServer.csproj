@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Spangle.Extensions.Kestrel\Spangle.Extensions.Kestrel.csproj" />
+    <ProjectReference Include="..\Spangle.Extensions.Moqt\Spangle.Extensions.Moqt.csproj" />
     <ProjectReference Include="..\Spangle.Console\Spangle.Console.csproj" />
   </ItemGroup>
 

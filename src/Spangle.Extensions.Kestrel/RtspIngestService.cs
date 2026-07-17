@@ -20,6 +20,7 @@ public sealed class RtspIngestService(
     IPublishAuthorizer publishAuthorizer,
     IHLSStorage storage,
     RtspDialectRegistry dialects,
+    IEnumerable<IPublishEgressFactory> egressFactories,
     ILogger<RtspIngestService> logger) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -115,8 +116,11 @@ public sealed class RtspIngestService(
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
+        // Additional egresses (e.g. MOQT) ride the same MediaFrame stream through a fan-out
+        var egresses = SessionEgresses.Start(egressFactories, ct);
         using var live = new LiveContext(receiver, hls,
-            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer, cancellationToken: ct);
+            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
+            additionalSenders: egresses.Senders, cancellationToken: ct);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
             : new HLSSender();
@@ -142,6 +146,7 @@ public sealed class RtspIngestService(
         {
             await senderTask.ConfigureAwait(false);
             (sender as IDisposable)?.Dispose();
+            await egresses.DisposeAsync().ConfigureAwait(false);
         }
     }
 

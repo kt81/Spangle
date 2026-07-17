@@ -31,14 +31,28 @@ public sealed class LiveContext : IDisposable
     /// </summary>
     private readonly TimeSpan? _audioOnlyFallback;
 
+    /// <summary>
+    /// Senders beyond the primary one, each fed the same MediaFrame stream through a fan-out —
+    /// how a session serves HLS and an additional egress (say, MOQT) at once. The primary keeps
+    /// its special roles (handover, takeover semantics); these only receive media.
+    /// </summary>
+    private readonly IReadOnlyList<ISenderContext> _additionalSenders;
+
     public LiveContext(IReceiverContext receiverContext, ISenderContext senderContext,
         IReadOnlyList<ISpinner>? mediaSpinners = null,
         PublishSessionRegistry? publishSessions = null, IPublishAuthorizer? publishAuthorizer = null,
-        TimeSpan? audioOnlyFallback = null, CancellationToken cancellationToken = default)
+        TimeSpan? audioOnlyFallback = null, IReadOnlyList<ISenderContext>? additionalSenders = null,
+        CancellationToken cancellationToken = default)
     {
         ReceiverContext = receiverContext;
         SenderContext = senderContext;
         senderContext.SourceInfo = receiverContext;
+        _additionalSenders = additionalSenders ?? [];
+        foreach (ISenderContext additional in _additionalSenders)
+        {
+            additional.SourceInfo = receiverContext;
+        }
+
         _cancellationToken = cancellationToken;
         _mediaSpinners = mediaSpinners ?? [];
         _audioOnlyFallback = audioOnlyFallback;
@@ -164,25 +178,40 @@ public sealed class LiveContext : IDisposable
     }
 
     /// <summary>
-    /// Determines the terminal stage of the MediaFrame chain based on the
-    /// receiver/sender pairing, and returns its intake.
+    /// Determines the terminal stage of the MediaFrame chain and returns its intake. With one
+    /// sender that is the sender's own terminal; with additional senders it is a fan-out copying
+    /// the stream to every sender's terminal.
     /// </summary>
     private System.IO.Pipelines.PipeWriter DetermineTerminalIntake()
     {
-        if (SenderContext is HLSSenderContext { SegmentFormat: not HLSSegmentFormat.Fmp4 })
+        System.IO.Pipelines.PipeWriter primary = ResolveTerminalIntake(SenderContext);
+        if (_additionalSenders.Count == 0)
+        {
+            return primary;
+        }
+
+        var outputs = new List<System.IO.Pipelines.PipeWriter>(1 + _additionalSenders.Count) { primary };
+        outputs.AddRange(_additionalSenders.Select(ResolveTerminalIntake));
+        return new MediaFrameFanOut(outputs, _cancellationToken).Intake;
+    }
+
+    /// <summary>The terminal stage for one sender, based on the receiver/sender pairing.</summary>
+    private System.IO.Pipelines.PipeWriter ResolveTerminalIntake(ISenderContext sender)
+    {
+        if (sender is HLSSenderContext { SegmentFormat: not HLSSegmentFormat.Fmp4 })
         {
             // TS is the one output that does not speak MediaFrames, so it is the one that needs a
             // converting stage in front of it. Every receiver emits the same canonical MediaFrame
             // form, so the spinner is receiver-agnostic. Codec support is the spinner's own concern;
             // it rejects codecs that cannot be carried in its output container.
-            var spinner = new FlvToM2TSSpinner(ReceiverContext, SenderContext.Intake, _cancellationToken);
+            var spinner = new FlvToM2TSSpinner(ReceiverContext, sender.Intake, _cancellationToken);
             spinner.BeginSpin();
             return spinner.Intake;
         }
 
         // Everything else — the CMAF sender, the MOQT sender — reads the canonical MediaFrame
         // stream and does its own muxing, so the chain ends at its intake.
-        return SenderContext.Intake;
+        return sender.Intake;
     }
 
     private bool _disposed;
@@ -242,9 +271,13 @@ public sealed class LiveContext : IDisposable
             }
             else
             {
-                // Never wired (e.g. a denied publish): the sender is still waiting on
-                // its intake and the host awaits the sender, so complete it directly
+                // Never wired (e.g. a denied publish): every sender is still waiting on
+                // its intake and the host awaits them all, so complete each directly
                 await SenderContext.Intake.CompleteAsync().ConfigureAwait(false);
+                foreach (ISenderContext additional in _additionalSenders)
+                {
+                    await additional.Intake.CompleteAsync().ConfigureAwait(false);
+                }
             }
 
             await contextCancellationRegistration.DisposeAsync().ConfigureAwait(false);

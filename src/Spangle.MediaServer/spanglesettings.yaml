@@ -13,6 +13,17 @@ Spangle:
     Enabled: true
     Port: 9998
     # Passphrase: "correct horse battery staple"  # optional wire encryption (10-79 bytes)
+  # Moq:
+  #   # MOQT egress: every publish session is additionally announced to a relay and
+  #   # published as LOC frames with an MSF catalog, beside the HLS output. A stream's
+  #   # namespace is NamespaceRoot + / + its stream key (e.g. live/test), which is what a
+  #   # browser player is pointed at.
+  #   Enabled: true
+  #   Relay: 127.0.0.1:4433            # address:port of the MOQT relay (raw QUIC)
+  #   NamespaceRoot: live              # empty = the stream key alone is the namespace
+  #   # Path: /moq                     # the relay's endpoint path
+  #   # TargetHost: localhost          # SNI, when the relay's certificate needs one
+  #   # AllowUntrustedRelayCertificate: true   # development relays only
   # Rtsp:
   #   # Pull ingest: Spangle connects out to each source (IP cameras, other RTSP
   #   # servers) and republishes it under Name. TCP-interleaved transport.

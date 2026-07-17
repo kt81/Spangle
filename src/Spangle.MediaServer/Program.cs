@@ -1,6 +1,7 @@
 using Spangle.Extensions.Kestrel;
 using Spangle.Extensions.Kestrel.DependencyInjection;
 using Spangle.Extensions.Kestrel.Management;
+using Spangle.Extensions.Moqt.Hosting;
 
 // The media server is deliberately thin: ingest, delivery and the console live in
 // Spangle.Extensions.Kestrel, and this host only composes them. Anything that grows here should
@@ -8,6 +9,7 @@ using Spangle.Extensions.Kestrel.Management;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSpangle();
+builder.Services.AddSpangleMoqEgress(); // per-stream MOQT publishing (Spangle:Moq, off by default)
 builder.WebHost.ConfigureSpangle();
 
 var app = builder.Build();

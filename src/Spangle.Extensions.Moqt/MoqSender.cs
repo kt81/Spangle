@@ -70,7 +70,6 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
 
         try
         {
-            await ConnectAsync(context, ct).ConfigureAwait(false);
             await ReadAsync(context, reader, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -84,9 +83,12 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         }
     }
 
+    private string[] _namespaceFields = [];
+
     private async Task ConnectAsync(MoqSenderContext context, CancellationToken ct)
     {
         MoqSenderOptions options = context.Options;
+        _namespaceFields = context.ResolveNamespaceFields();
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         _connection = await MsQuicTransport.Shared.ConnectAsync(new QuicClientOptions
@@ -105,7 +107,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         _session = await MoqSession.ConnectAsync(_connection, setup, ct).ConfigureAwait(false);
 
         MoqPublisher publisher = MoqPublisher.Create(_session);
-        TrackNamespace @namespace = context.TrackNamespace;
+        TrackNamespace @namespace = TrackNamespace.FromStrings(_namespaceFields);
 
         // Group ids have to be unique for the life of the track, which outlives this session: a
         // relay caches by group id and a restarted publisher that began again at 0 would be
@@ -122,7 +124,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
 
         await publisher.AnnounceNamespaceAsync(@namespace, ct).ConfigureAwait(false);
         s_logger.ZLogInformation(
-            $"MOQT: announced '{options.Namespace}' to {options.Relay}; serving subscriptions.");
+            $"MOQT: announced '{string.Join('/', _namespaceFields)}' to {options.Relay}; serving subscriptions.");
 
         _demux = publisher.RunAsync(_lifetime.Token);
 
@@ -140,8 +142,8 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             t => s_logger.ZLogInformation($"MOQT: '{track}' has a subscriber (alias {t.Result})."),
             CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
 
-    private static FullTrackName Track(MoqSenderContext context, string name) =>
-        FullTrackName.FromStrings([context.Options.Namespace], context.Options.TrackNamePrefix + name);
+    private FullTrackName Track(MoqSenderContext context, string name) =>
+        FullTrackName.FromStrings(_namespaceFields, context.Options.TrackNamePrefix + name);
 
     private async Task ReadAsync(MoqSenderContext context, PipeReader reader, CancellationToken ct)
     {
@@ -173,6 +175,14 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             payload.CopyTo(_frame.GetSpan(header.Length));
             _frame.Advance(header.Length);
             reader.AdvanceTo(payload.End);
+
+            // Connect on the first frame, not at startup: the namespace may be derived from the
+            // stream key, and the key is only known once the publish command has been handled —
+            // which the first MediaFrame's arrival proves.
+            if (_session is null)
+            {
+                await ConnectAsync(context, ct).ConfigureAwait(false);
+            }
 
             await ProcessFrameAsync(context, header, _frame.WrittenMemory, ct).ConfigureAwait(false);
         }

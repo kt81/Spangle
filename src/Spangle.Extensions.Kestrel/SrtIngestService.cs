@@ -20,6 +20,7 @@ public sealed class SrtIngestService(
     IPublishAuthorizer publishAuthorizer,
     IHLSStorage storage,
     Spangle.Spinner.TimedMetadataHub metadataHub,
+    IEnumerable<IPublishEgressFactory> egressFactories,
     ILogger<SrtIngestService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -90,8 +91,14 @@ public sealed class SrtIngestService(
             !passthrough && options.Value.Http.MetadataInjection
                 ? [new Spangle.Spinner.TimedMetadataInjector(receiver, metadataHub, ct)]
                 : null;
+        // Additional egresses need the MediaFrame pipeline, which the raw TS passthrough bypasses
+        // entirely — the same documented trade-off that costs that path metadata injection.
+        var egresses = passthrough
+            ? SessionEgresses.Start([], ct)
+            : SessionEgresses.Start(egressFactories, ct);
         using var live = new LiveContext(receiver, hls, mediaSpinners: spinners,
             publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
+            additionalSenders: egresses.Senders,
             cancellationToken: ct);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
@@ -134,6 +141,7 @@ public sealed class SrtIngestService(
             // completion propagates receiver -> spinner -> sender; wait for the playlist to finalize
             await senderTask.ConfigureAwait(false);
             (sender as IDisposable)?.Dispose();
+            await egresses.DisposeAsync().ConfigureAwait(false);
             client.Dispose();
             logger.ZLogInformation($"SRT connection closed: {receiver.ToString()}");
         }

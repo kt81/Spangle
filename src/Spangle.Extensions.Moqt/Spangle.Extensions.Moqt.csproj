@@ -13,6 +13,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Hosting/: options binding and the DI registration for the egress factory -->
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Spangle.Core\Spangle.Core.csproj" />
     <!-- Spangle.Net.Moqt (MIT, MoQ transport) is co-developed as a sibling repo and not yet
          published; referenced by relative path to the sibling working copy until it stabilizes,

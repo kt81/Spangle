@@ -19,6 +19,7 @@ public sealed class RtspConnectionHandler(
     PublishSessionRegistry publishSessions,
     IPublishAuthorizer publishAuthorizer,
     IHLSStorage storage,
+    IEnumerable<IPublishEgressFactory> egressFactories,
     ILogger<RtspConnectionHandler> logger) : ConnectionHandler
 {
     public override async Task OnConnectedAsync(ConnectionContext connection)
@@ -48,8 +49,11 @@ public sealed class RtspConnectionHandler(
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
+        // Additional egresses (e.g. MOQT) ride the same MediaFrame stream through a fan-out
+        var egresses = SessionEgresses.Start(egressFactories, ct);
         using var live = new Spangle.LiveContext(receiver, hls,
-            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer, cancellationToken: ct);
+            publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
+            additionalSenders: egresses.Senders, cancellationToken: ct);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4
             ? new CmafHLSSender()
             : new HLSSender();
@@ -87,6 +91,7 @@ public sealed class RtspConnectionHandler(
         {
             await senderTask.ConfigureAwait(false);
             (sender as IDisposable)?.Dispose();
+            await egresses.DisposeAsync().ConfigureAwait(false);
             logger.ZLogInformation($"RTSP push connection closed: {receiver.ToString()}");
         }
     }

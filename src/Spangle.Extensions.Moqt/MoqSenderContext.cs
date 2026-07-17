@@ -1,6 +1,5 @@
 using System.IO.Pipelines;
 using System.Net;
-using Spangle.Net.Moqt;
 
 namespace Spangle.Extensions.Moqt;
 
@@ -30,8 +29,21 @@ public sealed record MoqSenderOptions
     /// <summary>The relay to dial over raw QUIC.</summary>
     public required IPEndPoint Relay { get; init; }
 
-    /// <summary>The Track Namespace to announce and publish under.</summary>
-    public required string Namespace { get; init; }
+    /// <summary>
+    /// A fixed Track Namespace every session announces and publishes under, <c>/</c>-separated
+    /// into fields (the convention browser players split on). Set this for a single-stream
+    /// deployment or an interop probe; leave it null and each session derives its own namespace
+    /// from the stream key instead — see <see cref="NamespaceRoot"/>.
+    /// </summary>
+    public string? Namespace { get; init; }
+
+    /// <summary>
+    /// Prefix fields for derived namespaces, <c>/</c>-separated. With <see cref="Namespace"/>
+    /// null, a session publishing under stream key <c>test</c> and root <c>live</c> announces
+    /// the namespace <c>live/test</c> — one namespace per stream, so concurrent streams' track
+    /// names never collide. Null means the stream key is the whole namespace.
+    /// </summary>
+    public string? NamespaceRoot { get; init; }
 
     /// <summary>
     /// The relay's endpoint path, sent as the PATH setup option. Over raw QUIC there is no URL to
@@ -109,8 +121,21 @@ public sealed class MoqSenderContext : ISenderContext<MoqSenderContext>
     public IReceiverContext? SourceInfo { get; set; }
 
     /// <summary>
-    /// The Track Namespace, as MOQT wants it. One field: relays match namespaces by prefix, and a
-    /// single opaque field is the simplest thing that cannot be split in a way we did not intend.
+    /// The session's Track Namespace fields. Callable only once media is flowing: the derived form
+    /// needs the stream key, and <see cref="ISenderContext.SourceInfo"/> knows it only after the
+    /// publish command has been handled — which any MediaFrame's arrival proves.
     /// </summary>
-    internal TrackNamespace TrackNamespace => Spangle.Net.Moqt.TrackNamespace.FromStrings(Options.Namespace);
+    internal string[] ResolveNamespaceFields()
+    {
+        if (Options.Namespace is { Length: > 0 } fixedNamespace)
+        {
+            return fixedNamespace.Split('/');
+        }
+
+        // The same sanitizer the HLS side keys its output by, so one stream is one name everywhere.
+        string streamKey = StreamKeys.Sanitize(SourceInfo?.StreamName);
+        return Options.NamespaceRoot is { Length: > 0 } root
+            ? [.. root.Split('/'), streamKey]
+            : [streamKey];
+    }
 }
