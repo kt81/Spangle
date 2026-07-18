@@ -66,6 +66,21 @@ public sealed class MoqIngestSourceOptions
 
     /// <summary>How long to wait before redialling after a disconnect.</summary>
     public TimeSpan ReconnectDelay { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The watchdog: with no media object for this long, the pull is torn down and redialled.
+    /// A pull source has nobody on the other end to notice it silently stalling — keep-alives
+    /// hold a dead-quiet session "healthy" forever, so the absence of objects is itself the
+    /// failure signal. Zero disables it.
+    /// </summary>
+    public TimeSpan ReadTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How often to PING an otherwise silent connection. A subscriber waiting on a slow or
+    /// paused publisher is silent by design, and QUIC's effective idle timeout is the smaller
+    /// of the two peers' values — the same reasoning the egress side documents.
+    /// </summary>
+    public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(10);
 }
 
 /// <summary>Registers MOQT egress into a Spangle host.</summary>

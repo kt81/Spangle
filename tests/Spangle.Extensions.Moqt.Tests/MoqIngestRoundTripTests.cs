@@ -62,7 +62,7 @@ public class MoqIngestRoundTripTests
         // The receiver, driven as LiveContext would drive it: on the codec event, wire a MediaOutlet.
         var pipe = new Pipe();
         using var receiver = new MoqReceiverContext(subSession, ns, "test",
-            new IPEndPoint(IPAddress.Loopback, 4433), LocDraft.Draft03, ct);
+            new IPEndPoint(IPAddress.Loopback, 4433), LocDraft.Draft03, TimeSpan.Zero, ct);
         receiver.VideoCodecSet += _ => receiver.MediaOutlet = pipe.Writer;
 
         using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

@@ -65,7 +65,7 @@ internal sealed class MoqToHls
         await using MoqSession session = await MoqSession.ConnectAsync(connection, setup, ct);
         _logger.ZLogInformation($"MOQT ingest: connected to {remote}; pulling '{@namespace}' -> hls-out/{streamKey}.");
 
-        using var receiver = new MoqReceiverContext(session, namespaceFields, streamKey, remote, LocDraft.Draft01, ct);
+        using var receiver = new MoqReceiverContext(session, namespaceFields, streamKey, remote, LocDraft.Draft01, TimeSpan.FromSeconds(30), ct);
         var hls = new HLSSenderContext(ct) { OutputDirectory = "hls-out" };
         using var live = new LiveContext(receiver, hls, cancellationToken: ct);
         using var sender = new HLSSender();

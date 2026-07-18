@@ -50,6 +50,9 @@ internal sealed class MoqIngestSource : IIngestSource
             ApplicationProtocols = [new SslApplicationProtocol(MoqtConstants.Alpn)],
             TargetHost = _shared.TargetHost,
             AllowUntrustedCertificates = _shared.AllowUntrustedRelayCertificate,
+            // A subscriber waiting on a paused publisher is silent by design; without the
+            // PING the idle timeout reads that silence as death and the redial loop spins.
+            KeepAliveInterval = _source.KeepAliveInterval,
         }, cancellationToken).ConfigureAwait(false);
 
         try
@@ -59,7 +62,7 @@ internal sealed class MoqIngestSource : IIngestSource
             MoqSession session = await MoqSession.ConnectAsync(connection, setup, cancellationToken)
                 .ConfigureAwait(false);
             var receiver = new MoqReceiverContext(session, _namespaceFields, _source.Name, _relay,
-                _source.Loc, cancellationToken);
+                _source.Loc, _source.ReadTimeout, cancellationToken);
             return new MoqIngestConnection(connection, session, receiver);
         }
         catch

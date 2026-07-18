@@ -30,8 +30,11 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
     private readonly MoqSession _session;
     private readonly string[] _namespaceFields;
     private readonly LocDraft _draft;
+    private readonly TimeSpan _readTimeout;
+    private readonly CancellationToken _hostToken;
     // One writer, many producers: the video and audio drain loops share the single MediaOutlet.
     private readonly SemaphoreSlim _outletGate = new(1, 1);
+    private CancellationTokenSource? _watchdog;
     private volatile bool _completed;
 
     /// <inheritdoc />
@@ -52,23 +55,32 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
     /// <paramref name="draft"/> is the LOC draft the source publishes in.
     /// </summary>
     public MoqReceiverContext(MoqSession session, string[] namespaceFields, string streamName, EndPoint endPoint,
-        LocDraft draft, CancellationToken ct)
-        // MOQT has no byte-pipe transport to expose (its "connection" is a set of QUIC streams), so
-        // the base's RemoteReader/Writer — meant for protocols that need raw connection access —
-        // are a dummy pipe nothing reads.
-        : base(DummyPipe.Reader, DummyPipe.Writer, ct)
+        LocDraft draft, TimeSpan readTimeout, CancellationToken ct)
+        : this(new Pipe(), session, namespaceFields, streamName, endPoint, draft, readTimeout, ct)
+    {
+    }
+
+    // MOQT has no byte-pipe transport to expose (its "connection" is a set of QUIC streams), so
+    // the base's RemoteReader/Writer — meant for protocols that need raw connection access — are
+    // a dummy pipe nothing reads. One pipe per instance: it carries nothing today, but a shared
+    // static one would crosstalk the moment any host code touched RemoteWriter.
+    private MoqReceiverContext(Pipe dummy, MoqSession session, string[] namespaceFields, string streamName,
+        EndPoint endPoint, LocDraft draft, TimeSpan readTimeout, CancellationToken ct)
+        : base(dummy.Reader, dummy.Writer, ct)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(namespaceFields);
         _session = session;
         _namespaceFields = namespaceFields;
         _draft = draft;
+        _readTimeout = readTimeout;
+        // The host later swaps CancellationToken for the watchdog's token; keeping the
+        // original apart is what lets a timeout be told from an ordinary shutdown.
+        _hostToken = ct;
         StreamName = streamName;
         EndPoint = endPoint;
         Id = streamName;
     }
-
-    private static Pipe DummyPipe { get; } = new();
 
     /// <inheritdoc />
     public override async ValueTask BeginReceiveAsync(CancellationTokenSource readTimeoutSource)
@@ -76,6 +88,17 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
         ArgumentNullException.ThrowIfNull(readTimeoutSource);
         CancellationToken ct = CancellationToken;
         MoqSubscriber subscriber = MoqSubscriber.Create(_session);
+
+        // The watchdog: a pull source has nobody on the other end to notice it silently
+        // stalling — keep-alives hold a dead-quiet session "healthy" forever, so the absence
+        // of progress is itself the failure signal. Armed here (a catalog that never comes is
+        // a stall too) and re-armed by every media object; when it fires, the read token
+        // cancels, this method ends, and the host's redial loop takes over.
+        if (_readTimeout > TimeSpan.Zero)
+        {
+            _watchdog = readTimeoutSource;
+            readTimeoutSource.CancelAfter(_readTimeout);
+        }
 
         try
         {
@@ -86,11 +109,31 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
                 return;
             }
 
-            MsfTrack? video = catalog.Tracks.FirstOrDefault(IsVideo);
-            MsfTrack? audio = catalog.Tracks.FirstOrDefault(IsAudio);
+            // Prefer a track whose codec we can actually decode; fall back to the first by
+            // role so an unsupported one is reported rather than silently unconsidered.
+            MsfTrack? video = catalog.Tracks.FirstOrDefault(t => IsVideo(t) && MapVideo(t.Codec) is not null)
+                              ?? catalog.Tracks.FirstOrDefault(IsVideo);
+            MsfTrack? audio = catalog.Tracks.FirstOrDefault(t => IsAudio(t) && MapAudio(t.Codec) is not null)
+                              ?? catalog.Tracks.FirstOrDefault(IsAudio);
+
+            if (video is { } uv && MapVideo(uv.Codec) is null)
+            {
+                // A video track we cannot decode must not become a silent, healthy-looking
+                // session that outputs nothing forever: say so, and ingest what remains.
+                s_logger.ZLogError(
+                    $"MOQT ingest: video codec '{uv.Codec}' is not supported; {(audio is null ? "nothing to pull" : "pulling audio only")}.");
+                video = null;
+            }
+
+            if (audio is { } ua && MapAudio(ua.Codec) is null)
+            {
+                s_logger.ZLogWarning($"MOQT ingest: audio codec '{ua.Codec}' is not supported; pulling without audio.");
+                audio = null;
+            }
+
             if (video is null && audio is null)
             {
-                s_logger.ZLogWarning($"MOQT ingest: the catalog declares no LOC audio or video track.");
+                s_logger.ZLogWarning($"MOQT ingest: the catalog declares no usable LOC track; nothing to pull.");
                 return;
             }
 
@@ -102,16 +145,16 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
                 IsAudioOnly = true;
             }
 
-            if (video is { } v && MapVideo(v.Codec) is { } videoCodec)
+            if (video is { } v)
             {
                 VideoWidth = v.Width ?? 0;
                 VideoHeight = v.Height ?? 0;
-                VideoCodec = videoCodec;
+                VideoCodec = MapVideo(v.Codec)!.Value;
             }
 
-            if (audio is { } a && MapAudio(a.Codec) is { } audioCodec)
+            if (audio is { } a)
             {
-                AudioCodec = audioCodec;
+                AudioCodec = MapAudio(a.Codec)!.Value;
             }
 
             var drains = new List<Task>(2);
@@ -128,9 +171,14 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
             s_logger.ZLogInformation($"MOQT ingest: pulling '{string.Join('/', _namespaceFields)}' ({drains.Count} track(s)).");
             await Task.WhenAll(drains).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_hostToken.IsCancellationRequested)
         {
             // orderly shutdown
+        }
+        catch (OperationCanceledException)
+        {
+            s_logger.ZLogWarning(
+                $"MOQT ingest: no media from '{string.Join('/', _namespaceFields)}' for {_readTimeout.TotalSeconds:0}s; redialling.");
         }
         finally
         {
@@ -199,6 +247,12 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
                 finally
                 {
                     _outletGate.Release();
+                }
+
+                // Progress: every media object pushes the watchdog's deadline out again.
+                if (_readTimeout > TimeSpan.Zero)
+                {
+                    _watchdog?.CancelAfter(_readTimeout);
                 }
             }
         }
