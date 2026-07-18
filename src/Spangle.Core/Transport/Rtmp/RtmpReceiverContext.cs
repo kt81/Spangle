@@ -77,12 +77,17 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     // =======================================================================
 
-    /// <summary>The raw 32-bit millisecond timestamp of the current message (wraps every 49.7 days).</summary>
-    public uint Timestamp;
+    /// <summary>
+    /// The raw 32-bit millisecond timestamp of the current message (wraps every 49.7 days). This is
+    /// the pre-unwrap source value, kept for diagnostics; anything written downstream must use the
+    /// canonical <see cref="TimestampTicks"/> instead — a raw ms value on the frame timeline resets
+    /// every 49.7 days and is 90× too small.
+    /// </summary>
+    public uint RawTimestampMs { get; private set; }
 
     /// <summary>
     /// The current message's decode timestamp on the canonical 90 kHz tick timeline, unwrapped from
-    /// <see cref="Timestamp"/> so a long-running stream does not reset when the 32-bit field wraps.
+    /// <see cref="RawTimestampMs"/> so a long-running stream does not reset when the 32-bit field wraps.
     /// </summary>
     public long TimestampTicks { get; private set; }
 
@@ -126,7 +131,7 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
     /// </summary>
     public void SetTimestamp(uint milliseconds)
     {
-        Timestamp = milliseconds;
+        RawTimestampMs = milliseconds;
         TimestampTicks = _timestampUnwrapper.Unwrap(milliseconds) * 90;
     }
 
