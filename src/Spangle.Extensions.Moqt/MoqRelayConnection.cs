@@ -7,7 +7,6 @@ using Spangle.Net.Moqt;
 using Spangle.Net.Moqt.Messages;
 using Spangle.Net.Moqt.Wire;
 using Spangle.Net.Transport.Quic;
-using Spangle.Net.Transport.Quic.MsQuic;
 using ZLogger;
 
 namespace Spangle.Extensions.Moqt;
@@ -65,7 +64,7 @@ internal sealed class MoqRelayConnection : IAsyncDisposable
         MoqSenderOptions options = context.Options;
         string[] namespaceFields = context.ResolveNamespaceFields();
 
-        IQuicConnection connection = await MsQuicTransport.Shared.ConnectAsync(new QuicClientOptions
+        IQuicConnection connection = await context.Transport.ConnectAsync(new QuicClientOptions
         {
             RemoteEndPoint = options.Relay,
             ApplicationProtocols = [new SslApplicationProtocol(MoqtConstants.Alpn)],

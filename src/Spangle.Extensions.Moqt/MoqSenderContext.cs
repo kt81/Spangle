@@ -1,5 +1,7 @@
 using System.IO.Pipelines;
 using System.Net;
+using Spangle.Net.Transport.Quic;
+using Spangle.Net.Transport.Quic.MsQuic;
 
 namespace Spangle.Extensions.Moqt;
 
@@ -117,6 +119,13 @@ public sealed class MoqSenderContext : ISenderContext<MoqSenderContext>
 
     /// <summary>Where and how to publish.</summary>
     public MoqSenderOptions Options { get; }
+
+    /// <summary>
+    /// The QUIC transport <see cref="MoqRelayConnection.ConnectAsync"/> dials the relay over. The
+    /// real one by default; tests swap in the in-memory transport, which is what makes the
+    /// connect/reconnect state machine exercisable without a network or msquic.
+    /// </summary>
+    internal IQuicTransport Transport { get; set; } = MsQuicTransport.Shared;
 
     /// <inheritdoc />
     public PipeWriter Intake { get; }
