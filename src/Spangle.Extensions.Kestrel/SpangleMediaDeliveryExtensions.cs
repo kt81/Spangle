@@ -33,23 +33,36 @@ public static class SpangleMediaDeliveryExtensions
         var viewerStats = app.Services.GetRequiredService<ViewerStatsRegistry>();
         var hlsPathPrefix = options.Hls.RequestPath + "/";
 
+        // A browser player served from another origin cannot read the playlists or segments without
+        // CORS; open it to the configured origins (or any, for "*"). No origins keeps it same-origin.
+        IList<string> allowedOrigins = options.Http.AllowedOrigins;
+        if (allowedOrigins.Count > 0)
+        {
+            app.UseCors(policy =>
+            {
+                if (allowedOrigins is ["*"])
+                {
+                    policy.AllowAnyOrigin();
+                }
+                else
+                {
+                    policy.WithOrigins([.. allowedOrigins]);
+                }
+                policy.AllowAnyHeader().AllowAnyMethod();
+            });
+        }
+
         // Serve live playlists from memory, implementing LL-HLS blocking reload
         // (?_HLS_msn=&_HLS_part=). Falls through to the storage/static serving below.
         app.Use(async (ctx, next) =>
         {
-            PathString path = ctx.Request.Path;
-            if (path.Value is { } p
-                && p.StartsWith(hlsPathPrefix, StringComparison.OrdinalIgnoreCase)
-                && p.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase))
+            if (TrySplitStreamPath(ctx.Request.Path, hlsPathPrefix, out string streamKey, out string name)
+                && name.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase))
             {
                 // registry entries are keyed {stream}/{playlist}: demuxed CMAF sessions
                 // publish several live playlists per stream (video.m3u8 / audio.m3u8)
-                string rest = p[hlsPathPrefix.Length..];
-                int slashAt = rest.IndexOf('/', StringComparison.Ordinal);
-                string registryKey = rest;
-                if (slashAt > 0 && rest.IndexOf('/', slashAt + 1) < 0 && registry.TryGet(registryKey, out var live))
+                if (registry.TryGet($"{streamKey}/{name}", out var live))
                 {
-                    string streamKey = rest[..slashAt];
                     viewerStats.OnPlaylistRequest(streamKey);
 
                     // _HLS_skip=YES|v2 requests a playlist delta update (EXT-X-SKIP)
@@ -187,64 +200,80 @@ public static class SpangleMediaDeliveryExtensions
     {
         app.Use(async (ctx, next) =>
         {
-            PathString path = ctx.Request.Path;
-            if (path.Value is { } p && p.StartsWith(hlsPathPrefix, StringComparison.OrdinalIgnoreCase))
+            if (TrySplitStreamPath(ctx.Request.Path, hlsPathPrefix, out string streamKey, out string name)
+                && storage.TryGetStream(streamKey, out var stream))
             {
-                string rest = p[hlsPathPrefix.Length..];
-                int slash = rest.IndexOf('/', StringComparison.Ordinal);
-                if (slash > 0 && rest.IndexOf('/', slash + 1) < 0)
+                if (name.Equals("playlist.m3u8", StringComparison.OrdinalIgnoreCase)
+                    && stream.Playlist is { Length: > 0 } playlist)
                 {
-                    string streamKey = rest[..slash];
-                    string name = rest[(slash + 1)..];
-                    if (storage.TryGetStream(streamKey, out var stream))
+                    ctx.Response.ContentType = "application/vnd.apple.mpegurl";
+                    ctx.Response.Headers.CacheControl = "no-cache, no-store";
+                    await ctx.Response.WriteAsync(playlist).ConfigureAwait(false);
+                    return;
+                }
+
+                string extension = Path.GetExtension(name).ToLowerInvariant();
+                string contentType = extension switch
+                {
+                    ".ts" => "video/mp2t",
+                    ".m4s" => "video/iso.segment",
+                    ".mp4" => "video/mp4",
+                    ".mpd" => "application/dash+xml",
+                    ".m3u8" => "application/vnd.apple.mpegurl",
+                    _ => "application/octet-stream",
+                };
+
+                // LL-DASH: a segment still being written streams out chunk by
+                // chunk (chunked transfer) until the writer completes it
+                if (stream is ILiveBlobStreamStorage live && live.TryOpenLiveBlob(name, out var reader))
+                {
+                    ctx.Response.ContentType = contentType;
+                    while (await reader.ReadNextAsync(ctx.RequestAborted).ConfigureAwait(false) is { } chunk)
                     {
-                        if (name.Equals("playlist.m3u8", StringComparison.OrdinalIgnoreCase)
-                            && stream.Playlist is { Length: > 0 } playlist)
-                        {
-                            ctx.Response.ContentType = "application/vnd.apple.mpegurl";
-                            ctx.Response.Headers.CacheControl = "no-cache, no-store";
-                            await ctx.Response.WriteAsync(playlist).ConfigureAwait(false);
-                            return;
-                        }
-
-                        string extension = Path.GetExtension(name).ToLowerInvariant();
-                        string contentType = extension switch
-                        {
-                            ".ts" => "video/mp2t",
-                            ".m4s" => "video/iso.segment",
-                            ".mp4" => "video/mp4",
-                            ".mpd" => "application/dash+xml",
-                            ".m3u8" => "application/vnd.apple.mpegurl",
-                            _ => "application/octet-stream",
-                        };
-
-                        // LL-DASH: a segment still being written streams out chunk by
-                        // chunk (chunked transfer) until the writer completes it
-                        if (stream is ILiveBlobStreamStorage live && live.TryOpenLiveBlob(name, out var reader))
-                        {
-                            ctx.Response.ContentType = contentType;
-                            while (await reader.ReadNextAsync(ctx.RequestAborted).ConfigureAwait(false) is { } chunk)
-                            {
-                                await ctx.Response.Body.WriteAsync(chunk, ctx.RequestAborted).ConfigureAwait(false);
-                                await ctx.Response.Body.FlushAsync(ctx.RequestAborted).ConfigureAwait(false);
-                            }
-                            return;
-                        }
-
-                        if (stream.TryReadBlob(name, out ReadOnlyMemory<byte> blob))
-                        {
-                            ctx.Response.ContentType = contentType;
-                            if (extension is ".mpd" or ".m3u8")
-                            {
-                                ctx.Response.Headers.CacheControl = "no-cache, no-store";
-                            }
-                            await ctx.Response.Body.WriteAsync(blob, ctx.RequestAborted).ConfigureAwait(false);
-                            return;
-                        }
+                        await ctx.Response.Body.WriteAsync(chunk, ctx.RequestAborted).ConfigureAwait(false);
+                        await ctx.Response.Body.FlushAsync(ctx.RequestAborted).ConfigureAwait(false);
                     }
+                    return;
+                }
+
+                if (stream.TryReadBlob(name, out ReadOnlyMemory<byte> blob))
+                {
+                    ctx.Response.ContentType = contentType;
+                    if (extension is ".mpd" or ".m3u8")
+                    {
+                        ctx.Response.Headers.CacheControl = "no-cache, no-store";
+                    }
+                    await ctx.Response.Body.WriteAsync(blob, ctx.RequestAborted).ConfigureAwait(false);
+                    return;
                 }
             }
             await next().ConfigureAwait(false);
         });
+    }
+
+    /// <summary>
+    /// Splits a request path of the form <c>{prefix}{streamKey}/{name}</c> — the exactly-two-segment
+    /// shape every delivery request under the HLS prefix takes (registry keys and storage names are
+    /// both <c>{stream}/{file}</c>). Returns false for anything else.
+    /// </summary>
+    private static bool TrySplitStreamPath(PathString path, string prefix, out string streamKey, out string name)
+    {
+        streamKey = "";
+        name = "";
+        if (path.Value is not { } p || !p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string rest = p[prefix.Length..];
+        int slash = rest.IndexOf('/', StringComparison.Ordinal);
+        if (slash <= 0 || rest.IndexOf('/', slash + 1) >= 0)
+        {
+            return false; // not exactly {streamKey}/{name}
+        }
+
+        streamKey = rest[..slash];
+        name = rest[(slash + 1)..];
+        return true;
     }
 }

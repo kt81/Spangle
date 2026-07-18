@@ -214,6 +214,14 @@ public class HttpOptions
     /// </summary>
     public string? MetadataInjectionToken { get; set; }
 
+    /// <summary>
+    /// Origins allowed to fetch the delivery endpoints cross-origin (CORS). A browser player
+    /// served from a different origin than this port cannot read the playlists or segments without
+    /// them. Empty keeps CORS off (same-origin only); list explicit origins to open it, or a single
+    /// <c>"*"</c> to allow any.
+    /// </summary>
+    public IList<string> AllowedOrigins { get; } = [];
+
     /// <summary>HTTPS for the delivery port (HLS/DASH and the test player)</summary>
     public TlsOptions Tls { get; set; } = new();
 }

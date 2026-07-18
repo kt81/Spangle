@@ -49,6 +49,10 @@ public static class SpangleServiceCollectionExtensions
                 },
                 "Every Rtsp.Sources entry needs a unique Name and a Url")
             .ValidateOnStart();
+        // CORS for the delivery endpoints; the policy itself is applied from Http.AllowedOrigins in
+        // UseSpangleMediaDelivery. Registering the services unconditionally is cheap and keeps the
+        // middleware's UseCors call valid even when no origins are configured (it then does nothing).
+        services.AddCors();
         services.AddSingleton<RtmpConnectionHandler>();
         services.AddSingleton<RtspConnectionHandler>();
         services.AddSingleton<HLSStreamRegistry>();
