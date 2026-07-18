@@ -34,7 +34,7 @@ internal abstract class ReadChunkHeader
             }
 
             // Expose the completed message via the context for the handlers
-            context.Timestamp = completed.Timestamp;
+            context.SetTimestamp(completed.Timestamp);
             context.MessageHeader.SetFmt0(completed.Timestamp, completed.MessageLength,
                 completed.TypeId, completed.MessageStreamId);
             context.BasicHeader.ChunkStreamId = completed.ChunkStreamId;

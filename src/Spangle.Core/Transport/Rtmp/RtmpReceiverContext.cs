@@ -75,7 +75,17 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
 
     // =======================================================================
 
-    public   uint           Timestamp;
+    /// <summary>The raw 32-bit millisecond timestamp of the current message (wraps every 49.7 days).</summary>
+    public uint Timestamp;
+
+    /// <summary>
+    /// The current message's decode timestamp on the canonical 90 kHz tick timeline, unwrapped from
+    /// <see cref="Timestamp"/> so a long-running stream does not reset when the 32-bit field wraps.
+    /// </summary>
+    public long TimestampTicks { get; private set; }
+
+    private RtmpTimestampUnwrapper _timestampUnwrapper;
+
     public   ReceivingState ConnectionState = ReceivingState.HandShaking;
     internal HandshakeState HandshakeState  = HandshakeState.Uninitialized;
 
@@ -106,6 +116,47 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
         state = new ChunkStreamState(chunkStreamId);
         _chunkStreams.Add(chunkStreamId, state);
         return state;
+    }
+
+    /// <summary>
+    /// Adopts a newly completed message's 32-bit millisecond timestamp as the current one, updating
+    /// both the raw value and its unwrapped 90 kHz tick projection.
+    /// </summary>
+    public void SetTimestamp(uint milliseconds)
+    {
+        Timestamp = milliseconds;
+        TimestampTicks = _timestampUnwrapper.Unwrap(milliseconds) * 90;
+    }
+
+    /// <summary>
+    /// Unwraps RTMP's 32-bit millisecond timestamps into a monotonic 64-bit timeline. RTMP interleaves
+    /// audio, video and data on one timeline, so the sequence dips frame to frame; only a jump larger
+    /// than half the 32-bit range counts as a wrap, and the reverse correction untangles the two tracks
+    /// that straddle the wrap boundary (the same extension <see cref="Rtsp.Rtp.RtpTimeline"/> applies).
+    /// </summary>
+    private struct RtmpTimestampUnwrapper
+    {
+        private long _epochs;
+        private uint _lastRaw;
+        private bool _hasLast;
+
+        public long Unwrap(uint raw)
+        {
+            if (_hasLast)
+            {
+                if (raw < _lastRaw && _lastRaw - raw > uint.MaxValue / 2)
+                {
+                    _epochs++;
+                }
+                else if (raw > _lastRaw && raw - _lastRaw > uint.MaxValue / 2 && _epochs > 0)
+                {
+                    _epochs--; // an out-of-order timestamp from just before a wrap
+                }
+            }
+            _lastRaw = raw;
+            _hasLast = true;
+            return (_epochs << 32) | raw;
+        }
     }
 
     /// <summary>

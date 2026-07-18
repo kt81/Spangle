@@ -57,10 +57,10 @@ internal abstract class DataAmf0
             return;
         }
 
-        // RTMP speaks milliseconds; the canonical frame clock is 90 kHz.
+        // RTMP speaks milliseconds; the canonical frame clock is 90 kHz (unwrapped to 64 bits).
         MediaFrameHeader.Write(context.MediaOutlet,
             MediaFrameKind.Data, MediaFrameFlags.None, (uint)DataCodec.Amf0, 0,
-            (int)payload.Length, (long)context.Timestamp * 90);
+            (int)payload.Length, context.TimestampTicks);
         var buff = context.MediaOutlet.GetSpan((int)payload.Length);
         payload.CopyTo(buff);
         context.MediaOutlet.Advance((int)payload.Length);

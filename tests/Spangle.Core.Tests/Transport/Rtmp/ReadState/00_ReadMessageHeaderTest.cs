@@ -213,4 +213,65 @@ public class ReadChunkHeaderTest
         completed.Timestamp.Should().Be(42u);
         completed.Assembly.WrittenSpan.ToArray().Should().Equal(0xA0, 0xA1, 0xA2);
     }
+
+    // =======================================================================
+    // The 64-bit timeline: RTMP's 32-bit millisecond field is unwrapped to 90 kHz ticks so a
+    // long-running stream neither loses precision nor resets when the field wraps (~49.7 days).
+
+    [Fact]
+    public void TimestampTicksScaleMillisecondsTo90kHz()
+    {
+        var context = new TestContext().Context;
+
+        context.SetTimestamp(0);
+        context.TimestampTicks.Should().Be(0);
+
+        context.SetTimestamp(1000);
+        context.TimestampTicks.Should().Be(90_000, "1000 ms is 90,000 ticks at 90 kHz");
+    }
+
+    [Fact]
+    public void TimestampTicksUnwrapAcrossThe32BitWrap()
+    {
+        var context = new TestContext().Context;
+
+        // Just before the 32-bit millisecond field wraps (~49.7 days in).
+        context.SetTimestamp(0xFFFF_FF00);
+        long beforeWrap = context.TimestampTicks;
+        beforeWrap.Should().Be(0xFFFF_FF00L * 90);
+
+        // It wraps to a small value; the timeline must keep climbing, not reset to ~0.
+        context.SetTimestamp(0x0000_0100);
+        long afterWrap = context.TimestampTicks;
+        afterWrap.Should().Be(((1L << 32) | 0x0000_0100) * 90);
+        afterWrap.Should().BeGreaterThan(beforeWrap, "a wrap must not turn the clock backwards");
+        (afterWrap - beforeWrap).Should().Be(0x0200L * 90, "the true elapsed time is 0x200 ms");
+    }
+
+    [Fact]
+    public void AnInterleavedTimestampFromJustBeforeTheWrapStaysInTheOldEpoch()
+    {
+        var context = new TestContext().Context;
+
+        // Video crosses the wrap first...
+        context.SetTimestamp(0xFFFF_FF00);
+        context.SetTimestamp(0x0000_0100); // wrapped: a new epoch
+
+        // ...then a late audio message still carries a pre-wrap value. It belongs to the old epoch,
+        // not to a point 49.7 days in the future.
+        context.SetTimestamp(0xFFFF_FF80);
+        context.TimestampTicks.Should().Be(0xFFFF_FF80L * 90, "the out-of-order value stays in the old epoch");
+    }
+
+    [Fact]
+    public void NormalInterleaveDoesNotLookLikeAWrap()
+    {
+        var context = new TestContext().Context;
+
+        // Audio at 1000 ms, then a video frame a little behind it (990 ms) — ordinary interleave,
+        // a tiny dip nowhere near half the 32-bit range.
+        context.SetTimestamp(1000);
+        context.SetTimestamp(990);
+        context.TimestampTicks.Should().Be(990L * 90, "a small backward step is interleave, not a wrap");
+    }
 }
