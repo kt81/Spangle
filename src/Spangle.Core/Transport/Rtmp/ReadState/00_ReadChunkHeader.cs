@@ -56,6 +56,9 @@ internal abstract class ReadChunkHeader
         context.AddBytesReceived(result.Buffer.Length - buffer.Length);
         reader.AdvanceTo(buffer.Start, buffer.End);
 
+        // Acknowledge the peer once a window's worth of bytes has arrived (RTMP 5.4.3).
+        await context.MaybeAcknowledgeAsync().ConfigureAwait(false);
+
         if (result.IsCompleted && !context.IsCompleted)
         {
             // The peer closed the connection without deleteStream
@@ -224,10 +227,12 @@ internal abstract class ReadChunkHeader
             case MessageType.SetChunkSize:
                 SetChunkSize.Handle(context, payload);
                 break;
+            case MessageType.WindowAcknowledgementSize:
+                WindowAcknowledgementSize.Handle(context, payload);
+                break;
             case MessageType.Abort:
             case MessageType.Acknowledgement:
             case MessageType.UserControl:
-            case MessageType.WindowAcknowledgementSize:
             case MessageType.SetPeerBandwidth:
                 s_logger.ZLogTrace($"Ignoring control message: {state.TypeId}");
                 break;

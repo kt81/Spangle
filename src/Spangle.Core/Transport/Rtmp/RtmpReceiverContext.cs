@@ -2,10 +2,12 @@ using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
+using Spangle.Interop;
 using Spangle.Logging;
 using Spangle.Transport.Rtmp.Chunk;
 using Spangle.Transport.Rtmp.Handshake;
 using Spangle.Transport.Rtmp.NetStream;
+using Spangle.Transport.Rtmp.ProtocolControlMessage;
 using Spangle.Transport.Rtmp.ReadState;
 using Spangle.Util;
 using ZLogger;
@@ -157,6 +159,39 @@ public sealed class RtmpReceiverContext : ReceiverContextBase<RtmpReceiverContex
             _hasLast = true;
             return (_epochs << 32) | raw;
         }
+    }
+
+    // =======================================================================
+    // Acknowledgement (RTMP 5.4.3 / 5.4.4)
+
+    private uint _peerAckWindowSize; // 0 until the peer sends a Window Acknowledgement Size
+    private long _bytesAtLastAck;
+
+    /// <summary>Records the peer's Window Acknowledgement Size: we acknowledge every this-many received bytes.</summary>
+    public void SetPeerAckWindowSize(uint windowSize) => _peerAckWindowSize = windowSize;
+
+    /// <summary>
+    /// Sends an Acknowledgement (RTMP 5.4.3) once the peer has advertised a window and a window's
+    /// worth of bytes has arrived since the last one. The sequence number is the running received
+    /// byte count (32-bit, wrapping as the spec intends). A no-op until the peer asks for acks.
+    /// </summary>
+    public async ValueTask MaybeAcknowledgeAsync()
+    {
+        if (_peerAckWindowSize == 0)
+        {
+            return;
+        }
+        long received = BytesReceived;
+        if (received - _bytesAtLastAck < _peerAckWindowSize)
+        {
+            return;
+        }
+        _bytesAtLastAck = received;
+
+        var sequenceNumber = BigEndianUInt32.FromHost((uint)received);
+        RtmpWriter.Write(this, 0, MessageType.Acknowledgement,
+            Protocol.ControlChunkStreamId, Protocol.ControlStreamId, ref sequenceNumber);
+        await RemoteWriter.FlushAsync(CancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
