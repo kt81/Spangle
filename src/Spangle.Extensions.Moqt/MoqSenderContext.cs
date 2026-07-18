@@ -120,6 +120,20 @@ public sealed class MoqSenderContext : ISenderContext<MoqSenderContext>
     public MoqSenderContext(MoqSenderOptions options, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
+        if (options.CatalogDraft == MsfDraft.Draft01)
+        {
+            // MSF-01 moved track init data to a root initDataList (see MsfCatalog), which is not
+            // implemented — an MSF-01 catalog therefore carries no decoder configuration. Video
+            // survives on the per-keyframe LOC Video Config property, but LOC has no audio config
+            // property, so an audio track under this draft has no way to convey its config and is
+            // silently undecodable. Reject the draft rather than publish a catalog that cannot
+            // describe audio; whether the stream has audio is not known here, and MSF-01 is
+            // incomplete regardless.
+            throw new ArgumentException(
+                "CatalogDraft Draft01 (MSF-01) cannot carry track init data — its initDataList is not "
+                + "implemented — which leaves an audio track with no decoder configuration. Use Draft00.",
+                nameof(options));
+        }
         Options = options;
         CancellationToken = cancellationToken;
         var pipe = new Pipe(new PipeOptions(useSynchronizationContext: false));
