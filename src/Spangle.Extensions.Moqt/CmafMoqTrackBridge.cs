@@ -36,11 +36,23 @@ public sealed class CmafMoqTrackBridge
     private ulong _nextGroup;
     private bool _initPublished;
 
-    /// <summary>Creates a bridge that publishes onto <paramref name="track"/>.</summary>
-    public CmafMoqTrackBridge(MoqPublishedTrack track)
+    /// <summary>
+    /// Creates a bridge that publishes onto <paramref name="track"/>, numbering groups from
+    /// <paramref name="firstGroupId"/>.
+    /// <para>
+    /// <paramref name="firstGroupId"/> matters across restarts, not within a session: a relay caches
+    /// objects by group and object id, and a group id reused with different content is a cache
+    /// collision it resolves by dropping the subscriber (MSF §6.1 — group ids must be unique and
+    /// increasing for the life of the <em>track</em>, which outlives this process). A publisher that
+    /// may restart under the same track name should pass the current wall-clock time in milliseconds,
+    /// the same knob <see cref="MoqFrameTrack"/> and <see cref="MoqSender"/> use.
+    /// </para>
+    /// </summary>
+    public CmafMoqTrackBridge(MoqPublishedTrack track, ulong firstGroupId = 0)
     {
         ArgumentNullException.ThrowIfNull(track);
         _track = track;
+        _nextGroup = firstGroupId;
     }
 
     /// <summary>Completes with the assigned Track Alias once a subscriber has subscribed.</summary>
