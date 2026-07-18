@@ -68,6 +68,24 @@ public class LocMediaDecoderTests
     }
 
     [Fact]
+    public void ARegressedGroup_IsDroppedNotMistakenForAKeyframe()
+    {
+        var decoder = new LocMediaDecoder(MediaFrameKind.Video, (uint)VideoCodec.H264, LocDraft.Draft03);
+        byte[] avcC = [0x01, 0x64, 0x00, 0x1F];
+
+        IReadOnlyList<Frame> frames = Decode(decoder,
+            Obj(group: 5, id: 0, Pattern(0x11, 16), [.. Loc03Properties.MediaTime(0), Loc03Properties.VideoConfig(avcC)]),
+            Obj(group: 6, id: 0, Pattern(0x22, 16), [.. Loc03Properties.MediaTime(3_000), Loc03Properties.VideoConfig(avcC)]),
+            // a late object from group 5 arrives after group 6 has already started
+            Obj(group: 5, id: 1, Pattern(0x33, 16), Loc03Properties.MediaTime(1_000)));
+
+        // Config, keyframe (g5), keyframe (g6): the stale group-5 delta is dropped, not emitted as a
+        // fourth false-keyframe frame the way a plain != comparison would have marked it.
+        frames.Select(f => f.Flags).Should().Equal(
+            [MediaFrameFlags.Config, MediaFrameFlags.KeyFrame, MediaFrameFlags.KeyFrame]);
+    }
+
+    [Fact]
     public void Audio_TakesItsConfigFromTheCatalog_AndEveryFrameIsNormal()
     {
         // LOC has no audio config property, so the decoder is handed the AudioSpecificConfig the

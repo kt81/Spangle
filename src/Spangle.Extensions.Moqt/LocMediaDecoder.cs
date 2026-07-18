@@ -56,8 +56,19 @@ public sealed class LocMediaDecoder
         ArgumentNullException.ThrowIfNull(moqObject);
         ArgumentNullException.ThrowIfNull(outlet);
 
-        bool startsGroup = !_hasLastGroup || moqObject.GroupId != _lastGroupId;
-        _lastGroupId = moqObject.GroupId;
+        ulong groupId = moqObject.GroupId;
+        if (_hasLastGroup && groupId < _lastGroupId)
+        {
+            // A late object from a group we have already advanced past. It cannot be placed on the
+            // live timeline in order, and admitting it — as a delta, or worse, as a false keyframe
+            // because its group id differs from the current one — would corrupt the stream. Drop it.
+            return;
+        }
+
+        // A higher group id is a new group, hence (LOC §4.2) an IDR boundary; the same id continues
+        // the current group.
+        bool startsGroup = !_hasLastGroup || groupId > _lastGroupId;
+        _lastGroupId = groupId;
         _hasLastGroup = true;
 
         (long timestamp, ReadOnlyMemory<byte> videoConfig) = ReadProperties(moqObject.Properties);
