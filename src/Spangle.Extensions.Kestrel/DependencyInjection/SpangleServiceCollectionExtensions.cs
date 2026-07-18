@@ -16,6 +16,11 @@ public static class SpangleServiceCollectionExtensions
             .BindConfiguration(SpangleMediaServerOptions.SectionPath)
             .ValidateDataAnnotations()
             .Validate(static options =>
+                    !options.Management.Enabled
+                    || IPAddress.TryParse(options.Management.BindAddress, out _),
+                // otherwise the listener's IPAddress.Parse throws an unhandled exception at startup
+                "Management.BindAddress must be a valid IP address (e.g. 127.0.0.1 or 0.0.0.0)")
+            .Validate(static options =>
                 {
                     ManagementOptions management = options.Management;
                     if (!management.Enabled || !string.IsNullOrEmpty(management.Token))
