@@ -19,25 +19,29 @@ public static class SpangleConsoleExtensions
         ArgumentNullException.ThrowIfNull(app);
 
         var options = app.Services.GetRequiredService<IOptions<SpangleMediaServerOptions>>().Value;
-        if (!options.Management.Enabled)
-        {
-            return app;
-        }
-
         int managementPort = options.Management.Port;
+
+        // The port gate goes in whether or not the console is served. The console's files ride the
+        // host's static web assets, which UseStaticFiles serves — so even with management disabled
+        // (no management port at all), a /console request on the delivery port would otherwise be
+        // answered from those assets. 404 it on every non-management port.
         app.Use(async (ctx, next) =>
         {
             if (ctx.Connection.LocalPort != managementPort
                 && ctx.Request.Path.StartsWithSegments("/console", StringComparison.OrdinalIgnoreCase))
             {
-                // the SPA and its framework files must not leak onto the delivery port
                 ctx.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
             }
             await next().ConfigureAwait(false);
         });
-        app.UseBlazorFrameworkFiles("/console");
-        app.MapFallbackToFile("/console/{*path:nonfile}", "console/index.html");
+
+        // Serving the console (Blazor framework files + SPA fallback) is only for when it is enabled.
+        if (options.Management.Enabled)
+        {
+            app.UseBlazorFrameworkFiles("/console");
+            app.MapFallbackToFile("/console/{*path:nonfile}", "console/index.html");
+        }
 
         return app;
     }
