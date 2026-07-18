@@ -87,6 +87,17 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
     {
         ArgumentNullException.ThrowIfNull(readTimeoutSource);
         CancellationToken ct = CancellationToken;
+
+        // Publish authorization and same-name takeover before any media is consumed — the pull
+        // side must hold the same gate a push publisher would, or an RTMP session and a pulled
+        // stream sharing a key would write the same HLS output at once.
+        if (PublishGate is { } gate && !await gate.TryOpenAsync(StreamName ?? Id, ct).ConfigureAwait(false))
+        {
+            s_logger.ZLogWarning($"MOQT ingest: publish rejected for '{StreamName ?? Id}'.");
+            _completed = true;
+            return;
+        }
+
         MoqSubscriber subscriber = MoqSubscriber.Create(_session);
 
         // The watchdog: a pull source has nobody on the other end to notice it silently
