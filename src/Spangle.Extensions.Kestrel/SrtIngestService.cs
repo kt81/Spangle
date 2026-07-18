@@ -38,6 +38,11 @@ public sealed class SrtIngestService(
         listener.Start();
         logger.ZLogInformation($"SRT ingest listening on port {srtOptions.Port} (encryption: {(srtOptions.Passphrase is null ? "off" : "passphrase")})");
 
+        // Retain the in-flight handlers so shutdown can drain them: a session cancelled at stop still
+        // has an HLS tail to finalize (its finally awaits the sender), and fire-and-forget would let
+        // the host tear down before that runs. HandleClientAsync swallows its own exceptions, so the
+        // tasks always complete normally.
+        var handlers = new List<Task>();
         while (!stoppingToken.IsCancellationRequested)
         {
             SRTClient client;
@@ -57,10 +62,14 @@ public sealed class SrtIngestService(
 
             // Ownership of the accepted client transfers to the handler task, which
             // disposes it in its finally; the accept loop must not wait for it.
+            handlers.RemoveAll(static t => t.IsCompleted); // keep the list bounded to active sessions
 #pragma warning disable CA2025
-            _ = Task.Run(() => HandleClientAsync(client, stoppingToken), CancellationToken.None);
+            handlers.Add(Task.Run(() => HandleClientAsync(client, stoppingToken), CancellationToken.None));
 #pragma warning restore CA2025
         }
+
+        // Let the sessions still running at shutdown finalize their playlists before the host stops.
+        await Task.WhenAll(handlers).ConfigureAwait(false);
     }
 
     private async Task HandleClientAsync(SRTClient client, CancellationToken ct)
