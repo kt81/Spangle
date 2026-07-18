@@ -239,6 +239,9 @@ public static class SpangleMediaDeliveryExtensions
                 if (stream.TryReadBlob(name, out ReadOnlyMemory<byte> blob))
                 {
                     ctx.Response.ContentType = contentType;
+                    // A completed blob has a known size: send Content-Length rather than falling back
+                    // to chunked transfer, which players, proxies and caches all prefer.
+                    ctx.Response.ContentLength = blob.Length;
                     if (extension is ".mpd" or ".m3u8")
                     {
                         ctx.Response.Headers.CacheControl = "no-cache, no-store";
