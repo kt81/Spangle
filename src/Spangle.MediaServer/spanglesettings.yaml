@@ -71,7 +71,6 @@ Spangle:
   #     - my-stream-key        # SRT streamid); empty = allow all. A custom
   #     - another-key          # IPublishAuthorizer in DI overrides this entirely.
   Hls:
-    Enabled: true
     # Storage: Memory  # "Memory" (default): the live window is served from process
     #                  # memory, nothing touches disk. "File": segments persist under
     #                  # OutputDirectory and double as an archive.

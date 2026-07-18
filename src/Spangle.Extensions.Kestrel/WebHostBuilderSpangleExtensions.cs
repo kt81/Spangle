@@ -16,9 +16,12 @@ public static class WebHostBuilderSpangleExtensions
         return hostBuilder.ConfigureAppConfiguration((context, confBuilder) =>
         {
             var env = context.HostingEnvironment;
+            // reloadOnChange is off deliberately: every option is read once at startup — Kestrel's
+            // listeners and each session's option snapshot are captured then — so a live edit would
+            // not take effect anyway, and watching the files just costs a handle and a callback.
             confBuilder
-                .AddYamlFile("spanglesettings.yaml", optional: false, reloadOnChange: true)
-                .AddYamlFile($"spanglesettings.{env.EnvironmentName}.yaml", optional: true, reloadOnChange: true)
+                .AddYamlFile("spanglesettings.yaml", optional: false, reloadOnChange: false)
+                .AddYamlFile($"spanglesettings.{env.EnvironmentName}.yaml", optional: true, reloadOnChange: false)
                 .AddEnvironmentVariables("SMS_");
         });
     }

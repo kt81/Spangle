@@ -227,7 +227,9 @@ public class HttpOptions
     public TlsOptions Tls { get; set; } = new();
 }
 
-public class HlsOptions : MediaProtocolOptions
+// Not a MediaProtocolOptions: HLS is the always-on primary output, so it has no Enabled toggle —
+// the base's flag was dead config here (only RTMP/SRT/RTSP honor Enabled).
+public class HlsOptions
 {
     /// <summary>Segment container: "TS" (MPEG-2 TS) or "fMP4" (CMAF)</summary>
     public string SegmentFormat { get; set; } = "TS";
