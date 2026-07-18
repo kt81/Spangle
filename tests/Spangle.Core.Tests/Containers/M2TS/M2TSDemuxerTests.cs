@@ -61,7 +61,7 @@ public class M2TSDemuxerTests
         (MediaFrameHeader header, byte[] payload) = frames[0];
         header.Kind.Should().Be(MediaFrameKind.Video);
         header.IsConfig.Should().BeTrue("the first video frame must be the avcC built from in-band SPS/PPS");
-        header.Timestamp.Should().Be(1000u, "90kHz DTS 90000 is 1000 ms");
+        header.Timestamp.Should().Be(90000L, "the 90kHz DTS passes through as ticks");
         payload.Should().Equal([
             0x01, 0x64, 0x00, 0x1F, 0xFF, 0xE1,
             0x00, (byte)s_sps.Length, .. s_sps,
@@ -72,8 +72,8 @@ public class M2TSDemuxerTests
         (header, payload) = frames[1];
         header.Kind.Should().Be(MediaFrameKind.Video);
         header.IsKeyFrame.Should().BeTrue();
-        header.Timestamp.Should().Be(1000u);
-        header.CompositionTimeMs.Should().Be(33, "PTS-DTS of 2970 ticks is 33 ms");
+        header.Timestamp.Should().Be(90000L);
+        header.CompositionTime.Should().Be(2970, "PTS-DTS is 2970 ticks (33 ms)");
         payload.Should().Equal([0x00, 0x00, 0x00, (byte)s_idr.Length, .. s_idr],
             "SPS/PPS move into the config; the sample keeps the length-prefixed IDR only");
 
@@ -81,8 +81,8 @@ public class M2TSDemuxerTests
         (header, payload) = frames[2];
         header.Kind.Should().Be(MediaFrameKind.Video);
         header.IsKeyFrame.Should().BeFalse();
-        header.Timestamp.Should().Be(1040u, "90kHz PTS 93600 is 1040 ms");
-        header.CompositionTimeMs.Should().Be(0);
+        header.Timestamp.Should().Be(93600L, "the 90kHz DTS passes through as ticks");
+        header.CompositionTime.Should().Be(0);
         payload.Should().Equal([0x00, 0x00, 0x00, (byte)s_p.Length, .. s_p]);
 
         (header, payload) = frames[3];
@@ -93,7 +93,7 @@ public class M2TSDemuxerTests
         (header, payload) = frames[4];
         header.Kind.Should().Be(MediaFrameKind.Audio);
         header.IsConfig.Should().BeFalse();
-        header.Timestamp.Should().Be(1000u);
+        header.Timestamp.Should().Be(90000L);
         payload.Should().Equal(s_aac, "the ADTS header is stripped");
     }
 

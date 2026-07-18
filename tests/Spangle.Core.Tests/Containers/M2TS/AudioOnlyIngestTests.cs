@@ -72,7 +72,7 @@ public class AudioOnlyIngestTests
 
         (header, payload) = frames[1];
         header.Kind.Should().Be(MediaFrameKind.Audio);
-        header.Timestamp.Should().Be(1000u);
+        header.Timestamp.Should().Be(90000L);
         payload.Should().Equal(s_aac, "the ADTS header is stripped");
     }
 

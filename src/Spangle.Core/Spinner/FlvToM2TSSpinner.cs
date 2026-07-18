@@ -60,7 +60,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
                     break; // intake completed
                 }
                 var headerBuff = result.Buffer.Slice(0, MediaFrameHeader.Size);
-                var header = BufferMarshal.AsRefOrCopy<MediaFrameHeader>(headerBuff);
+                var header = MediaFrameHeader.Read(headerBuff);
                 IntakeReader.AdvanceTo(headerBuff.End);
 
                 if (header.Length <= 0)
@@ -121,14 +121,14 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
             return;
         }
 
-        // timestamps are in milliseconds; pts and dts are in 90kHz units
-        long ptsMs = frameHeader.Timestamp + frameHeader.CompositionTimeMs;
-        if (ptsMs < 0)
+        // timestamps are already 90 kHz ticks — the PES clock's own unit, so nothing scales here
+        long ptsTicks = frameHeader.Timestamp + frameHeader.CompositionTime;
+        if (ptsTicks < 0)
         {
-            ptsMs = 0;
+            ptsTicks = 0;
         }
-        ulong dts = frameHeader.Timestamp * 90ul;
-        ulong pts = (ulong)ptsMs * 90ul;
+        ulong dts = (ulong)frameHeader.Timestamp;
+        ulong pts = (ulong)ptsTicks;
 
         BuildAccessUnit(payload, frameHeader.IsKeyFrame);
         if (_esBuffer.WrittenCount == 0)
@@ -263,7 +263,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
         payload.CopyTo(_esBuffer.GetSpan((int)payload.Length));
         _esBuffer.Advance((int)payload.Length);
 
-        ulong pts = frameHeader.Timestamp * 90ul;
+        ulong pts = (ulong)frameHeader.Timestamp;
         _tsWriter.WritePes(Outlet, M2TSWriter.PidData, M2TSWriter.StreamIdPrivate1,
             _esBuffer.WrittenSpan, pts, null, randomAccess: false, withPcr: false);
         _esBuffer.ResetWrittenCount();
@@ -324,7 +324,7 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
         payload.CopyTo(_esBuffer.GetSpan(aacLength));
         _esBuffer.Advance(aacLength);
 
-        ulong pts = frameHeader.Timestamp * 90ul;
+        ulong pts = (ulong)frameHeader.Timestamp;
         _tsWriter.HasAudio = true;
 
         bool audioOnly = context.IsAudioOnly;

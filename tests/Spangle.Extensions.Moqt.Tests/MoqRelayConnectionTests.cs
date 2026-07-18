@@ -207,7 +207,7 @@ public class MoqRelayConnectionTests
     private static async Task WriteFrameAsync(PipeWriter intake, MediaFrameKind kind, MediaFrameFlags flags,
         uint codec, byte[] payload)
     {
-        MediaFrameHeader.Write(intake, kind, flags, codec, compositionTimeMs: 0, payload.Length, timestamp: 0);
+        MediaFrameHeader.Write(intake, kind, flags, codec, compositionTime: 0, payload.Length, timestamp: 0);
         intake.Write(payload);
         await intake.FlushAsync();
     }

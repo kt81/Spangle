@@ -19,7 +19,8 @@ namespace Spangle.Containers.M2TS;
 /// <item>H.264 Annex B access units → length-prefixed samples + an avcC Config frame
 /// built from the in-band SPS/PPS</item>
 /// <item>ADTS AAC → raw AAC frames + an AudioSpecificConfig Config frame</item>
-/// <item>90 kHz PES timestamps (33-bit, wrapping) → unwrapped milliseconds</item>
+/// <item>90 kHz PES timestamps (33-bit, wrapping) → the canonical 90 kHz tick timeline, unwrapped
+/// (the same unit, so nothing is lost — a wrap becomes a monotonic 64-bit counter)</item>
 /// </list>
 /// </summary>
 internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TContext> context) : IM2TSDemuxerSink
@@ -122,7 +123,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
     private void OnId3Pes(ulong? pts90k, ReadOnlySpan<byte> es)
     {
         ulong ts = _dataTs.Unwrap(pts90k ?? 0);
-        WriteFrame(MediaFrameKind.Data, MediaFrameFlags.None, (uint)DataCodec.Id3, 0, es, (uint)(ts / 90));
+        WriteFrame(MediaFrameKind.Data, MediaFrameFlags.None, (uint)DataCodec.Id3, 0, es, (long)ts);
     }
 
     // =======================================================================
@@ -130,7 +131,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
 
     private void OnH264AccessUnit(ulong? pts90k, ulong? dts90k, ReadOnlySpan<byte> es)
     {
-        (uint tsMs, int ctMs) = ResolveVideoTimestamps(pts90k, dts90k);
+        (long ts, int ct) = ResolveVideoTimestamps(pts90k, dts90k);
 
         _sample.ResetWrittenCount();
         var isKeyFrame = false;
@@ -168,7 +169,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
                 s_logger.ZLogWarning($"Could not read the SPS dimensions: {e.Message}");
             }
             WriteFrame(MediaFrameKind.Video, MediaFrameFlags.Config, (uint)VideoCodec.H264, 0,
-                Codecs.AVC.AvcCBuilder.Build(_sps, _pps), tsMs);
+                Codecs.AVC.AvcCBuilder.Build(_sps, _pps), ts);
             _videoConfigSent = true;
         }
 
@@ -176,7 +177,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
         {
             WriteFrame(MediaFrameKind.Video,
                 isKeyFrame ? MediaFrameFlags.KeyFrame : MediaFrameFlags.None,
-                (uint)VideoCodec.H264, ctMs, _sample.WrittenSpan, tsMs);
+                (uint)VideoCodec.H264, ct, _sample.WrittenSpan, ts);
         }
     }
 
@@ -185,7 +186,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
 
     private void OnH265AccessUnit(ulong? pts90k, ulong? dts90k, ReadOnlySpan<byte> es)
     {
-        (uint tsMs, int ctMs) = ResolveVideoTimestamps(pts90k, dts90k);
+        (long ts, int ct) = ResolveVideoTimestamps(pts90k, dts90k);
 
         _sample.ResetWrittenCount();
         var isKeyFrame = false;
@@ -220,7 +221,7 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
             byte[] hvcc = HvcCBuilder.Build(_vps, _sps, _pps, out HvcCBuilder.SpsSummary sps);
             context.VideoWidth = sps.Width;
             context.VideoHeight = sps.Height;
-            WriteFrame(MediaFrameKind.Video, MediaFrameFlags.Config, (uint)VideoCodec.H265, 0, hvcc, tsMs);
+            WriteFrame(MediaFrameKind.Video, MediaFrameFlags.Config, (uint)VideoCodec.H265, 0, hvcc, ts);
             _videoConfigSent = true;
         }
 
@@ -228,25 +229,26 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
         {
             WriteFrame(MediaFrameKind.Video,
                 isKeyFrame ? MediaFrameFlags.KeyFrame : MediaFrameFlags.None,
-                (uint)VideoCodec.H265, ctMs, _sample.WrittenSpan, tsMs);
+                (uint)VideoCodec.H265, ct, _sample.WrittenSpan, ts);
         }
     }
 
     // =======================================================================
     // shared video helpers
 
-    private (uint TsMs, int CtMs) ResolveVideoTimestamps(ulong? pts90k, ulong? dts90k)
+    private (long Ts, int Ct) ResolveVideoTimestamps(ulong? pts90k, ulong? dts90k)
     {
         ulong rawDts = dts90k ?? pts90k ?? 0;
         ulong rawPts = pts90k ?? rawDts;
         ulong dts = _videoTs.Unwrap(rawDts);
-        // PTS relative to DTS as a signed 33-bit distance, robust across the wrap
+        // PTS relative to DTS as a signed 33-bit distance, robust across the wrap. The PES clock is
+        // already 90 kHz, the frame clock's own unit, so it flows through verbatim — no rounding.
         long ct90 = (long)((rawPts - rawDts) & PtsMask);
         if (ct90 > (long)(PtsMask >> 1))
         {
             ct90 -= (long)(PtsMask + 1);
         }
-        return ((uint)(dts / 90), (int)(ct90 / 90));
+        return ((long)dts, (int)ct90);
     }
 
     /// <summary>Canonical sample form: 4-byte big-endian length prefix per NALU.</summary>
@@ -309,12 +311,12 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
                 _sampleRate = AudioSpecificConfig.Parse(asc).SampleRate;
 
                 WriteFrame(MediaFrameKind.Audio, MediaFrameFlags.Config, (uint)AudioCodec.AAC, 0,
-                    asc, (uint)(_audioNext90k / 90));
+                    asc, (long)_audioNext90k);
                 _audioConfigSent = true;
             }
 
             WriteFrame(MediaFrameKind.Audio, MediaFrameFlags.None, (uint)AudioCodec.AAC, 0,
-                es[headerLength..frameLength], (uint)(_audioNext90k / 90));
+                es[headerLength..frameLength], (long)_audioNext90k);
 
             // 1024 samples per AAC frame
             _audioNext90k += 1024UL * 90000 / _sampleRate;
@@ -389,23 +391,23 @@ internal sealed class M2TSMediaFrameAdapter<TContext>(ReceiverContextBase<TConte
             {
                 // TS carries no OpusHead; synthesize one from the descriptor channel count
                 WriteFrame(MediaFrameKind.Audio, MediaFrameFlags.Config, (uint)AudioCodec.Opus, 0,
-                    OpusPacket.BuildOpusHead(_opusChannels), (uint)(_audioNext90k / 90));
+                    OpusPacket.BuildOpusHead(_opusChannels), (long)_audioNext90k);
                 _audioConfigSent = true;
             }
 
             WriteFrame(MediaFrameKind.Audio, MediaFrameFlags.None, (uint)AudioCodec.Opus, 0,
-                au, (uint)(_audioNext90k / 90));
+                au, (long)_audioNext90k);
             _audioNext90k += OpusPacket.GetSampleCount(au) * 90000UL / OpusPacket.SampleRate;
         }
     }
 
     // =======================================================================
 
-    private void WriteFrame(MediaFrameKind kind, MediaFrameFlags flags, uint codec, int compositionTimeMs,
-        ReadOnlySpan<byte> payload, uint timestampMs)
+    private void WriteFrame(MediaFrameKind kind, MediaFrameFlags flags, uint codec, int compositionTime,
+        ReadOnlySpan<byte> payload, long timestamp)
     {
         var outlet = context.MediaOutlet!;
-        MediaFrameHeader.Write(outlet, kind, flags, codec, compositionTimeMs, payload.Length, timestampMs);
+        MediaFrameHeader.Write(outlet, kind, flags, codec, compositionTime, payload.Length, timestamp);
         payload.CopyTo(outlet.GetSpan(payload.Length));
         outlet.Advance(payload.Length);
         HasPendingFrames = true;

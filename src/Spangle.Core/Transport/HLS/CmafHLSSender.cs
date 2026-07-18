@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging;
 using Spangle.Codecs.AAC;
 using Spangle.Codecs.Opus;
 using Spangle.Containers.ISOBMFF;
-using Spangle.Interop;
 using Spangle.Logging;
 using Spangle.Spinner;
 using Spangle.Transport.DASH;
@@ -45,7 +44,7 @@ public sealed class CmafHLSSender : ISender<HLSSenderContext>, IDisposable
                     break; // intake completed
                 }
                 var headerBuff = result.Buffer.Slice(0, MediaFrameHeader.Size);
-                var header = BufferMarshal.AsRefOrCopy<MediaFrameHeader>(headerBuff);
+                var header = MediaFrameHeader.Read(headerBuff);
                 reader.AdvanceTo(headerBuff.End);
 
                 if (header.Length <= 0)
@@ -150,13 +149,13 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     private readonly ArrayBufferWriter<byte> _audioData = new(16 * 1024);
     private readonly List<VideoSampleMeta> _videoMeta = new();
     private readonly List<AudioSampleMeta> _audioMeta = new();
-    private uint _firstAudioTsMs;
-    private uint _lastAudioTsMs;
+    private long _firstAudioTicks;
+    private long _lastAudioTicks;
 
     private bool _hasSegmentStart;
-    private uint _segmentStartMs;
-    private uint _partStartMs;
-    private uint _lastVideoDurationMs = 33;
+    private long _segmentStart;
+    private long _partStart;
+    private long _lastVideoDurationTicks = 3000; // ≈ 30 fps (90000 / 30) until real cadence is known
     private bool _forcedCutWarned;
 
     [StructLayout(LayoutKind.Auto)]
@@ -164,8 +163,8 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     {
         public int  Offset;
         public int  Length;
-        public uint DtsMs;
-        public int  CtsMs;
+        public long Dts;
+        public int  Cts;
         public bool Sync;
     }
 
@@ -208,7 +207,8 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             case MediaFrameKind.Data:
                 if ((DataCodec)header.Codec == DataCodec.Id3)
                 {
-                    _pendingEvents.Add(new CmafEvent { TimeMs = header.Timestamp, Id3 = payload.ToArray() });
+                    // emsg states presentation_time on a 1000 (ms) timescale; the frame clock is 90 kHz
+                    _pendingEvents.Add(new CmafEvent { TimeMs = (ulong)(header.Timestamp / 90), Id3 = payload.ToArray() });
                 }
                 else
                 {
@@ -237,12 +237,12 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         }
 
         if (header.IsKeyFrame && _hasSegmentStart
-            && (header.Timestamp - _segmentStartMs) / 1000.0 >= context.TargetSegmentDuration)
+            && (header.Timestamp - _segmentStart) / 90000.0 >= context.TargetSegmentDuration)
         {
             FinalizeSegment(header.Timestamp);
         }
         else if (_hasSegmentStart
-                 && (header.Timestamp - _segmentStartMs) / 1000.0 >= context.TargetSegmentDuration * 4)
+                 && (header.Timestamp - _segmentStart) / 90000.0 >= context.TargetSegmentDuration * 4)
         {
             // No keyframe for 4x the target: cut anyway so the sample buffers stay
             // bounded (a source with a broken keyframe cadence would otherwise grow
@@ -256,7 +256,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             FinalizeSegment(header.Timestamp);
         }
         else if (_partTarget is { } partTarget && _hasSegmentStart && _videoMeta.Count > 0
-                 && (header.Timestamp - _partStartMs) / 1000.0 >= partTarget)
+                 && (header.Timestamp - _partStart) / 90000.0 >= partTarget)
         {
             FlushPart(header.Timestamp);
         }
@@ -264,8 +264,8 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         if (!_hasSegmentStart)
         {
             _hasSegmentStart = true;
-            _segmentStartMs = header.Timestamp;
-            _partStartMs = header.Timestamp;
+            _segmentStart = header.Timestamp;
+            _partStart = header.Timestamp;
         }
 
         var length = (int)payload.Length;
@@ -274,8 +274,8 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         {
             Offset = _videoData.WrittenCount,
             Length = length,
-            DtsMs = header.Timestamp,
-            CtsMs = header.CompositionTimeMs,
+            Dts = header.Timestamp,
+            Cts = header.CompositionTime,
             Sync = header.IsKeyFrame,
         });
         _videoData.Advance(length);
@@ -323,12 +323,12 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         if (context.SourceInfo?.IsAudioOnly == true)
         {
             if (_hasSegmentStart
-                && (header.Timestamp - _segmentStartMs) / 1000.0 >= context.TargetSegmentDuration)
+                && (header.Timestamp - _segmentStart) / 90000.0 >= context.TargetSegmentDuration)
             {
                 FinalizeSegment(header.Timestamp);
             }
             else if (_partTarget is { } partTarget && _hasSegmentStart && _audioMeta.Count > 0
-                     && (header.Timestamp - _partStartMs) / 1000.0 >= partTarget)
+                     && (header.Timestamp - _partStart) / 90000.0 >= partTarget)
             {
                 FlushPart(header.Timestamp);
             }
@@ -336,16 +336,16 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             if (!_hasSegmentStart)
             {
                 _hasSegmentStart = true;
-                _segmentStartMs = header.Timestamp;
-                _partStartMs = header.Timestamp;
+                _segmentStart = header.Timestamp;
+                _partStart = header.Timestamp;
             }
         }
 
         if (_audioMeta.Count == 0)
         {
-            _firstAudioTsMs = header.Timestamp;
+            _firstAudioTicks = header.Timestamp;
         }
-        _lastAudioTsMs = header.Timestamp;
+        _lastAudioTicks = header.Timestamp;
         var length = (int)payload.Length;
         Span<byte> dest = _audioData.GetSpan(length);
         payload.CopyTo(dest);
@@ -362,11 +362,11 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
     /// <summary>
     /// Builds one CMAF fragment per track (moof+mdat) from the buffered samples,
-    /// ending at <paramref name="endTsMs"/>, and appends them to the current
+    /// ending at <paramref name="end"/> (90 kHz ticks), and appends them to the current
     /// segments. In LL mode each fragment is also published as an EXT-X-PART and
     /// grows the in-progress segment blob (LL-DASH chunked delivery).
     /// </summary>
-    private void FlushPart(uint endTsMs)
+    private void FlushPart(long end)
     {
         if (_videoMeta.Count == 0 && _audioMeta.Count == 0)
         {
@@ -382,14 +382,14 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             for (var i = 0; i < _videoMeta.Count; i++)
             {
                 VideoSampleMeta meta = _videoMeta[i];
-                uint nextDtsMs = i + 1 < _videoMeta.Count ? _videoMeta[i + 1].DtsMs : endTsMs;
-                uint durationMs = nextDtsMs > meta.DtsMs ? nextDtsMs - meta.DtsMs : _lastVideoDurationMs;
-                _lastVideoDurationMs = durationMs;
+                long nextDts = i + 1 < _videoMeta.Count ? _videoMeta[i + 1].Dts : end;
+                long duration = nextDts > meta.Dts ? nextDts - meta.Dts : _lastVideoDurationTicks;
+                _lastVideoDurationTicks = duration;
                 video[i] = new CmafSample
                 {
                     Data = videoBuffer.Slice(meta.Offset, meta.Length),
-                    Duration = durationMs * 90,
-                    CompositionOffset = meta.CtsMs * 90,
+                    Duration = (uint)duration,
+                    CompositionOffset = meta.Cts,
                     IsSync = meta.Sync,
                 };
             }
@@ -398,7 +398,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
             // emsg regardless of which SourceBuffer carried it)
             CmafEvent[]? events = TakePendingEvents();
             bool independent = _videoMeta.Count > 0 && _videoMeta[0].Sync;
-            EmitFragment(_videoOut, _partStartMs * 90ul, video, isAudio: false, events, endTsMs, independent);
+            EmitFragment(_videoOut, (ulong)_partStart, video, isAudio: false, events, end, independent);
         }
 
         if (_audioOut is not null)
@@ -417,11 +417,11 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
                 };
             }
             ulong audioBaseTime = _audioMeta.Count > 0
-                ? (ulong)_firstAudioTsMs * _audioSampleRate / 1000
+                ? (ulong)_firstAudioTicks * _audioSampleRate / 90000
                 : 0;
 
             CmafEvent[]? events = _videoOut is null ? TakePendingEvents() : null;
-            EmitFragment(_audioOut, audioBaseTime, audio, isAudio: true, events, endTsMs,
+            EmitFragment(_audioOut, audioBaseTime, audio, isAudio: true, events, end,
                 independent: _audioMeta.Count > 0);
         }
 
@@ -429,7 +429,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
         _audioData.ResetWrittenCount();
         _videoMeta.Clear();
         _audioMeta.Clear();
-        _partStartMs = endTsMs;
+        _partStart = end;
     }
 
     private CmafEvent[]? TakePendingEvents()
@@ -444,7 +444,7 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     }
 
     private void EmitFragment(TrackOutput track, ulong baseTime, CmafSample[] samples, bool isAudio,
-        CmafEvent[]? events, uint endTsMs, bool independent)
+        CmafEvent[]? events, long end, bool independent)
     {
         long fragmentStart = track.SegmentStream.Length;
         if (isAudio)
@@ -471,23 +471,23 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
 
             string partName = track.Playlist.NextPartName();
             _storage!.WriteBlob(partName, fragment);
-            track.Playlist.AddPart(partName, (endTsMs - _partStartMs) / 1000.0, independent);
+            track.Playlist.AddPart(partName, (end - _partStart) / 90000.0, independent);
         }
     }
 
-    /// <summary>Completes the current segments (= all their fragments) ending at <paramref name="endTsMs"/></summary>
-    private void FinalizeSegment(uint endTsMs)
+    /// <summary>Completes the current segments (= all their fragments) ending at <paramref name="end"/> (90 kHz ticks)</summary>
+    private void FinalizeSegment(long end)
     {
-        FlushPart(endTsMs);
+        FlushPart(end);
 
-        double duration = (endTsMs - _segmentStartMs) / 1000.0;
-        FinalizeTrack(_audioOut, duration, endTsMs);
+        double duration = (end - _segmentStart) / 90000.0;
+        FinalizeTrack(_audioOut, duration, end);
         // the driving playlist publishes last so the MPD sees both tracks' segments
-        FinalizeTrack(_videoOut, duration, endTsMs);
-        _segmentStartMs = endTsMs;
+        FinalizeTrack(_videoOut, duration, end);
+        _segmentStart = end;
     }
 
-    private void FinalizeTrack(TrackOutput? track, double duration, uint endTsMs)
+    private void FinalizeTrack(TrackOutput? track, double duration, long end)
     {
         if (track is null || track.SegmentStream.Length == 0)
         {
@@ -723,15 +723,15 @@ internal sealed class CmafSegmentBuilder(HLSSenderContext context)
     {
         if (_videoConfig is not null && _videoMeta.Count > 0)
         {
-            FinalizeSegment(_videoMeta[^1].DtsMs + _lastVideoDurationMs);
+            FinalizeSegment(_videoMeta[^1].Dts + _lastVideoDurationTicks);
         }
         else if (_videoConfig is null && _audioConfig is not null && _audioMeta.Count > 0)
         {
-            FinalizeSegment(_lastAudioTsMs + _audioMeta[^1].Duration * 1000 / _audioSampleRate);
+            FinalizeSegment(_lastAudioTicks + _audioMeta[^1].Duration * 90000L / _audioSampleRate);
         }
         else if ((_videoOut?.SegmentStream.Length ?? 0) > 0 || (_audioOut?.SegmentStream.Length ?? 0) > 0)
         {
-            FinalizeSegment(_partStartMs);
+            FinalizeSegment(_partStart);
         }
     }
 }

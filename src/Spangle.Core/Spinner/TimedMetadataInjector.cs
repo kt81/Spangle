@@ -2,7 +2,6 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Spangle.Codecs.Id3;
-using Spangle.Interop;
 using ZLogger;
 
 namespace Spangle.Spinner;
@@ -71,7 +70,7 @@ public sealed class TimedMetadataInjector : SpinnerBase<TimedMetadataInjector>
                     break; // intake completed
                 }
                 var headerBuff = result.Buffer.Slice(0, MediaFrameHeader.Size);
-                var header = BufferMarshal.AsRefOrCopy<MediaFrameHeader>(headerBuff);
+                var header = MediaFrameHeader.Read(headerBuff);
                 IntakeReader.AdvanceTo(headerBuff.End);
 
                 if (header.Length < 0)
@@ -88,7 +87,7 @@ public sealed class TimedMetadataInjector : SpinnerBase<TimedMetadataInjector>
 
                 // pass the frame through untouched
                 MediaFrameHeader.Write(Outlet, header.Kind, header.Flags, header.Codec,
-                    header.CompositionTimeMs, header.Length, header.Timestamp);
+                    header.CompositionTime, header.Length, header.Timestamp);
                 var buff = Outlet.GetSpan(header.Length);
                 payload.CopyTo(buff);
                 Outlet.Advance(header.Length);
@@ -110,7 +109,7 @@ public sealed class TimedMetadataInjector : SpinnerBase<TimedMetadataInjector>
                     var tagBuff = Outlet.GetSpan(tag.Length);
                     tag.CopyTo(tagBuff);
                     Outlet.Advance(tag.Length);
-                    Logger.ZLogDebug($"Injected metadata `{e.Name}` at {header.Timestamp}ms");
+                    Logger.ZLogDebug($"Injected metadata `{e.Name}` at tick {header.Timestamp} (90 kHz)");
                 }
 
                 await Outlet.FlushAsync(CancellationToken).ConfigureAwait(false);

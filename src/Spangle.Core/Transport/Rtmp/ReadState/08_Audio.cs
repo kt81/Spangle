@@ -123,8 +123,9 @@ internal abstract class Audio
 
         FlushPendingConfig(context);
 
+        // RTMP speaks milliseconds; the canonical frame clock is 90 kHz.
         MediaFrameHeader.Write(context.MediaOutlet,
-            MediaFrameKind.Audio, flags, (uint)codec, 0, (int)body.Length, context.Timestamp);
+            MediaFrameKind.Audio, flags, (uint)codec, 0, (int)body.Length, (long)context.Timestamp * 90);
 
         var writeBuff = context.MediaOutlet.GetSpan((int)body.Length);
         body.CopyTo(writeBuff);

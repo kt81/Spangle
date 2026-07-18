@@ -158,7 +158,7 @@ internal sealed class RtspMediaFrameAdapter<TContext>
         {
             return;
         }
-        uint tsMs = _video.Timeline.ToMilliseconds(unit.RtpTimestamp);
+        long ts = _video.Timeline.ToTicks90k(unit.RtpTimestamp);
 
         _sample.ResetWrittenCount();
         var isKeyFrame = false;
@@ -190,16 +190,16 @@ internal sealed class RtspMediaFrameAdapter<TContext>
             AppendSampleNalu(nal);
         }
 
-        EmitVideoConfigIfReady(parameterSetsChanged, tsMs);
+        EmitVideoConfigIfReady(parameterSetsChanged, ts);
 
         if (_sample.WrittenCount > 0 && _video.ConfigSent)
         {
             WriteFrame(MediaFrameKind.Video, isKeyFrame ? MediaFrameFlags.KeyFrame : MediaFrameFlags.None,
-                (uint)_video.Codec, 0, _sample.WrittenSpan, tsMs);
+                (uint)_video.Codec, 0, _sample.WrittenSpan, ts);
         }
     }
 
-    private void EmitVideoConfigIfReady(bool parameterSetsChanged, uint tsMs)
+    private void EmitVideoConfigIfReady(bool parameterSetsChanged, long ts)
     {
         if (_video is null || (_video.ConfigSent && !parameterSetsChanged))
         {
@@ -217,7 +217,7 @@ internal sealed class RtspMediaFrameAdapter<TContext>
                 s_logger.ZLogWarning($"Could not read the H.264 SPS dimensions: {e.Message}");
             }
             WriteFrame(MediaFrameKind.Video, MediaFrameFlags.Config, (uint)VideoCodec.H264, 0,
-                AvcCBuilder.Build(sps264, pps264), tsMs);
+                AvcCBuilder.Build(sps264, pps264), ts);
             _video.ConfigSent = true;
         }
         else if (_video.Codec == VideoCodec.H265
@@ -226,7 +226,7 @@ internal sealed class RtspMediaFrameAdapter<TContext>
             byte[] hvcc = HvcCBuilder.Build(vps, sps265, pps265, out HvcCBuilder.SpsSummary summary);
             _context.VideoWidth = summary.Width;
             _context.VideoHeight = summary.Height;
-            WriteFrame(MediaFrameKind.Video, MediaFrameFlags.Config, (uint)VideoCodec.H265, 0, hvcc, tsMs);
+            WriteFrame(MediaFrameKind.Video, MediaFrameFlags.Config, (uint)VideoCodec.H265, 0, hvcc, ts);
             _video.ConfigSent = true;
         }
     }
@@ -238,16 +238,16 @@ internal sealed class RtspMediaFrameAdapter<TContext>
             return;
         }
         // each AU in a packet is one 1024-sample block after the packet's timestamp
-        uint baseMs = _audio.Timeline.ToMilliseconds(rtpTimestamp);
-        uint tsMs = baseMs + (uint)(indexInPacket * 1024L * 1000 / _audio.SampleRate);
+        long baseTicks = _audio.Timeline.ToTicks90k(rtpTimestamp);
+        long ts = baseTicks + indexInPacket * 1024L * 90000 / _audio.SampleRate;
 
         if (!_audio.ConfigSent)
         {
             WriteFrame(MediaFrameKind.Audio, MediaFrameFlags.Config, (uint)AudioCodec.AAC, 0,
-                _audio.AudioSpecificConfig, tsMs);
+                _audio.AudioSpecificConfig, ts);
             _audio.ConfigSent = true;
         }
-        WriteFrame(MediaFrameKind.Audio, MediaFrameFlags.None, (uint)AudioCodec.AAC, 0, au, tsMs);
+        WriteFrame(MediaFrameKind.Audio, MediaFrameFlags.None, (uint)AudioCodec.AAC, 0, au, ts);
     }
 
     // =======================================================================
@@ -271,11 +271,11 @@ internal sealed class RtspMediaFrameAdapter<TContext>
         return true;
     }
 
-    private void WriteFrame(MediaFrameKind kind, MediaFrameFlags flags, uint codec, int compositionTimeMs,
-        ReadOnlySpan<byte> payload, uint timestampMs)
+    private void WriteFrame(MediaFrameKind kind, MediaFrameFlags flags, uint codec, int compositionTime,
+        ReadOnlySpan<byte> payload, long timestamp)
     {
         var outlet = _context.MediaOutlet!;
-        MediaFrameHeader.Write(outlet, kind, flags, codec, compositionTimeMs, payload.Length, timestampMs);
+        MediaFrameHeader.Write(outlet, kind, flags, codec, compositionTime, payload.Length, timestamp);
         payload.CopyTo(outlet.GetSpan(payload.Length));
         outlet.Advance(payload.Length);
         HasPendingFrames = true;

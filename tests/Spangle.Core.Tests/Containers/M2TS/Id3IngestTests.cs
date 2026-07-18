@@ -38,7 +38,7 @@ public class Id3IngestTests
         (MediaFrameHeader header, byte[] payload) = frames[0];
         header.Kind.Should().Be(MediaFrameKind.Data);
         header.DataCodec.Should().Be(DataCodec.Id3);
-        header.Timestamp.Should().Be(1000u);
+        header.Timestamp.Should().Be(90000L);
         payload.Should().Equal(id3, "the tag passes through untouched");
     }
 

@@ -2,7 +2,6 @@ using System.Buffers;
 using System.IO.Pipelines;
 using System.Text.Json;
 using Spangle.Codecs.Id3;
-using Spangle.Interop;
 using ZLogger;
 using static Spangle.Transport.Rtmp.Amf0.Amf0SequenceParser;
 
@@ -38,7 +37,7 @@ public sealed class AmfDataToId3Spinner : SpinnerBase<AmfDataToId3Spinner>
                     break; // intake completed
                 }
                 var headerBuff = result.Buffer.Slice(0, MediaFrameHeader.Size);
-                var header = BufferMarshal.AsRefOrCopy<MediaFrameHeader>(headerBuff);
+                var header = MediaFrameHeader.Read(headerBuff);
                 IntakeReader.AdvanceTo(headerBuff.End);
 
                 if (header.Length < 0)
@@ -80,7 +79,7 @@ public sealed class AmfDataToId3Spinner : SpinnerBase<AmfDataToId3Spinner>
     private void PassThrough(in MediaFrameHeader header, in ReadOnlySequence<byte> payload)
     {
         MediaFrameHeader.Write(Outlet, header.Kind, header.Flags, header.Codec,
-            header.CompositionTimeMs, header.Length, header.Timestamp);
+            header.CompositionTime, header.Length, header.Timestamp);
         var buff = Outlet.GetSpan(header.Length);
         payload.CopyTo(buff);
         Outlet.Advance(header.Length);

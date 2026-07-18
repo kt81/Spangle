@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using Spangle.Codecs.AAC;
 using Spangle.Codecs.Opus;
 using Spangle.Containers.ISOBMFF;
-using Spangle.Interop;
 using Spangle.Logging;
 using Spangle.Net.Moqt.Wire;
 using Spangle.Spinner;
@@ -124,7 +123,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
                 }
 
                 ReadOnlySequence<byte> headerBuff = result.Buffer.Slice(0, MediaFrameHeader.Size);
-                MediaFrameHeader header = BufferMarshal.AsRefOrCopy<MediaFrameHeader>(headerBuff);
+                MediaFrameHeader header = MediaFrameHeader.Read(headerBuff);
                 reader.AdvanceTo(headerBuff.End);
 
                 if (header.Length <= 0)
@@ -360,9 +359,10 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
     }
 
     // LOC's timestamp is the frame's presentation time. Spangle's canonical frame carries the
-    // decode time in milliseconds plus the composition offset that turns it into one.
+    // decode time in 90 kHz ticks plus the composition offset that turns it into one; LOC states
+    // microseconds, so ticks convert as × 100 / 9 (1e6 µs ÷ 90000 ticks).
     private static ulong PresentationMicroseconds(in MediaFrameHeader header) =>
-        (ulong)Math.Max(0, ((long)header.Timestamp + header.CompositionTimeMs) * 1000);
+        (ulong)Math.Max(0, (header.Timestamp + header.CompositionTime) * 100 / 9);
 
     private static IReadOnlyList<MoqKeyValuePair> VideoProperties(MoqSenderContext context,
         in MediaFrameHeader header, byte[] config)

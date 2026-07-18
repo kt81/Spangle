@@ -60,7 +60,7 @@ public sealed class LocMediaDecoder
         _lastGroupId = moqObject.GroupId;
         _hasLastGroup = true;
 
-        (uint timestampMs, ReadOnlyMemory<byte> videoConfig) = ReadProperties(moqObject.Properties);
+        (long timestamp, ReadOnlyMemory<byte> videoConfig) = ReadProperties(moqObject.Properties);
 
         // A keyframe may carry its own Video Config; prefer it and remember it (a mid-stream
         // resolution change re-sends it), falling back to what the catalog gave us.
@@ -71,7 +71,7 @@ public sealed class LocMediaDecoder
 
         if (!_configEmitted && _config.Length > 0)
         {
-            WriteFrame(outlet, MediaFrameFlags.Config, _config, timestampMs);
+            WriteFrame(outlet, MediaFrameFlags.Config, _config, timestamp);
             _configEmitted = true;
         }
 
@@ -86,27 +86,27 @@ public sealed class LocMediaDecoder
         MediaFrameFlags flags = _kind == MediaFrameKind.Video && startsGroup
             ? MediaFrameFlags.KeyFrame
             : MediaFrameFlags.None;
-        WriteFrame(outlet, flags, moqObject.Payload.Span, timestampMs);
+        WriteFrame(outlet, flags, moqObject.Payload.Span, timestamp);
     }
 
-    private (uint TimestampMs, ReadOnlyMemory<byte> VideoConfig) ReadProperties(
+    private (long Timestamp, ReadOnlyMemory<byte> VideoConfig) ReadProperties(
         IReadOnlyList<MoqKeyValuePair> extensions)
     {
         if (_draft == LocDraft.Draft01)
         {
             Loc01Metadata meta = Loc01Metadata.Read(extensions);
-            // -01 states the timestamp in microseconds; MediaFrame counts milliseconds.
-            uint ms = meta.CaptureTimestamp is { } us ? (uint)(us / 1000) : 0;
-            return (ms, meta.VideoConfig);
+            // -01 states the timestamp in microseconds; MediaFrame counts 90 kHz ticks (µs × 9 / 100).
+            long ticks = meta.CaptureTimestamp is { } us ? (long)(us * 9 / 100) : 0;
+            return (ticks, meta.VideoConfig);
         }
 
         Loc03Metadata m = Loc03Metadata.Read(extensions);
-        return (Loc03TimestampMs(m), m.VideoConfig);
+        return (Loc03Ticks(m), m.VideoConfig);
     }
 
     // -03 timestamps are counted in Timescale units per second, or — with no Timescale — are
-    // wall-clock microseconds (§2.3.1.1). Either way the frame timeline downstream is milliseconds.
-    private static uint Loc03TimestampMs(Loc03Metadata meta)
+    // wall-clock microseconds (§2.3.1.1). Either way the frame timeline downstream is 90 kHz ticks.
+    private static long Loc03Ticks(Loc03Metadata meta)
     {
         if (meta.Timestamp is not { } value)
         {
@@ -114,13 +114,13 @@ public sealed class LocMediaDecoder
         }
 
         return meta.Timescale is { } timescale and > 0
-            ? (uint)(value * 1000 / timescale)
-            : (uint)(value / 1000);
+            ? (long)(value * 90000 / timescale)
+            : (long)(value * 9 / 100);
     }
 
-    private void WriteFrame(PipeWriter outlet, MediaFrameFlags flags, ReadOnlySpan<byte> payload, uint timestampMs)
+    private void WriteFrame(PipeWriter outlet, MediaFrameFlags flags, ReadOnlySpan<byte> payload, long timestamp)
     {
-        MediaFrameHeader.Write(outlet, _kind, flags, _codec, compositionTimeMs: 0, payload.Length, timestampMs);
+        MediaFrameHeader.Write(outlet, _kind, flags, _codec, compositionTime: 0, payload.Length, timestamp);
         payload.CopyTo(outlet.GetSpan(payload.Length));
         outlet.Advance(payload.Length);
     }

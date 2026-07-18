@@ -123,8 +123,10 @@ internal abstract class Video
             return;
         }
 
+        // RTMP speaks milliseconds; the canonical frame clock is 90 kHz.
         MediaFrameHeader.Write(context.MediaOutlet,
-            MediaFrameKind.Video, flags, (uint)codec, compositionTimeMs, (int)body.Length, context.Timestamp);
+            MediaFrameKind.Video, flags, (uint)codec, compositionTimeMs * 90, (int)body.Length,
+            (long)context.Timestamp * 90);
 
         var writeBuff = context.MediaOutlet.GetSpan((int)body.Length);
         body.CopyTo(writeBuff);

@@ -16,7 +16,7 @@ namespace Spangle.Extensions.Moqt.Tests;
 public class LocMediaDecoderTests
 {
     private readonly record struct Frame(
-        MediaFrameKind Kind, MediaFrameFlags Flags, uint Codec, uint TimestampMs, byte[] Payload);
+        MediaFrameKind Kind, MediaFrameFlags Flags, uint Codec, long Timestamp, byte[] Payload);
 
     [Fact]
     public void AVideoGoP_DecodesToAKeyframeThenDeltas_WithConfigFirst()
@@ -43,13 +43,13 @@ public class LocMediaDecoderTests
 
         frames[1].Flags.Should().Be(MediaFrameFlags.KeyFrame, "a new group is an IDR boundary");
         frames[1].Payload.Should().Equal(key, "the elementary bitstream passes through untouched");
-        // 90 kHz media time back to milliseconds: 0, 3000/90 = 33, 6000/90 = 66.
-        frames[1].TimestampMs.Should().Be(0);
+        // The 90 kHz media time is the frame clock's own unit: 0, 3000, 6000 ticks pass through.
+        frames[1].Timestamp.Should().Be(0L);
         frames[2].Flags.Should().Be(MediaFrameFlags.None);
         frames[2].Payload.Should().Equal(delta1);
-        frames[2].TimestampMs.Should().Be(33);
+        frames[2].Timestamp.Should().Be(3000L);
         frames[3].Payload.Should().Equal(delta2);
-        frames[3].TimestampMs.Should().Be(66);
+        frames[3].Timestamp.Should().Be(6000L);
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class LocMediaDecoderTests
         frames[1].Payload.Should().Equal(a0);
         frames[2].Flags.Should().Be(MediaFrameFlags.None);
         frames[2].Payload.Should().Equal(a1);
-        frames[2].TimestampMs.Should().Be(21, "21333 microseconds is 21 milliseconds");
+        frames[2].Timestamp.Should().Be(1919L, "21,333 µs is 1919 ticks (21.33 ms) at 90 kHz");
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public class LocMediaDecoderTests
             Obj(group: 0, id: 0, Pattern(0x11, 8), [Loc01Properties.CaptureTimestamp(5_000_000)]));
 
         frames.Should().HaveCount(2); // config (from catalog) + keyframe
-        frames[1].TimestampMs.Should().Be(5_000, "5,000,000 microseconds is 5,000 milliseconds");
+        frames[1].Timestamp.Should().Be(450_000L, "5,000,000 µs is 450,000 ticks (5 s) at 90 kHz");
     }
 
     [Fact]

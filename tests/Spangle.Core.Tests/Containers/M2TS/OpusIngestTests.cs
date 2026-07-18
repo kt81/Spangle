@@ -60,11 +60,11 @@ public class OpusIngestTests
 
         (header, payload) = frames[1];
         header.IsConfig.Should().BeFalse();
-        header.Timestamp.Should().Be(1000u);
+        header.Timestamp.Should().Be(90000L);
         payload.Should().Equal(s_au1);
 
         (header, payload) = frames[2];
-        header.Timestamp.Should().Be(1020u, "the first AU is 960 samples = 20ms");
+        header.Timestamp.Should().Be(91800L, "the first AU is 960 samples = 20 ms = 1800 ticks");
         payload.Should().Equal(s_au2);
     }
 

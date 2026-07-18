@@ -1,7 +1,7 @@
 namespace Spangle.Transport.Rtsp.Rtp;
 
 /// <summary>
-/// Maps one track's 32-bit RTP timestamps onto the session's millisecond timeline.
+/// Maps one track's 32-bit RTP timestamps onto the session's 90 kHz tick timeline.
 /// Alignment sources, best first:
 /// <list type="number">
 /// <item>PLAY's <c>RTP-Info: rtptime=…</c> — the timestamp of the Range start, so
@@ -46,8 +46,8 @@ internal sealed class RtpTimeline(uint clockRate, RtspTimelineSync sync)
         }
     }
 
-    /// <summary>The session-timeline position of an RTP timestamp, in milliseconds.</summary>
-    public uint ToMilliseconds(uint rtpTimestamp)
+    /// <summary>The session-timeline position of an RTP timestamp, in 90 kHz ticks.</summary>
+    public long ToTicks90k(uint rtpTimestamp)
     {
         long extended = Extend(rtpTimestamp);
         if (_baseExtended < 0)
@@ -55,8 +55,10 @@ internal sealed class RtpTimeline(uint clockRate, RtspTimelineSync sync)
             EstablishBase(extended, rtpTimestamp);
         }
         _emitted = true;
-        double ms = _baseSessionMs + (extended - _baseExtended) * 1000.0 / clockRate;
-        return ms <= 0 ? 0u : (uint)ms;
+        // The session anchor is carried in milliseconds (it is derived from NTP wallclock); the RTP
+        // delta converts straight to ticks, so a 90 kHz video track round-trips without rounding.
+        double ticks = _baseSessionMs * 90.0 + (extended - _baseExtended) * 90000.0 / clockRate;
+        return ticks <= 0 ? 0L : (long)ticks;
     }
 
     private void EstablishBase(long extended, uint rtpTimestamp)
