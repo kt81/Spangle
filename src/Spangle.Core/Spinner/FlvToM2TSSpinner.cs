@@ -121,14 +121,12 @@ public sealed class FlvToM2TSSpinner(IReceiverContext context, PipeWriter anothe
             return;
         }
 
-        // timestamps are already 90 kHz ticks — the PES clock's own unit, so nothing scales here
-        long ptsTicks = frameHeader.Timestamp + frameHeader.CompositionTime;
-        if (ptsTicks < 0)
-        {
-            ptsTicks = 0;
-        }
+        // timestamps are already 90 kHz ticks — the PES clock's own unit, so nothing scales here.
+        // A negative composition offset would put PTS before DTS, which no decoder accepts; clamp
+        // PTS up to DTS so the PES stays valid.
         ulong dts = (ulong)frameHeader.Timestamp;
-        ulong pts = (ulong)ptsTicks;
+        long ptsTicks = frameHeader.Timestamp + frameHeader.CompositionTime;
+        ulong pts = ptsTicks > frameHeader.Timestamp ? (ulong)ptsTicks : dts;
 
         BuildAccessUnit(payload, frameHeader.IsKeyFrame);
         if (_esBuffer.WrittenCount == 0)
