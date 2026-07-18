@@ -20,6 +20,7 @@ public sealed class RtspIngestService(
     IPublishAuthorizer publishAuthorizer,
     IHLSStorage storage,
     RtspDialectRegistry dialects,
+    Spangle.Spinner.TimedMetadataHub metadataHub,
     IEnumerable<IPublishEgressFactory> egressFactories,
     ILogger<RtspIngestService> logger) : BackgroundService
 {
@@ -116,9 +117,13 @@ public sealed class RtspIngestService(
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
+        // Server-injected metadata (POST /api/streams/{key}/metadata) rides the MediaFrame pipeline
+        IReadOnlyList<Spangle.Spinner.ISpinner>? spinners = options.Value.Http.MetadataInjection
+            ? [new Spangle.Spinner.TimedMetadataInjector(receiver, metadataHub, ct)]
+            : null;
         // Additional egresses (e.g. MOQT) ride the same MediaFrame stream through a fan-out
         var egresses = SessionEgresses.Start(egressFactories, ct);
-        using var live = new LiveContext(receiver, hls,
+        using var live = new LiveContext(receiver, hls, mediaSpinners: spinners,
             publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
             additionalSenders: egresses.Senders, cancellationToken: ct);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4

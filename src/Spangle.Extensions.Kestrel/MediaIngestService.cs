@@ -18,6 +18,7 @@ public sealed class MediaIngestService(
     HLSStreamRegistry registry,
     PublishSessionRegistry publishSessions,
     IPublishAuthorizer publishAuthorizer,
+    Spangle.Spinner.TimedMetadataHub metadataHub,
     IEnumerable<IPublishEgressFactory> egressFactories,
     ILogger<MediaIngestService> logger) : BackgroundService
 {
@@ -43,7 +44,8 @@ public sealed class MediaIngestService(
                 await using (connection.ConfigureAwait(false))
                 {
                     await HlsIngestPipeline.RunAsync(connection.Receiver, options.Value.Hls, storage, registry,
-                        egressFactories, publishSessions, publishAuthorizer, logger, ct).ConfigureAwait(false);
+                        egressFactories, publishSessions, publishAuthorizer,
+                        metadataHub, options.Value.Http.MetadataInjection, logger, ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

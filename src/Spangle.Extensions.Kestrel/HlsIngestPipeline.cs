@@ -13,7 +13,8 @@ internal static class HlsIngestPipeline
 {
     public static async Task RunAsync(IReceiverContext receiver, HlsOptions hlsOptions, IHLSStorage storage,
         HLSStreamRegistry registry, IEnumerable<IPublishEgressFactory> egressFactories,
-        PublishSessionRegistry publishSessions, IPublishAuthorizer publishAuthorizer, ILogger logger,
+        PublishSessionRegistry publishSessions, IPublishAuthorizer publishAuthorizer,
+        Spangle.Spinner.TimedMetadataHub metadataHub, bool metadataInjection, ILogger logger,
         CancellationToken ct)
     {
         HLSSegmentFormat segmentFormat = hlsOptions.SegmentFormat.ToLowerInvariant() switch
@@ -32,10 +33,14 @@ internal static class HlsIngestPipeline
             PartTargetDuration = hlsOptions.PartTargetDuration,
             Registry = registry,
         };
+        // Server-injected metadata (POST /api/streams/{key}/metadata) rides the MediaFrame pipeline
+        IReadOnlyList<Spangle.Spinner.ISpinner>? spinners = metadataInjection
+            ? [new Spangle.Spinner.TimedMetadataInjector(receiver, metadataHub, ct)]
+            : null;
         // Additional egresses (e.g. MOQT) ride the same MediaFrame stream through a fan-out — so a
         // pulled source can itself be re-published to MOQT, the same as a locally-ingested one.
         var egresses = SessionEgresses.Start(egressFactories, ct);
-        using var live = new LiveContext(receiver, hls,
+        using var live = new LiveContext(receiver, hls, mediaSpinners: spinners,
             publishSessions: publishSessions, publishAuthorizer: publishAuthorizer,
             additionalSenders: egresses.Senders, cancellationToken: ct);
         ISender<HLSSenderContext> sender = segmentFormat == HLSSegmentFormat.Fmp4

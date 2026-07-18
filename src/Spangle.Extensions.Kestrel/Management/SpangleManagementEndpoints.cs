@@ -60,8 +60,16 @@ public static class SpangleManagementEndpoints
             sessions.TryKick(streamKey) ? Results.NoContent() : Results.NotFound());
 
         group.MapPost("/streams/{streamKey}/metadata",
-            static async (string streamKey, HttpRequest request, TimedMetadataHub hub) =>
+            static async (string streamKey, HttpRequest request, TimedMetadataHub hub,
+                IOptions<SpangleMediaServerOptions> options) =>
             {
+                // Injectors only exist when the feature is enabled; without this the endpoint would
+                // report "no live session" for a stream that is in fact live (just not injectable).
+                if (!options.Value.Http.MetadataInjection)
+                {
+                    return Results.NotFound(
+                        "Metadata injection is disabled; set Http.MetadataInjection to true to enable it");
+                }
                 using var body = await JsonDocument.ParseAsync(request.Body,
                     cancellationToken: request.HttpContext.RequestAborted).ConfigureAwait(false);
                 if (!body.RootElement.TryGetProperty("name", out JsonElement nameElement)
