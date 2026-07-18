@@ -49,6 +49,7 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
     private volatile MsfCatalog? _catalog;
     private bool _videoStarted;
     private bool _warnedNoVideoConfig;
+    private bool _warnedBFrames;
     private long _nextConnectAttempt; // Environment.TickCount64 before which no dial is attempted
 
     /// <inheritdoc />
@@ -304,6 +305,18 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
             }
 
             _videoStarted = true;
+        }
+
+        // A non-zero composition offset means the source reorders (B-frames): decode time and
+        // presentation time differ. LOC states one presentation timestamp per object and no decode
+        // time, so PresentationMicroseconds collapses the two — the round-trip cannot reconstruct the
+        // DTS/PTS split. Output is still correct (frames carry their presentation time) but a strict
+        // downstream decoder loses the reorder information. Say so once.
+        if (header.CompositionTime != 0 && !_warnedBFrames)
+        {
+            _warnedBFrames = true;
+            s_logger.ZLogWarning(
+                $"MOQT: the source uses B-frames (composition offset {header.CompositionTime} ticks); LOC carries only a presentation time, so the DTS/PTS split is not preserved through the round-trip.");
         }
 
         // The decoder configuration rides on every keyframe, which is what makes a group a place a

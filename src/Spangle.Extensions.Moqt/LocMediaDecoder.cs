@@ -1,7 +1,10 @@
 using System.IO.Pipelines;
+using Microsoft.Extensions.Logging;
+using Spangle.Logging;
 using Spangle.Net.Moqt;
 using Spangle.Net.Moqt.Wire;
 using Spangle.Spinner;
+using ZLogger;
 
 namespace Spangle.Extensions.Moqt;
 
@@ -22,6 +25,8 @@ namespace Spangle.Extensions.Moqt;
 /// </summary>
 public sealed class LocMediaDecoder
 {
+    private static readonly ILogger<LocMediaDecoder> s_logger = SpangleLogManager.GetLogger<LocMediaDecoder>();
+
     private readonly MediaFrameKind _kind;
     private readonly uint _codec;
     private readonly LocDraft _draft;
@@ -29,6 +34,9 @@ public sealed class LocMediaDecoder
     private bool _configEmitted;
     private bool _hasLastGroup;
     private ulong _lastGroupId;
+    private bool _hasLastTimestamp;
+    private long _lastTimestamp;
+    private bool _warnedReorder;
 
     /// <summary>
     /// Creates a decoder for a track of <paramref name="kind"/> carrying <paramref name="codec"/>
@@ -92,6 +100,27 @@ public sealed class LocMediaDecoder
         if (!_configEmitted)
         {
             return;
+        }
+
+        // Within a group, LOC objects arrive in decode order; a presentation timestamp that steps
+        // backwards therefore means the source reordered frames (B-frames). LOC carries no decode
+        // time, so that reordering cannot be reconstructed — every frame is emitted with a zero
+        // composition offset and its presentation time. A keyframe legitimately jumps the timeline
+        // forward, so the check is per-group. Output plays, but a strict decoder loses the split.
+        if (_kind == MediaFrameKind.Video)
+        {
+            if (startsGroup)
+            {
+                _hasLastTimestamp = false;
+            }
+            else if (_hasLastTimestamp && timestamp < _lastTimestamp && !_warnedReorder)
+            {
+                _warnedReorder = true;
+                s_logger.ZLogWarning(
+                    $"MOQT: incoming LOC video reorders frames (source B-frames); LOC carries no decode time, so the recovered stream keeps presentation time only and the DTS/PTS split is lost.");
+            }
+            _lastTimestamp = timestamp;
+            _hasLastTimestamp = true;
         }
 
         MediaFrameFlags flags = _kind == MediaFrameKind.Video && startsGroup
