@@ -15,9 +15,13 @@ public abstract class SpinnerBase<T> : ISpinner
     protected PipeReader IntakeReader { get; }
     public abstract ValueTask SpinAsync();
 
-    public void BeginSpin()
+    public void BeginSpin(Action<Exception>? onFaulted = null)
     {
-        SpinAsync().SafeFireAndForget(LogException);
+        SpinAsync().SafeFireAndForget(e =>
+        {
+            LogException(e);
+            onFaulted?.Invoke(e);
+        });
     }
 
     protected static readonly ILogger<T> Logger = SpangleLogManager.GetLogger<T>();

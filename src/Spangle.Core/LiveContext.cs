@@ -1,5 +1,8 @@
-﻿using Spangle.Spinner;
+﻿using Microsoft.Extensions.Logging;
+using Spangle.Logging;
+using Spangle.Spinner;
 using Spangle.Transport.HLS;
+using ZLogger;
 
 namespace Spangle;
 
@@ -9,6 +12,8 @@ namespace Spangle;
 /// </summary>
 public sealed class LiveContext : IDisposable
 {
+    private static readonly ILogger<LiveContext> s_logger = SpangleLogManager.GetLogger<LiveContext>();
+
     public IReceiverContext ReceiverContext { get; }
     public ISenderContext SenderContext { get; }
 
@@ -95,6 +100,18 @@ public sealed class LiveContext : IDisposable
         _lifetimeCancellationTokenSource.Cancel();
     }
 
+    /// <summary>
+    /// A pipeline stage threw. It can no longer move media, so the session would otherwise stay
+    /// alive but silent; end it (the tail drains, the host tears down or redials) with the cause
+    /// made explicit rather than buried in a fire-and-forget log line. The exception itself is
+    /// already logged by the spinner; this records the consequence.
+    /// </summary>
+    private void OnSpinnerFaulted(Exception e)
+    {
+        s_logger.ZLogError($"A pipeline stage failed ({e.Message}); ending the session.");
+        Shutdown();
+    }
+
     private readonly Lock _wireLock = new();
     private bool _pipelineWired;
     private bool _wiringClosed;
@@ -170,7 +187,7 @@ public sealed class LiveContext : IDisposable
         {
             var spinner = _mediaSpinners[i];
             spinner.Outlet = intake;
-            spinner.BeginSpin();
+            spinner.BeginSpin(OnSpinnerFaulted);
             intake = spinner.Intake;
         }
 
@@ -205,7 +222,7 @@ public sealed class LiveContext : IDisposable
             // form, so the spinner is receiver-agnostic. Codec support is the spinner's own concern;
             // it rejects codecs that cannot be carried in its output container.
             var spinner = new FlvToM2TSSpinner(ReceiverContext, sender.Intake, _cancellationToken);
-            spinner.BeginSpin();
+            spinner.BeginSpin(OnSpinnerFaulted);
             return spinner.Intake;
         }
 
