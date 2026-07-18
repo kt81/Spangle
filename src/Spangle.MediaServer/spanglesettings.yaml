@@ -50,8 +50,8 @@ Spangle:
   #     # Tls: { Enabled: true, CertificatePath: cert.pfx }   # RTSPS
   Http:
     Port: 8080
-    # MetadataInjection: true       # POST /api/streams/{key}/metadata -> timed ID3 in the
-    #                               # output. Token below, or protect it at the network level.
+    # MetadataInjection: true       # opt-in (off by default): POST /api/streams/{key}/metadata ->
+    #                               # timed ID3 in the output. On a public port set the token below.
     # MetadataInjectionToken: ""    # Bearer token for metadata injection on this public port
     # Tls:                          # HTTPS for HLS/DASH delivery (same shape as Rtmp.Tls)
     #   Enabled: true

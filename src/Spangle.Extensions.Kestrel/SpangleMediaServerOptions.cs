@@ -202,10 +202,11 @@ public class HttpOptions
 
     /// <summary>
     /// Enables POST /api/streams/{key}/metadata: injects timed ID3 metadata into a
-    /// live session. Set <see cref="MetadataInjectionToken"/> to require a Bearer
-    /// token; without one, protect the endpoint at the network level instead.
+    /// live session. Off by default — the endpoint lives on the public delivery port,
+    /// so it is opt-in. When enabling, set <see cref="MetadataInjectionToken"/> to
+    /// require a Bearer token, or protect the endpoint at the network level.
     /// </summary>
-    public bool MetadataInjection { get; set; } = true;
+    public bool MetadataInjection { get; set; }
 
     /// <summary>
     /// Bearer token required on metadata injection requests when set
