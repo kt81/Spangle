@@ -136,9 +136,12 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
     private ushort _audioPid;
     private bool   _programMapped;
 
-    // Latest PAT/PMT packets, re-injected at every segment start
+    // Latest PAT/PMT, re-injected at every segment start. The PMT can span several TS packets
+    // (many elementary streams or descriptors), so its whole section is cached, not one packet.
     private readonly byte[] _patPacket = new byte[M2TSWriter.PacketSize];
-    private readonly byte[] _pmtPacket = new byte[M2TSWriter.PacketSize];
+    private readonly List<byte[]> _pmtPackets = new();
+    private readonly List<byte[]> _pmtStaging = new();
+    private int _pmtSectionRemaining; // section bytes still to arrive while reassembling; 0 = idle
     private bool _patCached;
     private bool _pmtCached;
     private byte _ccPat;
@@ -189,8 +192,7 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
         }
         if (_psi.PmtPid != 0 && pid == _psi.PmtPid)
         {
-            packet.CopyTo(_pmtPacket);
-            _pmtCached = true;
+            CachePmtSection(packet, in header);
             return;
         }
 
@@ -337,10 +339,59 @@ internal sealed class TSPassthroughSegmenter : IM2TSDemuxerSink
         return MemoryMarshal.AsRef<PESTimestamp>(payload.Slice(9, PESTimestamp.Size)).Value;
     }
 
+    /// <summary>
+    /// Caches the PMT for re-injection at segment starts. The section may span several TS packets,
+    /// so packets are accumulated from the one that starts the section (payload_unit_start) until
+    /// the whole section length has arrived; only then does the cached copy flip to the new section,
+    /// so a partially-seen PMT never replaces a good one.
+    /// </summary>
+    private void CachePmtSection(ReadOnlySpan<byte> packet, in TSHeader header)
+    {
+        ReadOnlySpan<byte> payload = PayloadOf(packet, in header);
+        if (header.PayloadUnitStart != 0)
+        {
+            if (payload.Length < 1)
+            {
+                return;
+            }
+            int sectionStart = 1 + payload[0]; // skip the pointer_field
+            if (sectionStart + 3 > payload.Length)
+            {
+                return; // the section-length field itself spills past this packet; keep the last good PMT
+            }
+            int sectionLength = ((payload[sectionStart + 1] & 0x0F) << 8) | payload[sectionStart + 2];
+            _pmtStaging.Clear();
+            _pmtStaging.Add(packet.ToArray());
+            _pmtSectionRemaining = 3 + sectionLength - (payload.Length - sectionStart);
+        }
+        else
+        {
+            if (_pmtSectionRemaining <= 0)
+            {
+                return; // a continuation with no section in progress
+            }
+            _pmtStaging.Add(packet.ToArray());
+            _pmtSectionRemaining -= payload.Length;
+        }
+
+        if (_pmtSectionRemaining <= 0)
+        {
+            // The section is complete: adopt it as the PMT injected from here on.
+            _pmtPackets.Clear();
+            _pmtPackets.AddRange(_pmtStaging);
+            _pmtStaging.Clear();
+            _pmtSectionRemaining = 0;
+            _pmtCached = true;
+        }
+    }
+
     private void InjectProgramTables()
     {
         WritePsiPacket(_patPacket, ref _ccPat);
-        WritePsiPacket(_pmtPacket, ref _ccPmt);
+        foreach (byte[] pmtPacket in _pmtPackets)
+        {
+            WritePsiPacket(pmtPacket, ref _ccPmt);
+        }
     }
 
     private void WritePsiPacket(byte[] packet, ref byte cc)
