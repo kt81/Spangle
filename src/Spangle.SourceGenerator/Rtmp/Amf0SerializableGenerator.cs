@@ -12,7 +12,6 @@ public class Amf0SerializableGenerator : IIncrementalGenerator
     private const string StructAttributeName       = "Amf0SerializableAttribute";
     private const string FieldAttributeName        = "Amf0FieldAttribute";
     private const string FieldAttrPositionPropName = "Position";
-    private const string WriteMethodName           = "WriteAsAmf0Command";
     private const string WriteBytesMethodName      = "WriteBytes";
 
     private static readonly string s_namespace = typeof(Amf0SerializableGenerator).Namespace;
@@ -57,9 +56,10 @@ internal sealed class {{FieldAttributeName}} : Attribute
         var typeSymbol = (INamedTypeSymbol)source.TargetSymbol;
         var typeNode = (TypeDeclarationSyntax)source.TargetNode;
 
-        if (typeSymbol.GetMembers(WriteMethodName).Length != 0)
+        // The generated method is WriteBytes; a user-defined one of the same name would collide.
+        if (typeSymbol.GetMembers(WriteBytesMethodName).Length != 0)
         {
-            context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.WriteAsAmf0CommandMethodExists,
+            context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.WriteBytesMethodExists,
                 typeNode.Identifier.GetLocation(), typeSymbol.Name));
             return;
         }

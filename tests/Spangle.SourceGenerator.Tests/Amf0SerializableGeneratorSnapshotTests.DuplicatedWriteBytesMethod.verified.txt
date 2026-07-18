@@ -1,0 +1,23 @@
+﻿{
+  Diagnostics: [
+    {
+      Location: /*
+[Amf0Serializable]
+internal partial struct DuplicatedWriteBytesMethodTestStruct
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+{
+*/
+ : (6,24)-(6,60),
+      Message: The Amf0Serializable struct DuplicatedWriteBytesMethodTestStruct must not contain its own implementation of WriteBytes in it,
+      Severity: Error,
+      Descriptor: {
+        Id: SPGEN001,
+        Title: Duplicated WriteBytes method,
+        MessageFormat: The Amf0Serializable struct {0} must not contain its own implementation of WriteBytes in it,
+        Category: SpangleSourceGen,
+        DefaultSeverity: Error,
+        IsEnabledByDefault: true
+      }
+    }
+  ]
+}

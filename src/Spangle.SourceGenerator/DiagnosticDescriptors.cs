@@ -6,10 +6,10 @@ public static class DiagnosticDescriptors
 {
     private const string Category = "SpangleSourceGen";
 
-    public static readonly DiagnosticDescriptor WriteAsAmf0CommandMethodExists = new(
+    public static readonly DiagnosticDescriptor WriteBytesMethodExists = new(
         id: "SPGEN001",
-        title: "Duplicated WriteAsAmf0Command method",
-        messageFormat: "The Amf0Serializable struct {0} must not contain its own implementation of WriteAsAmf0Command in it",
+        title: "Duplicated WriteBytes method",
+        messageFormat: "The Amf0Serializable struct {0} must not contain its own implementation of WriteBytes in it",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
