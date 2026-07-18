@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Pipelines;
 using Microsoft.Extensions.Logging;
 using Spangle.Codecs.AAC;
@@ -17,10 +18,12 @@ namespace Spangle.Extensions.Moqt;
 /// track, and an MSF catalog beside them says what the tracks are. This is the egress that reaches
 /// a browser — a player is given the relay and the namespace, reads the catalog, and subscribes.
 /// <para>
-/// Frames are dropped, never queued, while nobody is subscribed. The source is live and does not
-/// slow down for us: waiting for a subscriber inside the read loop would push back through the pipe
-/// onto the receiver and stall the ingest itself. Video resumes at the next keyframe, since a group
-/// that opened on a delta frame is a group no subscriber can decode.
+/// The intake is drained unconditionally into a bounded ring (<see cref="MoqFrameRing"/>,
+/// <see cref="MoqSenderOptions.MaxBufferedBytes"/>). The source is live and does not slow down
+/// for us: any blocking here — a subscriber-less wait, a relay whose flow control has stalled —
+/// would push back through the fan-out onto the receiver and stall the primary HLS output with
+/// it. Past the budget the oldest frames fall off, and video resumes at the next keyframe,
+/// since a group that lost frames is a group no subscriber can decode.
 /// </para>
 /// <para>
 /// The relay connection lives in <see cref="MoqRelayConnection"/>, one object per dial: codec
@@ -37,11 +40,6 @@ namespace Spangle.Extensions.Moqt;
 public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
 {
     private static readonly ILogger<MoqSender> s_logger = SpangleLogManager.GetLogger<MoqSender>();
-
-    // A frame is copied out of the pipe before it is published, because the publish is awaited and
-    // the pipe's memory is only ours until AdvanceTo. One writer, reused: the copy is done with the
-    // previous publish by the time the next frame arrives.
-    private readonly ArrayBufferWriter<byte> _frame = new(64 * 1024);
 
     private MoqRelayConnection? _relay;
 
@@ -60,10 +58,36 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(context);
         CancellationToken ct = context.CancellationToken;
         PipeReader reader = context.IntakeReader;
+        using var ring = new MoqFrameRing(context.Options.MaxBufferedBytes);
 
         try
         {
-            await ReadAsync(context, reader, ct).ConfigureAwait(false);
+            using var loops = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            Task intake = ReadIntakeAsync(context, reader, ring, loops.Token);
+            Task publish = PublishLoopAsync(context, ring, loops.Token);
+            try
+            {
+                // The first loop to end says why (the intake ending cleanly is the ordinary
+                // case; the publish loop then drains the ring and follows).
+                Task first = await Task.WhenAny(intake, publish).ConfigureAwait(false);
+                await first.ConfigureAwait(false);
+                await Task.WhenAll(intake, publish).ConfigureAwait(false);
+            }
+            finally
+            {
+                await loops.CancelAsync().ConfigureAwait(false);
+                foreach (Task loop in new[] { intake, publish })
+                {
+                    try
+                    {
+                        await loop.ConfigureAwait(false);
+                    }
+                    catch (Exception)
+                    {
+                        // the reason already propagated from the first loop to fail
+                    }
+                }
+            }
         }
         catch (OperationCanceledException)
         {
@@ -78,108 +102,163 @@ public sealed class MoqSender : ISender<MoqSenderContext>, IAsyncDisposable
         }
         finally
         {
+            ring.Clear();
             await reader.CompleteAsync().ConfigureAwait(false);
             await DisposeAsync().ConfigureAwait(false);
         }
     }
 
-    private async Task ReadAsync(MoqSenderContext context, PipeReader reader, CancellationToken ct)
+    // The intake side: parse frames off the pipe and hand them to the ring, blocking on
+    // nothing else — this loop is what stands between a slow relay and the live pipeline.
+    private async Task ReadIntakeAsync(MoqSenderContext context, PipeReader reader, MoqFrameRing ring,
+        CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+        try
         {
-            ReadResult result = await reader.ReadAtLeastAsync(MediaFrameHeader.Size, ct).ConfigureAwait(false);
-            if (result.Buffer.Length < MediaFrameHeader.Size)
+            while (!ct.IsCancellationRequested)
             {
-                break; // intake completed
-            }
-
-            ReadOnlySequence<byte> headerBuff = result.Buffer.Slice(0, MediaFrameHeader.Size);
-            MediaFrameHeader header = BufferMarshal.AsRefOrCopy<MediaFrameHeader>(headerBuff);
-            reader.AdvanceTo(headerBuff.End);
-
-            if (header.Length <= 0)
-            {
-                continue;
-            }
-
-            result = await reader.ReadAtLeastAsync(header.Length, ct).ConfigureAwait(false);
-            if (result.Buffer.Length < header.Length)
-            {
-                break; // intake completed halfway; drop the partial frame
-            }
-
-            ReadOnlySequence<byte> payload = result.Buffer.Slice(0, header.Length);
-            _frame.ResetWrittenCount();
-            payload.CopyTo(_frame.GetSpan(header.Length));
-            _frame.Advance(header.Length);
-            reader.AdvanceTo(payload.End);
-
-            // A codec config is session state, not media: capture it before any connection gate,
-            // or a relay that is down right now would cost us a frame that arrives once, at the
-            // front of the stream — and the egress would stay silent long after the relay
-            // returned, with no config to package frames under and no catalog to announce.
-            if (header.IsConfig && header.Kind is MediaFrameKind.Video or MediaFrameKind.Audio)
-            {
-                CaptureConfig(context, header, _frame.WrittenMemory);
-                continue;
-            }
-
-            // The demux loop ends only when the connection under it has: this is how a dead relay
-            // announces itself. Tear the connection down so the dial-in below rebuilds it — the
-            // alternative is what it replaced: warning once per keyframe at a corpse, forever.
-            if (_relay is { IsDead: true })
-            {
-                await TeardownConnectionAsync(context, "the session ended under us").ConfigureAwait(false);
-            }
-
-            // Connect on the first frame, not at startup: the namespace may be derived from the
-            // stream key, and the key is only known once the publish command has been handled —
-            // which the first MediaFrame's arrival proves. The same gate is the reconnect path.
-            if (_relay is not { } relay)
-            {
-                if (Environment.TickCount64 < _nextConnectAttempt)
+                ReadResult result = await reader.ReadAtLeastAsync(MediaFrameHeader.Size, ct).ConfigureAwait(false);
+                if (result.Buffer.Length < MediaFrameHeader.Size)
                 {
-                    continue; // backing off; the frame is dropped, as every frame of the gap is
+                    break; // intake completed
                 }
 
-                try
+                ReadOnlySequence<byte> headerBuff = result.Buffer.Slice(0, MediaFrameHeader.Size);
+                MediaFrameHeader header = BufferMarshal.AsRefOrCopy<MediaFrameHeader>(headerBuff);
+                reader.AdvanceTo(headerBuff.End);
+
+                if (header.Length <= 0)
                 {
-                    relay = await MoqRelayConnection.ConnectAsync(context, ct).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception e)
-                {
-                    // ConnectAsync released whatever it had built; nothing here to unwind.
-                    _nextConnectAttempt = Environment.TickCount64
-                                          + (long)context.Options.ReconnectDelay.TotalMilliseconds;
-                    s_logger.ZLogWarning(
-                        $"MOQT: could not reach the relay ({e.Message}); retrying in {context.Options.ReconnectDelay.TotalSeconds:0}s.");
                     continue;
                 }
 
-                MoqCatalogTrack catalogTrack = relay.CatalogTrack;
-                relay.BeginPublishingCatalog(token => PublishCatalogAsync(context, catalogTrack, token));
-                _relay = relay;
-            }
+                result = await reader.ReadAtLeastAsync(header.Length, ct).ConfigureAwait(false);
+                if (result.Buffer.Length < header.Length)
+                {
+                    break; // intake completed halfway; drop the partial frame
+                }
 
-            await ProcessFrameAsync(context, relay, header, _frame.WrittenMemory, ct).ConfigureAwait(false);
+                ReadOnlySequence<byte> payload = result.Buffer.Slice(0, header.Length);
+
+                // A codec config is session state, not media: capture it here, before any
+                // connection gate and outside the ring — it arrives once, at the front of the
+                // stream, must never be dropped, and the catalog is rebuilt from it whether or
+                // not a relay is reachable right now.
+                if (header.IsConfig && header.Kind is MediaFrameKind.Video or MediaFrameKind.Audio)
+                {
+                    CaptureConfig(context, header, payload);
+                }
+                else if (header.Kind is MediaFrameKind.Video or MediaFrameKind.Audio)
+                {
+                    ring.Enqueue(header, payload);
+                }
+                // Anything else (timed metadata) has no LOC mapping and stops here.
+
+                reader.AdvanceTo(payload.End);
+            }
+        }
+        finally
+        {
+            ring.Complete();
         }
     }
 
-    private void CaptureConfig(MoqSenderContext context, in MediaFrameHeader header, ReadOnlyMemory<byte> frame)
+    // The publish side: consume the ring and talk to the relay. Everything that can block —
+    // dialing, QUIC flow control, a subscriber-less wait — lives on this side of the ring.
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "The connection's ownership transfers to _relay; TeardownConnectionAsync or DisposeAsync releases it.")]
+    private async Task PublishLoopAsync(MoqSenderContext context, MoqFrameRing ring, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            (RingFrame? entry, int dropped, bool videoDropped) = await ring.DequeueAsync(ct).ConfigureAwait(false);
+            if (dropped > 0)
+            {
+                s_logger.ZLogWarning(
+                    $"MOQT: the relay is not keeping up; dropped {dropped} buffered frame(s), oldest first.");
+            }
+
+            if (videoDropped)
+            {
+                // The group that lost frames is undecodable from here on; abandon it and let
+                // the next keyframe open a fresh one.
+                _videoStarted = false;
+                if (_relay is { } current)
+                {
+                    await current.Video.AbandonGroupAsync().ConfigureAwait(false);
+                }
+            }
+
+            if (entry is not { } frame)
+            {
+                break; // the intake has ended and the ring is drained
+            }
+
+            try
+            {
+                // The demux loop ends only when the connection under it has: this is how a dead
+                // relay announces itself. Tear the connection down so the dial-in below rebuilds
+                // it — the alternative is warning once per keyframe at a corpse, forever.
+                if (_relay is { IsDead: true })
+                {
+                    await TeardownConnectionAsync(context, "the session ended under us").ConfigureAwait(false);
+                }
+
+                // Connect on the first frame, not at startup: the namespace may be derived from
+                // the stream key, and the key is only known once the publish command has been
+                // handled — which the first MediaFrame's arrival proves. The same gate is the
+                // reconnect path.
+                if (_relay is not { } relay)
+                {
+                    if (Environment.TickCount64 < _nextConnectAttempt)
+                    {
+                        continue; // backing off; this frame is dropped
+                    }
+
+                    try
+                    {
+                        relay = await MoqRelayConnection.ConnectAsync(context, ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception e)
+                    {
+                        // ConnectAsync released whatever it had built; nothing here to unwind.
+                        _nextConnectAttempt = Environment.TickCount64
+                                              + (long)context.Options.ReconnectDelay.TotalMilliseconds;
+                        s_logger.ZLogWarning(
+                            $"MOQT: could not reach the relay ({e.Message}); retrying in {context.Options.ReconnectDelay.TotalSeconds:0}s.");
+                        continue;
+                    }
+
+                    MoqCatalogTrack catalogTrack = relay.CatalogTrack;
+                    relay.BeginPublishingCatalog(token => PublishCatalogAsync(context, catalogTrack, token));
+                    _relay = relay;
+                }
+
+                await ProcessFrameAsync(context, relay, frame.Header, frame.Payload, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                frame.Return();
+            }
+        }
+    }
+
+    private void CaptureConfig(MoqSenderContext context, in MediaFrameHeader header,
+        in ReadOnlySequence<byte> payload)
     {
         switch (header.Kind)
         {
             case MediaFrameKind.Video:
                 _videoCodec = header.VideoCodec;
-                _videoConfig = frame.ToArray();
+                _videoConfig = payload.ToArray();
                 break;
             case MediaFrameKind.Audio:
                 _audioCodec = header.AudioCodec;
-                _audioConfig = frame.ToArray();
+                _audioConfig = payload.ToArray();
                 break;
             default:
                 return;

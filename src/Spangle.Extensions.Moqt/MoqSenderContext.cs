@@ -90,11 +90,21 @@ public sealed record MoqSenderOptions
     public TimeSpan KeepAliveInterval { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// How long to wait before redialling a relay that is gone. While disconnected the frames are
-    /// dropped, not queued — the source is live, and what a viewer wants after an outage is the
-    /// present, not a replay of the gap.
+    /// How long to wait before redialling a relay that is gone. While disconnected, frames
+    /// accumulate only up to <see cref="MaxBufferedBytes"/> and the oldest fall off — the
+    /// source is live, and what a viewer wants after an outage is the present, not a replay
+    /// of the gap.
     /// </summary>
     public TimeSpan ReconnectDelay { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The byte budget for frames waiting on the relay. The intake side always accepts — a
+    /// slow relay must never push back through the pipeline feeding it, because the primary
+    /// HLS output shares that pipeline — so past this budget the oldest buffered frames are
+    /// dropped and video resumes at the next keyframe. Sized for a few seconds of typical
+    /// video by default.
+    /// </summary>
+    public long MaxBufferedBytes { get; init; } = 16 * 1024 * 1024;
 }
 
 /// <summary>
