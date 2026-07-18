@@ -84,7 +84,7 @@ internal sealed class InProcessMoqRelay : IAsyncDisposable
         MoqSession session;
         try
         {
-            session = await MoqSession.AcceptAsync(connection, new SetupMessage(), ct);
+            session = await MoqSession.AcceptAsync(connection, new SetupMessage(), cancellationToken: ct);
         }
         catch (Exception)
         {
@@ -216,7 +216,7 @@ internal sealed class RelaySession : IAsyncDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                MoqIncomingStream incoming = await MoqStreamRouter.AcceptAsync(_connection, ct);
+                MoqIncomingStream incoming = await MoqStreamRouter.AcceptAsync(_connection, cancellationToken: ct);
                 switch (incoming)
                 {
                     case MoqRequestStream { MessageType: MoqControlMessageType.PublishNamespace } announce:

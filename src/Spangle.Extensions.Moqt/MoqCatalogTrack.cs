@@ -80,7 +80,7 @@ public sealed class MoqCatalogTrack : IAsyncDisposable
         // header says so — a subscriber that had to wait out a timeout to be sure would be waiting
         // before it knew a single track existed.
         _group = await _track
-            .BeginGroupAsync(_nextGroupId++, CatalogPriority, hasExtensions: false, endOfGroup: true,
+            .BeginGroupAsync(_nextGroupId++, CatalogPriority, hasProperties: false, endOfGroup: true,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         await _group.WriteObjectAsync(0, json, cancellationToken: cancellationToken).ConfigureAwait(false);

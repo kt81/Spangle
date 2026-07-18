@@ -81,7 +81,7 @@ internal sealed class MoqRelayConnection : IAsyncDisposable
         {
             var setup = new SetupMessage([MoqKeyValuePair.FromBytes(MoqSetupOption.Path,
                 Encoding.UTF8.GetBytes(options.Path))]);
-            session = await MoqSession.ConnectAsync(connection, setup, ct).ConfigureAwait(false);
+            session = await MoqSession.ConnectAsync(connection, setup, cancellationToken: ct).ConfigureAwait(false);
 
             MoqPublisher publisher = MoqPublisher.Create(session);
             TrackNamespace @namespace = TrackNamespace.FromStrings(namespaceFields);

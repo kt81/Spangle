@@ -59,7 +59,7 @@ public class MoxygenInteropTests
 
         // Over raw QUIC, moxygen's endpoint (-endpoint /moq) is conveyed as the PATH setup option.
         var setup = new SetupMessage([MoqKeyValuePair.FromBytes(MoqSetupOption.Path, Encoding.UTF8.GetBytes("/moq"))]);
-        await using MoqSession session = await MoqSession.ConnectAsync(conn, setup, ct);
+        await using MoqSession session = await MoqSession.ConnectAsync(conn, setup, cancellationToken: ct);
 
         _output.WriteLine($"SETUP handshake completed. Remote SETUP carries {session.RemoteSetup.Options.Count} option(s):");
         foreach (MoqKeyValuePair option in session.RemoteSetup.Options)
@@ -89,7 +89,7 @@ public class MoxygenInteropTests
         }, ct);
 
         var setup = new SetupMessage([MoqKeyValuePair.FromBytes(MoqSetupOption.Path, Encoding.UTF8.GetBytes("/moq"))]);
-        await using MoqSession session = await MoqSession.ConnectAsync(conn, setup, ct);
+        await using MoqSession session = await MoqSession.ConnectAsync(conn, setup, cancellationToken: ct);
         _output.WriteLine("SETUP done; announcing namespace 'vc'.");
 
         MoqPublisher publisher = MoqPublisher.Create(session);
@@ -110,7 +110,7 @@ public class MoxygenInteropTests
 
         // Publisher: announce the namespace, then serve the relay's forwarded SUBSCRIBE.
         await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
-        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), cancellationToken: ct);
         MoqPublisher publisher = MoqPublisher.Create(pubSession);
         var bridge = new CmafMoqTrackBridge(publisher.PublishTrack(track));
         await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
@@ -120,7 +120,10 @@ public class MoxygenInteropTests
 
         // Subscriber: a second connection that subscribes to vc/video0 through the relay.
         await using IQuicConnection subConn = await ConnectAsync(remote, ct);
-        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), cancellationToken: ct);
+        // The subscriber side's demux: subgroup streams only arrive through it. Cancelled with
+        // runCts; a mid-test session death surfaces as the subscription ending early.
+        _ = subSession.RunAsync(runCts.Token);
         MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
         Task<IReadOnlyList<byte[]>> collecting = CollectPayloadsAsync(subscriber, track, expected: 2, ct);
 
@@ -171,7 +174,7 @@ public class MoxygenInteropTests
         byte[] frame = Pattern(0x55, 64);
 
         await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
-        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), cancellationToken: ct);
         MoqPublisher publisher = MoqPublisher.Create(pubSession);
         MoqPublishedTrack published = publisher.PublishTrack(track);
         await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
@@ -179,11 +182,14 @@ public class MoxygenInteropTests
         Task run = publisher.RunAsync(runCts.Token);
 
         await using IQuicConnection subConn = await ConnectAsync(remote, ct);
-        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), cancellationToken: ct);
+        // The subscriber side's demux: subgroup streams only arrive through it. Cancelled with
+        // runCts; a mid-test session death surfaces as the subscription ending early.
+        _ = subSession.RunAsync(runCts.Token);
         MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
         Task<MoqObject> receiving = FirstObjectAsync(subscriber, track, ct);
 
-        MoqGroupWriter group = await published.BeginGroupAsync(0, 100, hasExtensions: true, cancellationToken: ct);
+        MoqGroupWriter group = await published.BeginGroupAsync(0, 100, hasProperties: true, cancellationToken: ct);
         await using (group.ConfigureAwait(false))
         {
             await group.WriteObjectAsync(0, frame, extensions, ct);
@@ -191,16 +197,16 @@ public class MoxygenInteropTests
         }
 
         MoqObject received = await receiving;
-        _output.WriteLine($"relayed object: len={received.Payload.Length} extensions={received.Extensions.Count}");
+        _output.WriteLine($"relayed object: len={received.Payload.Length} extensions={received.Properties.Count}");
 
         received.Payload.ToArray().Should().Equal(frame);
-        received.Extensions.Should().HaveCount(3, "the relay forwarded every extension header");
-        received.Extensions[0].Type.Should().Be(0x0AUL);
-        received.Extensions[0].VarintValue.Should().Be(0x00UL);
-        received.Extensions[1].Type.Should().Be(0x0DUL);
-        received.Extensions[1].Bytes.ToArray().Should().Equal([0x01, 0x64, 0x00, 0x1F, 0xFF, 0xE1]);
-        received.Extensions[2].Type.Should().Be(0x15UL);
-        received.Extensions[2].Bytes.ToArray().Should().Equal([0x00, 0x2A, 0x2A, 0x40, 0x01]);
+        received.Properties.Should().HaveCount(3, "the relay forwarded every extension header");
+        received.Properties[0].Type.Should().Be(0x0AUL);
+        received.Properties[0].VarintValue.Should().Be(0x00UL);
+        received.Properties[1].Type.Should().Be(0x0DUL);
+        received.Properties[1].Bytes.ToArray().Should().Equal([0x01, 0x64, 0x00, 0x1F, 0xFF, 0xE1]);
+        received.Properties[2].Type.Should().Be(0x15UL);
+        received.Properties[2].Bytes.ToArray().Should().Equal([0x00, 0x2A, 0x2A, 0x40, 0x01]);
 
         await runCts.CancelAsync();
         try
@@ -233,7 +239,7 @@ public class MoxygenInteropTests
         byte[] delta2 = Pattern(0x33, 32);
 
         await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
-        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), cancellationToken: ct);
         MoqPublisher publisher = MoqPublisher.Create(pubSession);
         await using var loc = new MoqFrameTrack(publisher.PublishTrack(track));
         await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
@@ -241,7 +247,10 @@ public class MoxygenInteropTests
         Task run = publisher.RunAsync(runCts.Token);
 
         await using IQuicConnection subConn = await ConnectAsync(remote, ct);
-        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), cancellationToken: ct);
+        // The subscriber side's demux: subgroup streams only arrive through it. Cancelled with
+        // runCts; a mid-test session death surfaces as the subscription ending early.
+        _ = subSession.RunAsync(runCts.Token);
         MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
         Task<IReadOnlyList<MoqObject>> receiving = CollectObjectsAsync(subscriber, track, expected: 3, ct);
 
@@ -270,16 +279,16 @@ public class MoxygenInteropTests
 
         // Only the keyframe carries a Video Config. Properties ride in ascending ID order (the IDs
         // are delta-encoded on the wire), so Timescale 0x08, Timestamp 0x0A, Video Config 0x0D.
-        got[0].Extensions.Select(e => e.Type).Should().Equal([0x08UL, 0x0AUL, 0x0DUL]);
-        got[1].Extensions.Select(e => e.Type).Should().Equal([0x08UL, 0x0AUL]);
+        got[0].Properties.Select(e => e.Type).Should().Equal([0x08UL, 0x0AUL, 0x0DUL]);
+        got[1].Properties.Select(e => e.Type).Should().Equal([0x08UL, 0x0AUL]);
 
-        Loc03Metadata key = Loc03Metadata.Read(got[0].Extensions);
+        Loc03Metadata key = Loc03Metadata.Read(got[0].Properties);
         key.Timestamp.Should().Be(0UL);
         key.Timescale.Should().Be(timescale);
         key.IsWallClock.Should().BeFalse("a Timescale came with the Timestamp, so this is media time");
         key.VideoConfig.ToArray().Should().Equal(avcC, "the avcC reaches the subscriber verbatim");
 
-        Loc03Metadata second = Loc03Metadata.Read(got[1].Extensions);
+        Loc03Metadata second = Loc03Metadata.Read(got[1].Properties);
         second.Timestamp.Should().Be(3_000UL);
         second.Timescale.Should().Be(timescale);
         second.VideoConfig.IsEmpty.Should().BeTrue("only a keyframe re-sends the decoder configuration");
@@ -317,7 +326,7 @@ public class MoxygenInteropTests
         byte[] payloadB = Pattern(0x22, 64);
 
         await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
-        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), cancellationToken: ct);
         MoqPublisher publisher = MoqPublisher.Create(pubSession);
         MoqPublishedTrack trackA = publisher.PublishTrack(first);
         MoqPublishedTrack trackB = publisher.PublishTrack(second);
@@ -326,7 +335,10 @@ public class MoxygenInteropTests
         Task run = publisher.RunAsync(runCts.Token);
 
         await using IQuicConnection subConn = await ConnectAsync(remote, ct);
-        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), cancellationToken: ct);
+        // The subscriber side's demux: subgroup streams only arrive through it. Cancelled with
+        // runCts; a mid-test session death surfaces as the subscription ending early.
+        _ = subSession.RunAsync(runCts.Token);
         MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
 
         Task<IReadOnlyList<MoqObject>> receivingA = CollectObjectsAsync(subscriber, first, expected: 1, ct);
@@ -382,7 +394,7 @@ public class MoxygenInteropTests
         byte[] delta = Pattern(0x22, 48);
 
         await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
-        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), cancellationToken: ct);
         MoqPublisher publisher = MoqPublisher.Create(pubSession);
         await using var loc = new MoqFrameTrack(publisher.PublishTrack(track), mapping);
         await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
@@ -390,7 +402,10 @@ public class MoxygenInteropTests
         Task run = publisher.RunAsync(runCts.Token);
 
         await using IQuicConnection subConn = await ConnectAsync(remote, ct);
-        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), cancellationToken: ct);
+        // The subscriber side's demux: subgroup streams only arrive through it. Cancelled with
+        // runCts; a mid-test session death surfaces as the subscription ending early.
+        _ = subSession.RunAsync(runCts.Token);
         MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
         await using MoqSubscription subscription = await subscriber.SubscribeAsync(track, ct);
 
@@ -471,7 +486,7 @@ public class MoxygenInteropTests
         var subgroups = new List<ReceivedSubgroup>();
         while (subgroups.Count < expected)
         {
-            MoqIncomingStream incoming = await MoqStreamRouter.AcceptAsync(connection, ct);
+            MoqIncomingStream incoming = await MoqStreamRouter.AcceptAsync(connection, cancellationToken: ct);
             if (incoming is not MoqSubgroupStream subgroup || subgroup.Reader.Header.TrackAlias != alias)
             {
                 continue;
@@ -541,7 +556,7 @@ public class MoxygenInteropTests
         };
 
         await using IQuicConnection pubConn = await ConnectAsync(remote, ct);
-        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), ct);
+        await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), cancellationToken: ct);
         MoqPublisher publisher = MoqPublisher.Create(pubSession);
         await using var catalog = new MoqCatalogTrack(publisher.PublishTrack(track));
         await publisher.AnnounceNamespaceAsync(@namespace, ct);
@@ -549,7 +564,10 @@ public class MoxygenInteropTests
         Task run = publisher.RunAsync(runCts.Token);
 
         await using IQuicConnection subConn = await ConnectAsync(remote, ct);
-        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), cancellationToken: ct);
+        // The subscriber side's demux: subgroup streams only arrive through it. Cancelled with
+        // runCts; a mid-test session death surfaces as the subscription ending early.
+        _ = subSession.RunAsync(runCts.Token);
         MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
         // Two catalogs, each followed by the End of Group object that closes its group.
         Task<IReadOnlyList<MoqObject>> receiving = CollectObjectsAsync(subscriber, track, expected: 4, ct);
@@ -634,7 +652,7 @@ public class MoxygenInteropTests
         CancellationToken ct = cts.Token;
 
         await using IQuicConnection conn = await ConnectAsync(remote, ct);
-        await using MoqSession session = await MoqSession.ConnectAsync(conn, RelaySetup(), ct);
+        await using MoqSession session = await MoqSession.ConnectAsync(conn, RelaySetup(), cancellationToken: ct);
 
         // TRACK_STATUS: draft-18 says its format is identical to SUBSCRIBE. The relay knows no such
         // track, so it should answer REQUEST_ERROR — which still proves it parsed our request.
@@ -748,7 +766,9 @@ public class MoxygenInteropTests
         CancellationToken ct = cts.Token;
 
         await using IQuicConnection conn = await ConnectAsync(remote, ct);
-        await using MoqSession session = await MoqSession.ConnectAsync(conn, RelaySetup(), ct);
+        await using MoqSession session = await MoqSession.ConnectAsync(conn, RelaySetup(), cancellationToken: ct);
+        // The subscriber side's demux: subgroup streams only arrive through it.
+        _ = session.RunAsync(ct);
         MoqSubscriber subscriber = MoqSubscriber.Create(session);
 
         FullTrackName track = FullTrackName.FromStrings(["vc"], trackName);
@@ -767,7 +787,7 @@ public class MoxygenInteropTests
             // where our own reading of it is least certain: the packager draft says "varint"
             // without saying which, and the two codecs disagree above 0x3F. Dumping the raw bytes
             // of a real packager's output is the only way to settle it — see MoqMediaInterop.
-            foreach (MoqKeyValuePair extension in moqObject.Extensions)
+            foreach (MoqKeyValuePair extension in moqObject.Properties)
             {
                 string value = extension.IsBytes
                     ? $"bytes[{extension.Bytes.Length}]={Convert.ToHexString(extension.Bytes)}"

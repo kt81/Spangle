@@ -140,7 +140,7 @@ public sealed class MoqFrameTrack : IAsyncDisposable
             {
                 // The group is this one subgroup, so it holds the group's largest object by
                 // construction and the header can say so before a byte of it is written.
-                _group = await _track.BeginGroupAsync(_currentGroupId, priority, hasExtensions: true,
+                _group = await _track.BeginGroupAsync(_currentGroupId, priority, hasProperties: true,
                     endOfGroup: true, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
@@ -154,7 +154,7 @@ public sealed class MoqFrameTrack : IAsyncDisposable
 
         // One object, one stream, one subgroup — the subgroup ID is the object's, which is what
         // keeps concurrent frames of a group distinguishable.
-        MoqGroupWriter stream = await _track.BeginGroupAsync(_currentGroupId, priority, hasExtensions: true,
+        MoqGroupWriter stream = await _track.BeginGroupAsync(_currentGroupId, priority, hasProperties: true,
             endOfGroup: false, subgroupId: objectId, cancellationToken: cancellationToken).ConfigureAwait(false);
         await using (stream.ConfigureAwait(false))
         {
@@ -197,7 +197,7 @@ public sealed class MoqFrameTrack : IAsyncDisposable
         // could claim to end the group. This last subgroup carries no media — only the news that
         // the group stopped at the object before it. One object, one stream, as §6 asks.
         MoqGroupWriter marker = await _track.BeginGroupAsync(_currentGroupId, _groupPriority,
-            hasExtensions: false, endOfGroup: true, subgroupId: _nextObjectId,
+            hasProperties: false, endOfGroup: true, subgroupId: _nextObjectId,
             cancellationToken: cancellationToken).ConfigureAwait(false);
         await using (marker.ConfigureAwait(false))
         {

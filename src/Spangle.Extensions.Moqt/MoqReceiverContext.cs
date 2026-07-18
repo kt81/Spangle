@@ -35,6 +35,7 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
     // One writer, many producers: the video and audio drain loops share the single MediaOutlet.
     private readonly SemaphoreSlim _outletGate = new(1, 1);
     private CancellationTokenSource? _watchdog;
+    private volatile string? _restartReason;
     private volatile bool _completed;
 
     /// <inheritdoc />
@@ -100,20 +101,29 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
 
         MoqSubscriber subscriber = MoqSubscriber.Create(_session);
 
-        // The watchdog: a pull source has nobody on the other end to notice it silently
-        // stalling — keep-alives hold a dead-quiet session "healthy" forever, so the absence
-        // of progress is itself the failure signal. Armed here (a catalog that never comes is
-        // a stall too) and re-armed by every media object; when it fires, the read token
+        // The watchdog doubles as the restart lever: the catalog watcher pulls it too, so it
+        // is kept even with the timeout disabled. Armed here (a catalog that never comes is a
+        // stall too) and re-armed by every media object; when it fires, the read token
         // cancels, this method ends, and the host's redial loop takes over.
+        _watchdog = readTimeoutSource;
         if (_readTimeout > TimeSpan.Zero)
         {
-            _watchdog = readTimeoutSource;
             readTimeoutSource.CancelAfter(_readTimeout);
         }
 
+        // The session's demux loop: nothing arrives — no catalog, no media — unless it runs.
+        // Its end is how the session's death announces itself; the drains follow because their
+        // channels complete with it.
+        using var demuxCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task demux = _session.RunAsync(demuxCts.Token);
+
+        FullTrackName catalogTrack = MoqCatalogTrack.NameIn(TrackNamespace.FromStrings(_namespaceFields));
+        MoqSubscription catalogSubscription = await subscriber.SubscribeAsync(catalogTrack, ct).ConfigureAwait(false);
+        IAsyncEnumerator<MoqObject> catalogObjects =
+            catalogSubscription.ReadObjectsAsync(ct).GetAsyncEnumerator(ct);
         try
         {
-            MsfCatalog? catalog = await ReadCatalogAsync(subscriber, ct).ConfigureAwait(false);
+            MsfCatalog? catalog = await NextCatalogAsync(catalogObjects).ConfigureAwait(false);
             if (catalog is null)
             {
                 s_logger.ZLogWarning($"MOQT ingest: no catalog for '{string.Join('/', _namespaceFields)}'; nothing to pull.");
@@ -168,7 +178,7 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
                 AudioCodec = MapAudio(a.Codec)!.Value;
             }
 
-            var drains = new List<Task>(2);
+            var drains = new List<Task>(3);
             if (video is { } vt && VideoCodec is { } vc)
             {
                 drains.Add(DrainAsync(subscriber, vt, MediaFrameKind.Video, (uint)vc, ct));
@@ -179,12 +189,26 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
                 drains.Add(DrainAsync(subscriber, at, MediaFrameKind.Audio, (uint)ac, ct));
             }
 
-            s_logger.ZLogInformation($"MOQT ingest: pulling '{string.Join('/', _namespaceFields)}' ({drains.Count} track(s)).");
+            // Keep reading the catalog beside the media: a track that appears (or vanishes)
+            // later would otherwise stay invisible until something else killed the session —
+            // the audio config landing milliseconds after a subscriber grabbed a video-only
+            // catalog was a permanent mute before this.
+            drains.Add(WatchCatalogAsync(catalogObjects, CatalogShape(catalog), ct));
+
+            s_logger.ZLogInformation($"MOQT ingest: pulling '{string.Join('/', _namespaceFields)}' ({drains.Count - 1} track(s)).");
             await Task.WhenAll(drains).ConfigureAwait(false);
+
+            // The drains only end without cancellation when the session ended under them;
+            // the demux task holds the reason, and the host's redial loop wants it.
+            await demux.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_hostToken.IsCancellationRequested)
         {
             // orderly shutdown
+        }
+        catch (OperationCanceledException) when (_restartReason is not null)
+        {
+            // logged where the restart was decided; the host redials and picks up the change
         }
         catch (OperationCanceledException)
         {
@@ -194,38 +218,80 @@ public sealed class MoqReceiverContext : ReceiverContextBase<MoqReceiverContext>
         finally
         {
             _completed = true;
+            await catalogObjects.DisposeAsync().ConfigureAwait(false);
+            await catalogSubscription.DisposeAsync().ConfigureAwait(false);
+            await demuxCts.CancelAsync().ConfigureAwait(false);
+            try
+            {
+                await demux.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // the reason, when it matters, was surfaced by the drains or the await above
+            }
         }
     }
 
-    /// <summary>Subscribes to the catalog track and returns the first complete catalog it carries.</summary>
-    private async Task<MsfCatalog?> ReadCatalogAsync(MoqSubscriber subscriber, CancellationToken ct)
+    /// <summary>Advances the catalog enumerator to the next parseable catalog, or null at the end.</summary>
+    private async Task<MsfCatalog?> NextCatalogAsync(IAsyncEnumerator<MoqObject> catalogObjects)
     {
-        FullTrackName catalogTrack = MoqCatalogTrack.NameIn(TrackNamespace.FromStrings(_namespaceFields));
-        MoqSubscription subscription = await subscriber.SubscribeAsync(catalogTrack, ct).ConfigureAwait(false);
-        await using (subscription.ConfigureAwait(false))
+        while (await catalogObjects.MoveNextAsync().ConfigureAwait(false))
         {
-            await foreach (MoqObject moqObject in subscription.ReadObjectsAsync(ct).ConfigureAwait(false))
+            MoqObject moqObject = catalogObjects.Current;
+            // Independent catalogs are the group's normal object; the End of Group marker that
+            // follows carries no payload.
+            if (moqObject.Status != MoqObjectStatus.Normal || moqObject.Payload.IsEmpty)
             {
-                // Independent catalogs are the group's normal object; the End of Group marker that
-                // follows carries no payload.
-                if (moqObject.Status != MoqObjectStatus.Normal || moqObject.Payload.IsEmpty)
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                try
-                {
-                    return MsfCatalog.Parse(moqObject.Payload.Span, string.Join('/', _namespaceFields));
-                }
-                catch (InvalidDataException e)
-                {
-                    s_logger.ZLogWarning($"MOQT ingest: catalog did not parse ({e.Message}); waiting for the next.");
-                }
+            try
+            {
+                return MsfCatalog.Parse(moqObject.Payload.Span, string.Join('/', _namespaceFields));
+            }
+            catch (InvalidDataException e)
+            {
+                s_logger.ZLogWarning($"MOQT ingest: catalog did not parse ({e.Message}); waiting for the next.");
             }
         }
 
         return null;
     }
+
+    // Watches the already-open catalog subscription for a change in the usable track set. On
+    // one, the cleanest reaction is a restart: the pipeline wires its tracks once, so a track
+    // added mid-session cannot be spliced in — but a redial discovers the new shape from
+    // scratch and comes back with it.
+    private async Task WatchCatalogAsync(IAsyncEnumerator<MoqObject> catalogObjects, string initialShape,
+        CancellationToken ct)
+    {
+        while (await NextCatalogAsync(catalogObjects).ConfigureAwait(false) is { } catalog)
+        {
+            ct.ThrowIfCancellationRequested();
+            string shape = CatalogShape(catalog);
+            if (shape == initialShape)
+            {
+                continue;
+            }
+
+            _restartReason = $"the catalog changed its tracks ([{initialShape}] -> [{shape}])";
+            s_logger.ZLogInformation($"MOQT ingest: {_restartReason}; re-pulling to pick it up.");
+            if (_watchdog is { } lever)
+            {
+                await lever.CancelAsync().ConfigureAwait(false);
+            }
+
+            return;
+        }
+    }
+
+    // What of a catalog matters for "did the stream change shape": the usable tracks and their
+    // codecs, order-independent. GeneratedAt changes on every republication and must not count.
+    private static string CatalogShape(MsfCatalog catalog) =>
+        string.Join(",", catalog.Tracks
+            .Where(t => IsVideo(t) || IsAudio(t))
+            .Select(t => $"{t.Name}:{t.Codec}")
+            .OrderBy(s => s, StringComparer.Ordinal));
 
     /// <summary>Subscribes to one media track and decodes its objects into MediaFrames.</summary>
     private async Task DrainAsync(MoqSubscriber subscriber, MsfTrack track, MediaFrameKind kind, uint codec,

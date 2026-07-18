@@ -62,7 +62,7 @@ internal sealed class MoqToHls
         }, ct);
 
         var setup = new SetupMessage([MoqKeyValuePair.FromBytes(MoqSetupOption.Path, Encoding.UTF8.GetBytes("/moq"))]);
-        await using MoqSession session = await MoqSession.ConnectAsync(connection, setup, ct);
+        await using MoqSession session = await MoqSession.ConnectAsync(connection, setup, cancellationToken: ct);
         _logger.ZLogInformation($"MOQT ingest: connected to {remote}; pulling '{@namespace}' -> hls-out/{streamKey}.");
 
         using var receiver = new MoqReceiverContext(session, namespaceFields, streamKey, remote, LocDraft.Draft01, TimeSpan.FromSeconds(30), ct);

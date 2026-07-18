@@ -30,6 +30,8 @@ Spangle:
   #       Namespace: live/test         # the namespace another publisher produces
   #       # Loc: Draft01               # the LOC draft the source publishes in
   #       # ReconnectDelay: "00:00:05"
+  #       # ReadTimeout: "00:00:30"    # no media for this long -> redial ("00:00:00" disables)
+  #       # KeepAliveInterval: "00:00:10"  # PING cadence while the publisher is silent
   # Rtsp:
   #   # Pull ingest: Spangle connects out to each source (IP cameras, other RTSP
   #   # servers) and republishes it under Name. TCP-interleaved transport.

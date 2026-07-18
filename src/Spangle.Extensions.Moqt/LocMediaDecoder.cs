@@ -60,7 +60,7 @@ public sealed class LocMediaDecoder
         _lastGroupId = moqObject.GroupId;
         _hasLastGroup = true;
 
-        (uint timestampMs, ReadOnlyMemory<byte> videoConfig) = ReadProperties(moqObject.Extensions);
+        (uint timestampMs, ReadOnlyMemory<byte> videoConfig) = ReadProperties(moqObject.Properties);
 
         // A keyframe may carry its own Video Config; prefer it and remember it (a mid-stream
         // resolution change re-sends it), falling back to what the catalog gave us.

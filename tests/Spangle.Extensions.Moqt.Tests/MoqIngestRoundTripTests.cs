@@ -46,8 +46,8 @@ public class MoqIngestRoundTripTests
         await using IQuicConnection serverConn = await acceptTask;
 
         // Publisher on the server side; ingest (subscriber) on the client side.
-        Task<MoqSession> pubSessionTask = MoqSession.AcceptAsync(serverConn, new SetupMessage(), ct);
-        await using MoqSession subSession = await MoqSession.ConnectAsync(clientConn, new SetupMessage(), ct);
+        Task<MoqSession> pubSessionTask = MoqSession.AcceptAsync(serverConn, new SetupMessage(), cancellationToken: ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(clientConn, new SetupMessage(), cancellationToken: ct);
         await using MoqSession pubSession = await pubSessionTask;
 
         string[] ns = ["vc", "test"];

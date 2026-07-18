@@ -44,8 +44,8 @@ public class CmafMoqBridgeTests
         }, ct);
         await using IQuicConnection serverConn = await acceptConn;
 
-        Task<MoqSession> pubSessionTask = MoqSession.AcceptAsync(serverConn, new SetupMessage(), ct);
-        await using MoqSession subSession = await MoqSession.ConnectAsync(clientConn, new SetupMessage(), ct);
+        Task<MoqSession> pubSessionTask = MoqSession.AcceptAsync(serverConn, new SetupMessage(), cancellationToken: ct);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(clientConn, new SetupMessage(), cancellationToken: ct);
         await using MoqSession pubSession = await pubSessionTask;
 
         FullTrackName track = FullTrackName.FromStrings(["live", "demo"], "video0");
@@ -54,6 +54,8 @@ public class CmafMoqBridgeTests
         var bridge = new CmafMoqTrackBridge(publisher.PublishTrack(track));
         using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Task run = publisher.RunAsync(runCts.Token);
+        // The subscriber side needs its own demux loop: subgroup streams only arrive through it.
+        Task subRun = subSession.RunAsync(runCts.Token);
 
         MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
         Task<IReadOnlyList<(ulong Group, byte[] Payload)>> subscriberSide =
@@ -71,13 +73,16 @@ public class CmafMoqBridgeTests
         received[2].Payload.Should().Equal(segment1);
 
         await runCts.CancelAsync();
-        try
+        foreach (Task loop in new[] { run, subRun })
         {
-            await run;
-        }
-        catch (OperationCanceledException)
-        {
-            // the demux loop is cancelled once the flow is verified
+            try
+            {
+                await loop;
+            }
+            catch (OperationCanceledException)
+            {
+                // the demux loops are cancelled once the flow is verified
+            }
         }
     }
 
@@ -100,8 +105,8 @@ public class CmafMoqBridgeTests
         }, cts.Token);
         await using IQuicConnection serverConn = await acceptConn;
 
-        Task<MoqSession> pubSessionTask = MoqSession.AcceptAsync(serverConn, new SetupMessage(), cts.Token);
-        await using MoqSession subSession = await MoqSession.ConnectAsync(clientConn, new SetupMessage(), cts.Token);
+        Task<MoqSession> pubSessionTask = MoqSession.AcceptAsync(serverConn, new SetupMessage(), cancellationToken: cts.Token);
+        await using MoqSession subSession = await MoqSession.ConnectAsync(clientConn, new SetupMessage(), cancellationToken: cts.Token);
         await using MoqSession pubSession = await pubSessionTask;
 
         var bridge = new CmafMoqTrackBridge(

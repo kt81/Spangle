@@ -59,7 +59,7 @@ internal sealed class MoqIngestSource : IIngestSource
         {
             var setup = new SetupMessage([MoqKeyValuePair.FromBytes(MoqSetupOption.Path,
                 Encoding.UTF8.GetBytes(_shared.Path))]);
-            MoqSession session = await MoqSession.ConnectAsync(connection, setup, cancellationToken)
+            MoqSession session = await MoqSession.ConnectAsync(connection, setup, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
             var receiver = new MoqReceiverContext(session, _namespaceFields, _source.Name, _relay,
                 _source.Loc, _source.ReadTimeout, cancellationToken);
