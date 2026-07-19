@@ -92,8 +92,10 @@ public sealed class MoqCatalogTrack : IAsyncDisposable
     }
 
     /// <summary>
-    /// Forgets the current group without the closing writes — for when its stream is already dead
-    /// (a peer may reset any data stream). The next <see cref="PublishAsync"/> starts cleanly.
+    /// Drops the current group so the next <see cref="PublishAsync"/> starts cleanly — for when the
+    /// group is past saving (a subscriber may reset the stream carrying it). It ends the group's
+    /// streams (each subscriber's is FINed by its own fan-out pump, one already dead simply dropped)
+    /// without the closing End of Group object a clean publish writes.
     /// </summary>
     public async ValueTask AbandonGroupAsync()
     {
@@ -107,7 +109,8 @@ public sealed class MoqCatalogTrack : IAsyncDisposable
             }
             catch (Exception)
             {
-                // the stream is already dead, which is the premise of being here
+                // Ending a group whose streams are already gone is a no-op the pumps absorb; this
+                // only guards the rare throw as a stream is aborted out from under the close.
             }
         }
     }

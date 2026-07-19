@@ -207,10 +207,13 @@ public sealed class MoqFrameTrack : IAsyncDisposable
     }
 
     /// <summary>
-    /// Forgets the current group without the closing writes — for when its stream is already dead.
-    /// A peer may reset any data stream (in draft-18 the stream, not the session, is the unit of
-    /// delivery), and writing a farewell to a reset stream only throws again. The group it carried
-    /// is lost; the track is not. The next <see cref="PublishFrameAsync"/> with
+    /// Drops the current group and lets the next keyframe start fresh — for a group past saving,
+    /// its frames dropped or a subscriber's stream reset under it. It ends the group's streams (each
+    /// subscriber's is FINed by its own fan-out pump, and one already dead is dropped, not retried)
+    /// but writes neither the End of Group marker nor the priced farewell a clean
+    /// <see cref="CompleteGroupAsync"/> would. Since draft-18 makes the stream, not the session, the
+    /// unit of delivery, one subscriber losing its stream is its loss alone; the group it carried is
+    /// lost for everyone, but the track is not, and the next <see cref="PublishFrameAsync"/> with
     /// <c>startsGroup: true</c> begins cleanly.
     /// </summary>
     public async ValueTask AbandonGroupAsync()
@@ -226,7 +229,8 @@ public sealed class MoqFrameTrack : IAsyncDisposable
             }
             catch (Exception)
             {
-                // the stream is already dead, which is the premise of being here
+                // Ending a group whose streams are already gone is a no-op the pumps absorb; this
+                // only guards the rare throw as a stream is aborted out from under the close.
             }
         }
     }

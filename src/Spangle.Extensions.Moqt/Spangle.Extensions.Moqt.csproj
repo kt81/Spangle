@@ -21,7 +21,7 @@
     <ProjectReference Include="..\Spangle.Core\Spangle.Core.csproj" />
     <!-- The MoQ transport (MIT), published from its own repo. Its Spangle.Net.Transport.Quic
          dependency — the QUIC seam Spangle also uses directly — comes in transitively. -->
-    <PackageReference Include="Spangle.Net.Moqt" Version="0.2.0" />
+    <PackageReference Include="Spangle.Net.Moqt" Version="0.3.0" />
   </ItemGroup>
 
 </Project>

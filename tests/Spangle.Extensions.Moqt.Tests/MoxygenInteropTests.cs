@@ -344,12 +344,12 @@ public class MoxygenInteropTests
         Task<IReadOnlyList<MoqObject>> receivingA = CollectObjectsAsync(subscriber, first, expected: 1, ct);
         await WriteOneAsync(trackA, payloadA, ct);
         (await receivingA)[0].Payload.ToArray().Should().Equal(payloadA, "the first track's subscriber gets its object");
-        _output.WriteLine($"track a: alias {trackA.CurrentAlias}, delivered.");
+        _output.WriteLine($"track a: {trackA.SubscriberCount} subscriber(s), delivered.");
 
         // The second subscription is the one nothing has covered: it gets the publisher's next alias.
         Task<IReadOnlyList<MoqObject>> receivingB = CollectObjectsAsync(subscriber, second, expected: 1, ct);
         await WriteOneAsync(trackB, payloadB, ct);
-        _output.WriteLine($"track b: alias {trackB.CurrentAlias}, awaiting delivery...");
+        _output.WriteLine($"track b: {trackB.SubscriberCount} subscriber(s), awaiting delivery...");
         (await receivingB)[0].Payload.ToArray().Should().Equal(payloadB,
             "a publisher's second track reaches its subscriber too");
 
