@@ -389,7 +389,11 @@ public class MoxygenInteropTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         CancellationToken ct = cts.Token;
 
-        FullTrackName track = FullTrackName.FromStrings(["vc"], $"eog/{mapping}");
+        // A namespace unique to this run: the relay has been up for days and caches by track name
+        // plus group id, and this test always asserts GroupId==0 — a namespace it has seen before
+        // would bring a stale group 0 with it.
+        string ns = $"vc-eog-{Guid.NewGuid():N}";
+        FullTrackName track = FullTrackName.FromStrings([ns], $"eog/{mapping}");
         byte[] keyFrame = Pattern(0x11, 96);
         byte[] delta = Pattern(0x22, 48);
 
@@ -397,23 +401,28 @@ public class MoxygenInteropTests
         await using MoqSession pubSession = await MoqSession.ConnectAsync(pubConn, RelaySetup(), cancellationToken: ct);
         MoqPublisher publisher = MoqPublisher.Create(pubSession);
         await using var loc = new MoqFrameTrack(publisher.PublishTrack(track), mapping);
-        await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings("vc"), ct);
+        await publisher.AnnounceNamespaceAsync(TrackNamespace.FromStrings(ns), ct);
         using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Task run = publisher.RunAsync(runCts.Token);
 
         await using IQuicConnection subConn = await ConnectAsync(remote, ct);
         await using MoqSession subSession = await MoqSession.ConnectAsync(subConn, RelaySetup(), cancellationToken: ct);
-        // The subscriber side's demux: subgroup streams only arrive through it. Cancelled with
-        // runCts; a mid-test session death surfaces as the subscription ending early.
-        _ = subSession.RunAsync(runCts.Token);
-        MoqSubscriber subscriber = MoqSubscriber.Create(subSession);
-        await using MoqSubscription subscription = await subscriber.SubscribeAsync(track, ct);
+
+        // No RunAsync here, and no MoqSubscriber: the session's demux loop and the raw
+        // MoqStreamRouter.AcceptAsync loop in CollectSubgroupsAsync below would both try to accept
+        // streams off this one connection, and the demux wins every one — starving the raw loop
+        // forever. This test needs the subgroup header, which is where END_OF_GROUP lives and which
+        // MoqSubscription.ReadObjectsAsync does not expose, so the raw loop has to be the only thing
+        // accepting streams here; SUBSCRIBE is hand-rolled below to match. The request stream is the
+        // subscription's lifetime in draft-18, so it stays open for the rest of the test.
+        await using IQuicStream subRequest = await subSession.OpenRequestStreamAsync(ct);
+        ulong trackAlias = await SendSubscribeAsync(subRequest, track, ct);
 
         // One subgroup per group under the default mapping; one per object plus a closing marker
         // under the mapping MSF §6 asks for.
         int expectedSubgroups = mapping == MoqStreamMapping.GroupPerStream ? 1 : 3;
         Task<IReadOnlyList<ReceivedSubgroup>> receiving =
-            CollectSubgroupsAsync(subConn, subscription.TrackAlias, expectedSubgroups, ct);
+            CollectSubgroupsAsync(subConn, trackAlias, expectedSubgroups, ct);
 
         await loc.PublishFrameAsync(keyFrame, Loc03Properties.MediaTime(0), startsGroup: true, cancellationToken: ct);
         await loc.PublishFrameAsync(delta, Loc03Properties.MediaTime(3_000), startsGroup: false, cancellationToken: ct);
@@ -503,6 +512,32 @@ public class MoxygenInteropTests
         }
 
         return subgroups;
+    }
+
+    /// <summary>
+    /// Hand-rolled SUBSCRIBE, mirroring <see cref="MoqSubscriber.SubscribeAsync"/> but without
+    /// starting the session's demux loop — see the comment at its one call site for why. Sends the
+    /// mandatory SUBSCRIPTION_FILTER parameter (draft-18 §10.7, Largest Object = live edge) and
+    /// returns the Track Alias from SUBSCRIBE_OK. The caller owns <paramref name="request"/> and
+    /// must keep it open for as long as the subscription is wanted.
+    /// </summary>
+    private static async Task<ulong> SendSubscribeAsync(IQuicStream request, FullTrackName track,
+        CancellationToken ct)
+    {
+        var filterValue = new ArrayBufferWriter<byte>();
+        new MoqWriter(filterValue).WriteVarInt(2); // LocationType 2 = Largest Object
+        MoqKeyValuePair filter = MoqKeyValuePair.FromBytes(0x21, filterValue.WrittenSpan);
+
+        var payload = new ArrayBufferWriter<byte>();
+        new SubscribeMessage(0, track, [filter]).EncodePayload(new MoqWriter(payload));
+        var frame = new ArrayBufferWriter<byte>();
+        ControlMessage.Write(frame, MoqControlMessageType.Subscribe, payload.WrittenSpan);
+        await request.WriteAsync(frame.WrittenMemory, completeWrites: false, ct);
+
+        (ulong type, byte[] okPayload) = await ControlMessage.ReadAsync(request, ct);
+        type.Should().Be(MoqControlMessageType.SubscribeOk,
+            "the relay answers a well-formed SUBSCRIBE with SUBSCRIBE_OK");
+        return SubscribeOkMessage.DecodePayload(okPayload).TrackAlias;
     }
 
     /// <summary>
